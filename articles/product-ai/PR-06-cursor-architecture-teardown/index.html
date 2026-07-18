@@ -1,0 +1,1119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>How Cursor Actually Works — AI Product Teardown</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #fff; color: #111; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; line-height: 1.7; }
+  .progress { position: fixed; top: 0; left: 0; right: 0; height: 4px; background: #eef2f7; z-index: 50; }
+  .progress-fill { height: 100%; background: #2563eb; transition: width .3s ease; }
+  .topbar { position: sticky; top: 0; background: #fff; border-bottom: 1px solid #e5e7eb; z-index: 40; padding: 10px 16px 8px; }
+  .topbar-inner { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; max-width: 1100px; margin: 0 auto; }
+  .title { font-weight: 700; font-size: 15px; }
+  .badges { margin-top: 4px; display: flex; flex-wrap: wrap; gap: 6px; }
+  .badge { font-size: 11px; background: #f1f5f9; color: #334155; border-radius: 6px; padding: 2px 8px; }
+  .badge-type { background: #dbeafe; color: #1e40af; font-weight: 600; }
+  .score { font-size: 13px; font-weight: 700; color: #2563eb; white-space: nowrap; }
+  .lifecycle { display: flex; flex-wrap: wrap; gap: 4px; max-width: 1100px; margin: 8px auto 0; }
+  .lc { font-size: 10.5px; padding: 2px 7px; border-radius: 10px; background: #f1f5f9; color: #94a3b8; }
+  .lc-on { background: #2563eb; color: #fff; font-weight: 700; }
+  .crosslinks { display: flex; justify-content: space-between; gap: 8px; max-width: 1100px; margin: 6px auto 0; font-size: 11px; color: #64748b; }
+  .navbar { position: fixed; top: 150px; left: 12px; width: 210px; font-size: 12.5px; }
+  .navitem { padding: 6px 10px; border-left: 3px solid transparent; color: #475569; cursor: pointer; border-radius: 0 4px 4px 0; }
+  .navitem:hover { background: #f8fafc; }
+  .navitem-on { border-left-color: #2563eb; background: #eff6ff; color: #1e40af; font-weight: 700; }
+  .page { max-width: 720px; margin: 0 auto; padding: 24px 16px 80px; }
+  h1 { font-size: 24px; line-height: 1.3; margin: 18px 0 10px; }
+  h2 { font-size: 21px; margin: 28px 0 10px; }
+  h3 { font-size: 16px; margin: 22px 0 8px; color: #1e293b; }
+  p { font-size: 16px; }
+  .principle-statement { font-size: 18px; line-height: 1.6; background: #f8fafc; border-left: 4px solid #2563eb; padding: 14px 16px; border-radius: 0 8px 8px 0; }
+  .muted { color: #64748b; font-size: 14px; }
+  section { scroll-margin-top: 160px; }
+  .broke { background: #FEF2F2; border-left: 4px solid #FCA5A5; border-radius: 0 10px 10px 0; padding: 8px 16px 16px; }
+  .svg-wrap { margin: 10px 0; }
+  .chart-note { font-size: 11.5px; color: #64748b; margin-top: 6px; border-top: 1px dashed #e2e8f0; padding-top: 6px; }
+  .prompts { margin: 10px 0 4px; }
+  .prompt { border: 1px solid #e5e7eb; border-radius: 8px; padding: 12px; margin-bottom: 10px; }
+  .prompt-kind, .q-kind { font-size: 10.5px; text-transform: uppercase; letter-spacing: .04em; color: #2563eb; font-weight: 700; margin-bottom: 4px; }
+  .prompt-q { font-size: 14.5px; margin-bottom: 8px; }
+  .ta { width: 100%; border: 1px solid #cbd5e1; border-radius: 6px; padding: 8px; font-family: inherit; font-size: 14px; resize: vertical; }
+  .numin { width: 120px; border: 1px solid #cbd5e1; border-radius: 6px; padding: 6px 8px; font-size: 14px; }
+  .numrow { display: flex; align-items: center; gap: 10px; margin: 10px 0; flex-wrap: wrap; }
+  .numrow input[type=range] { flex: 1; min-width: 180px; }
+  .unit { font-size: 13px; color: #475569; }
+  .btn { margin-top: 8px; background: #2563eb; color: #fff; border: none; border-radius: 6px; padding: 8px 14px; font-size: 13.5px; cursor: pointer; }
+  .btn:disabled { background: #cbd5e1; cursor: not-allowed; }
+  .btn-ghost { background: #fff; color: #2563eb; border: 1px solid #2563eb; margin-left: 8px; }
+  .authored { margin-top: 10px; background: #f8fafc; border-radius: 6px; padding: 10px 12px; font-size: 14.5px; }
+  .your-answer { font-size: 13.5px; color: #334155; margin-bottom: 6px; }
+  .your-answer span { font-weight: 700; }
+  .authored-label { font-size: 10.5px; text-transform: uppercase; letter-spacing: .04em; color: #16a34a; font-weight: 700; margin: 4px 0; }
+  .src { font-size: 12px; color: #64748b; margin-top: 6px; }
+  .q { border: 1px solid #e5e7eb; border-radius: 10px; padding: 14px; margin: 14px 0; }
+  .q-principle { background: #fffbeb; border-color: #fde68a; }
+  .q-transfer { background: #f5f3ff; border-color: #ddd6fe; }
+  .q-case { background: #fffbeb; border-left: 3px solid #d97706; }
+  .case-label { font-size: 11px; font-weight: 700; color: #b45309; margin-bottom: 6px; }
+  .q-prompt { font-size: 15px; margin-bottom: 10px; }
+  .opts { display: flex; flex-direction: column; gap: 8px; }
+  .opt { border: 1px solid #e5e7eb; border-radius: 8px; padding: 9px 11px; cursor: pointer; font-size: 14.5px; display: flex; gap: 8px; }
+  .opt:hover { border-color: #93c5fd; }
+  .opt-letter { font-weight: 700; color: #64748b; }
+  .opt-sel { border-color: #2563eb; background: #eff6ff; }
+  .opt-correct { border-color: #16a34a; background: #f0fdf4; }
+  .opt-wrong { border-color: #dc2626; background: #fef2f2; }
+  .explain { margin-top: 10px; border-radius: 8px; padding: 11px; font-size: 14px; }
+  .explain.ok { background: #f0fdf4; border: 1px solid #bbf7d0; }
+  .explain.bad { background: #fef2f2; border: 1px solid #fecaca; }
+  .calib { font-weight: 600; margin-bottom: 6px; font-size: 13.5px; }
+  .generalizes { margin-top: 8px; font-size: 13px; color: #334155; }
+  .scaffold { margin-top: 10px; background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px; padding: 10px; font-size: 13.5px; }
+  .dist { background: #fff; border: 1px solid #e5e7eb; border-radius: 6px; padding: 8px; margin: 8px 0; font-size: 13.5px; }
+  .checkrow { display: block; font-size: 13.5px; margin: 4px 0; }
+  .hint { margin-top: 8px; font-size: 13px; color: #475569; background: #fff; border-radius: 6px; padding: 8px; }
+  .glossary { background: #f8fafc; border: 1px solid #e5e7eb; border-radius: 8px; padding: 12px; margin: 18px 0; }
+  .glossary-label { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: #64748b; font-weight: 700; margin-bottom: 6px; }
+  .gitem { font-size: 13.5px; margin-bottom: 4px; }
+  .warmup { max-width: 720px; margin: 0 auto; padding: 40px 16px; }
+  .warmup h2 { margin-top: 0; }
+  .warmup-actions { margin-top: 16px; }
+  .insight-card { background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px; padding: 10px; margin: 6px 0; font-size: 14px; }
+  .sources { margin-top: 30px; border-top: 2px solid #e5e7eb; padding-top: 14px; }
+  .sources li { font-size: 13px; margin-bottom: 10px; }
+  .sources a { color: #2563eb; }
+  .closing { font-style: italic; color: #334155; }
+  .foot { text-align: center; font-size: 12px; color: #94a3b8; padding: 20px; border-top: 1px solid #eee; }
+  @media (max-width: 1159px) { .navbar { display: none; } }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script crossorigin src="https://unpkg.com/react@18.3.1/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/prop-types@15.8.1/prop-types.min.js"></script>
+<script crossorigin src="https://unpkg.com/recharts@2.12.7/umd/Recharts.js"></script>
+<script src="https://unpkg.com/@babel/standalone@7.24.7/babel.min.js"></script>
+<script type="text/babel" data-presets="env,react">
+/* AI Product Teardown — How Cursor Actually Works
+   Single-file React app (inlined into index.html). Uses Recharts UMD global. */
+
+const { useState, useEffect, useRef } = React;
+const {
+  ResponsiveContainer, BarChart, Bar, LineChart, Line, XAxis, YAxis,
+  CartesianGrid, Tooltip, Legend, LabelList, Cell
+} = Recharts;
+
+/* ---------------------------------------------------------------- helpers */
+
+function clampChars(s, n) { return (s || "").trim().length >= n; }
+
+function Reveal({ children }) {
+  return <div className="authored">{children}</div>;
+}
+
+/* Chart interpretation block: two independently-gated prompts. */
+function ChartPrompts({ id, prompts, submitted, setSubmitted, answers, setAnswers }) {
+  return (
+    <div className="prompts">
+      {prompts.map((p, j) => {
+        const key = id + "-" + j;
+        const done = submitted[key];
+        return (
+          <div className="prompt" key={key}>
+            <div className="prompt-kind">{p.kind}</div>
+            <div className="prompt-q">{p.q}</div>
+            {!done && (
+              <div>
+                <textarea
+                  className="ta"
+                  rows={2}
+                  placeholder="Write your answer (min 15 characters) — the authored answer stays hidden until you submit."
+                  value={answers[key] || ""}
+                  onChange={(e) => setAnswers({ ...answers, [key]: e.target.value })}
+                />
+                <button
+                  className="btn"
+                  disabled={!clampChars(answers[key], 15)}
+                  onClick={() => setSubmitted({ ...submitted, [key]: true })}
+                >
+                  {clampChars(answers[key], 15) ? "Reveal authored answer" : "Enter at least 15 characters"}
+                </button>
+              </div>
+            )}
+            {done && (
+              <Reveal>
+                <div className="your-answer"><span>Your answer:</span> {answers[key]}</div>
+                <div className="authored-label">Compare to the authored answer</div>
+                <div dangerouslySetInnerHTML={{ __html: p.a }} />
+              </Reveal>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/* Multiple choice with two-attempt scaffolding + named-error calibration. */
+function MC({ id, prompt, caseLabel, options, correct, explain, calibrationWrong, scaffold, generalizes, onScore, kind }) {
+  const [sel, setSel] = useState(null);
+  const [submitted, setSubmitted] = useState(false);
+  const [attempts, setAttempts] = useState(0);
+  const [scored, setScored] = useState(false);
+  const isCorrect = submitted && sel === correct;
+
+  function submit() {
+    setSubmitted(true);
+    const nowCorrect = sel === correct;
+    setAttempts(attempts + 1);
+    if (nowCorrect && !scored) { onScore(1); setScored(true); }
+  }
+  function tryAgain() { setSubmitted(false); setSel(null); }
+
+  return (
+    <div className={"q " + (caseLabel ? "q-case" : "")}>
+      {kind && <div className="q-kind">{kind}</div>}
+      {caseLabel && <div className="case-label">Case Prompt — {caseLabel}</div>}
+      <div className="q-prompt" dangerouslySetInnerHTML={{ __html: prompt }} />
+      <div className="opts">
+        {options.map((o, i) => {
+          let cls = "opt";
+          if (submitted) {
+            if (i === correct) cls += " opt-correct";
+            else if (i === sel) cls += " opt-wrong";
+          } else if (i === sel) cls += " opt-sel";
+          return (
+            <div key={i} className={cls} onClick={() => !submitted && setSel(i)}>
+              <span className="opt-letter">{"ABCD"[i]}</span>
+              <span dangerouslySetInnerHTML={{ __html: o }} />
+            </div>
+          );
+        })}
+      </div>
+      {!submitted && (
+        <button className="btn" disabled={sel === null} onClick={submit}>
+          {sel === null ? "Select an option to enable Submit" : "Submit"}
+        </button>
+      )}
+      {submitted && !isCorrect && attempts >= 2 && (
+        <div className="scaffold">
+          <strong>Hint before you retry:</strong> {scaffold}
+        </div>
+      )}
+      {submitted && (
+        <div className={"explain " + (isCorrect ? "ok" : "bad")}>
+          <div className="calib">
+            {isCorrect
+              ? <span>Correct — {calibrationWrong.correctNote}</span>
+              : <span>Incorrect — this is {calibrationWrong.error}: {calibrationWrong.note}</span>}
+          </div>
+          <div dangerouslySetInnerHTML={{ __html: explain }} />
+          <div className="generalizes"><strong>Where this generalizes:</strong> {generalizes}</div>
+          {!isCorrect && <button className="btn btn-ghost" onClick={tryAgain}>Try again</button>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* Numeric estimation (T-D). Log-distance scoring option for Fermi. */
+function Numeric({ id, prompt, min, max, step, actual, unit, tolerance, fermi, decomposition, anchors, mostSensitive, onScore, kind }) {
+  const [val, setVal] = useState(min);
+  const [submitted, setSubmitted] = useState(false);
+  const [scored, setScored] = useState(false);
+
+  function within() {
+    if (fermi) {
+      const r = Math.max(val / actual, actual / val);
+      return r <= 3; // within 3x for order-of-magnitude Fermi
+    }
+    return Math.abs(val - actual) / actual <= tolerance;
+  }
+  function submit() {
+    setSubmitted(true);
+    if (within() && !scored) { onScore(1); setScored(true); }
+  }
+  const off = submitted ? (val > actual ? "over" : "under") : "";
+
+  return (
+    <div className="q">
+      {kind && <div className="q-kind">{kind}</div>}
+      <div className="q-prompt" dangerouslySetInnerHTML={{ __html: prompt }} />
+      <div className="numrow">
+        <input type="range" min={min} max={max} step={step} value={val}
+          onChange={(e) => setVal(Number(e.target.value))} />
+        <input type="number" className="numin" min={min} max={max} step={step} value={val}
+          onChange={(e) => setVal(Number(e.target.value))} />
+        <span className="unit">{unit}</span>
+      </div>
+      {!submitted && <button className="btn" onClick={submit}>Submit estimate</button>}
+      {submitted && (
+        <div className={"explain " + (within() ? "ok" : "bad")}>
+          <div className="calib">
+            {within()
+              ? <span>Within tolerance — your estimate lands in the defensible band.</span>
+              : <span>Outside tolerance — you {off}-estimated. This is often an anchoring error: the decomposition below shows where the miss usually comes from.</span>}
+          </div>
+          <div className="dist">
+            <div>Your estimate: <strong>{val.toLocaleString()} {unit}</strong></div>
+            <div>Actual / target: <strong>{actual.toLocaleString()} {unit}</strong></div>
+          </div>
+          <div><strong>Anchor facts:</strong> {anchors}</div>
+          <div><strong>Decomposition:</strong> <span dangerouslySetInnerHTML={{ __html: decomposition }} /></div>
+          <div><strong>What moves the estimate most:</strong> {mostSensitive}</div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* Free-text principle prompt (not scored). */
+function Principle({ id, authored, store, setStore }) {
+  const [txt, setTxt] = useState("");
+  const [done, setDone] = useState(false);
+  return (
+    <div className="q q-principle">
+      <div className="q-kind">Principle in one sentence</div>
+      <div className="q-prompt">In one sentence, state the transferable principle from this section — something a PM or CTO at a different company could apply tomorrow.</div>
+      {!done && (
+        <div>
+          <textarea className="ta" rows={2} value={txt} placeholder="Min 20 characters"
+            onChange={(e) => setTxt(e.target.value)} />
+          <button className="btn" disabled={!clampChars(txt, 20)} onClick={() => { setDone(true); setStore({ ...store, [id]: txt }); }}>
+            {clampChars(txt, 20) ? "Submit" : "Enter at least 20 characters"}
+          </button>
+        </div>
+      )}
+      {done && (
+        <Reveal>
+          <div className="your-answer"><span>Your principle:</span> {txt}</div>
+          <div className="authored-label">Authored principle</div>
+          <div>{authored}</div>
+        </Reveal>
+      )}
+    </div>
+  );
+}
+
+/* Free-text pattern transfer (T-F). Self-eval checklist. */
+function Transfer({ id, principle, context, requirements }) {
+  const [txt, setTxt] = useState("");
+  const [done, setDone] = useState(false);
+  const [checks, setChecks] = useState([false, false, false]);
+  return (
+    <div className="q q-transfer">
+      <div className="q-kind">Pattern transfer</div>
+      <div className="q-prompt">
+        <div><strong>Principle:</strong> {principle}</div>
+        <div style={{ marginTop: 6 }}><strong>New context:</strong> {context}</div>
+        <div style={{ marginTop: 6 }}>In your answer: (1) name the principle accurately, (2) explain a non-trivial application to this new context, (3) name a failure mode that would <em>not</em> appear in the Cursor case.</div>
+      </div>
+      {!done && (
+        <div>
+          <textarea className="ta" rows={4} value={txt} placeholder="Min 50 characters"
+            onChange={(e) => setTxt(e.target.value)} />
+          <button className="btn" disabled={!clampChars(txt, 50)} onClick={() => setDone(true)}>
+            {clampChars(txt, 50) ? "Submit" : "Enter at least 50 characters"}
+          </button>
+        </div>
+      )}
+      {done && (
+        <Reveal>
+          <div className="your-answer"><span>Your transfer:</span> {txt}</div>
+          <div className="authored-label">Self-evaluation — check each honestly</div>
+          {["Did I name the principle accurately?", "Is my application genuinely different from Cursor's case?", "Is my failure mode new (absent from the Cursor case)?"].map((c, i) => (
+            <label key={i} className="checkrow">
+              <input type="checkbox" checked={checks[i]} onChange={() => { const n = [...checks]; n[i] = !n[i]; setChecks(n); }} /> {c}
+            </label>
+          ))}
+          <div className="hint">{requirements}</div>
+        </Reveal>
+      )}
+    </div>
+  );
+}
+
+function Glossary({ items }) {
+  if (!items || !items.length) return null;
+  return (
+    <div className="glossary">
+      <div className="glossary-label">Glossary</div>
+      {items.map((it, i) => (
+        <div className="gitem" key={i}><strong>{it.t}</strong> — {it.d}</div>
+      ))}
+    </div>
+  );
+}
+
+function ChartNote({ children }) { return <div className="chart-note">{children}</div>; }
+
+/* ---------------------------------------------------------------- charts */
+
+const arrData = [
+  { label: "Jan 2025", arr: 100 },
+  { label: "~May 2025", arr: 300 },
+  { label: "Jun 2025", arr: 500 }
+];
+
+const retentionData = [
+  { label: "All repos", lift: 0.3 },
+  { label: "Repos with 1,000+ files", lift: 2.6 }
+];
+
+const ttfqData = [
+  { pct: "Median", before: 7.87, after: 0.525 },
+  { pct: "90th pct", before: 169.2, after: 1.87 },
+  { pct: "99th pct", before: 14508, after: 21 }
+];
+
+function ArrChart() {
+  return (
+    <div>
+      <ResponsiveContainer width="100%" height={280}>
+        <LineChart data={arrData} margin={{ top: 20, right: 20, left: 10, bottom: 5 }}>
+          <CartesianGrid strokeDasharray="3 3" stroke="#eee" />
+          <XAxis dataKey="label" tick={{ fontSize: 12 }} />
+          <YAxis tick={{ fontSize: 12 }} label={{ value: "ARR ($M)", angle: -90, position: "insideLeft", fontSize: 12 }} />
+          <Tooltip />
+          <Line type="monotone" dataKey="arr" stroke="#2563eb" strokeWidth={2} dot={{ r: 4 }}>
+            <LabelList dataKey="arr" position="top" formatter={(v) => "$" + v + "M"} fontSize={12} />
+          </Line>
+        </LineChart>
+      </ResponsiveContainer>
+      <ChartNote>FACT: annualized revenue run-rate, from ~$0 a year prior (Pragmatic Engineer, 2025; TechCrunch, 2025). Growth continued to ~$1.2B ARR by Dec 2025 (secondary reports).</ChartNote>
+    </div>
+  );
+}
+
+function RetentionChart() {
+  return (
+    <div>
+      <ResponsiveContainer width="100%" height={280}>
+        <BarChart data={retentionData} margin={{ top: 20, right: 20, left: 10, bottom: 5 }}>
+          <CartesianGrid strokeDasharray="3 3" stroke="#eee" />
+          <XAxis dataKey="label" tick={{ fontSize: 12 }} />
+          <YAxis tick={{ fontSize: 12 }} label={{ value: "Code-retention lift (%)", angle: -90, position: "insideLeft", fontSize: 12 }} />
+          <Tooltip />
+          <Bar dataKey="lift" fill="#2563eb">
+            <LabelList dataKey="lift" position="top" formatter={(v) => "+" + v + "%"} fontSize={12} />
+          </Bar>
+        </BarChart>
+      </ResponsiveContainer>
+      <ChartNote>FACT: A/B test, semantic search vs grep-only, same model (Cursor "Improving agent with semantic search", 2025). Answer accuracy also rose +12.5% on average (range 6.5%–23.5%); dissatisfied follow-up requests rose +2.2% when semantic search was removed.</ChartNote>
+    </div>
+  );
+}
+
+function TtfqChart() {
+  return (
+    <div>
+      <ResponsiveContainer width="100%" height={300}>
+        <BarChart data={ttfqData} margin={{ top: 20, right: 20, left: 10, bottom: 5 }}>
+          <CartesianGrid strokeDasharray="3 3" stroke="#eee" />
+          <XAxis dataKey="pct" tick={{ fontSize: 12 }} />
+          <YAxis scale="log" domain={[0.1, 20000]} tick={{ fontSize: 12 }}
+            label={{ value: "Time-to-first-query (s, log)", angle: -90, position: "insideLeft", fontSize: 11 }} />
+          <Tooltip />
+          <Legend />
+          <Bar dataKey="before" fill="#dc2626" name="Before (index from scratch)">
+            <LabelList dataKey="before" position="top" formatter={(v) => v + "s"} fontSize={11} />
+          </Bar>
+          <Bar dataKey="after" fill="#16a34a" name="After (reuse teammate index)">
+            <LabelList dataKey="after" position="top" formatter={(v) => v + "s"} fontSize={11} />
+          </Bar>
+        </BarChart>
+      </ResponsiveContainer>
+      <ChartNote>FACT: time-to-first-query, before vs after teammate-index reuse (Cursor "Securely indexing large codebases", 2026). Values: median 7.87s→0.525s; 90th pct 169.2s (2.82 min)→1.87s; 99th pct 14,508s (4.03 h)→21s. Log scale.</ChartNote>
+    </div>
+  );
+}
+
+/* Latency-partitioned architecture diagram (SVG). */
+function ArchDiagram() {
+  return (
+    <div className="svg-wrap">
+      <svg viewBox="0 0 680 430" width="100%" role="img" aria-label="Cursor latency-partitioned architecture">
+        <defs>
+          <marker id="arr" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+            <path d="M0,0 L6,3 L0,6 Z" fill="#555" />
+          </marker>
+        </defs>
+        <rect x="10" y="10" width="180" height="410" rx="8" fill="#f8fafc" stroke="#cbd5e1" />
+        <text x="100" y="34" textAnchor="middle" fontSize="13" fontWeight="700">Client (VS Code fork)</text>
+        <rect x="30" y="50" width="140" height="46" rx="6" fill="#fff" stroke="#94a3b8" />
+        <text x="100" y="70" textAnchor="middle" fontSize="11">Editor + local files</text>
+        <text x="100" y="86" textAnchor="middle" fontSize="10" fill="#555">source of truth</text>
+        <rect x="30" y="110" width="140" height="46" rx="6" fill="#fff" stroke="#94a3b8" />
+        <text x="100" y="130" textAnchor="middle" fontSize="11">Merkle tree +</text>
+        <text x="100" y="146" textAnchor="middle" fontSize="11">encrypt / obfuscate</text>
+
+        <rect x="230" y="40" width="200" height="120" rx="8" fill="#eff6ff" stroke="#2563eb" />
+        <text x="330" y="62" textAnchor="middle" fontSize="12" fontWeight="700" fill="#2563eb">Tab path — &lt;1s budget</text>
+        <rect x="250" y="74" width="160" height="34" rx="6" fill="#fff" stroke="#2563eb" />
+        <text x="330" y="95" textAnchor="middle" fontSize="10.5">in-house tab model (Fireworks)</text>
+        <text x="330" y="130" textAnchor="middle" fontSize="10" fill="#555">tiny context, ~1M QPS data layer</text>
+        <text x="330" y="146" textAnchor="middle" fontSize="10" fill="#555">code discarded after inference</text>
+
+        <rect x="230" y="180" width="200" height="230" rx="8" fill="#f0fdf4" stroke="#16a34a" />
+        <text x="330" y="202" textAnchor="middle" fontSize="12" fontWeight="700" fill="#16a34a">Chat / Agent path</text>
+        <rect x="250" y="214" width="160" height="30" rx="6" fill="#fff" stroke="#16a34a" />
+        <text x="330" y="233" textAnchor="middle" fontSize="10.5">semantic search (own embeddings)</text>
+        <rect x="250" y="252" width="160" height="30" rx="6" fill="#fff" stroke="#16a34a" />
+        <text x="330" y="271" textAnchor="middle" fontSize="10.5">grep / regex tool</text>
+        <rect x="250" y="290" width="160" height="34" rx="6" fill="#fff" stroke="#16a34a" />
+        <text x="330" y="308" textAnchor="middle" fontSize="10.5">fetch chunks from client</text>
+        <text x="330" y="320" textAnchor="middle" fontSize="9" fill="#555">(server stores no code)</text>
+        <rect x="250" y="332" width="160" height="34" rx="6" fill="#fff" stroke="#16a34a" />
+        <text x="330" y="350" textAnchor="middle" fontSize="10.5">frontier model routing</text>
+        <text x="330" y="362" textAnchor="middle" fontSize="9" fill="#555">Claude / GPT / Gemini / Grok</text>
+        <text x="330" y="392" textAnchor="middle" fontSize="10" fill="#555">seconds OK — quality &gt; speed</text>
+
+        <rect x="470" y="60" width="190" height="70" rx="8" fill="#fff7ed" stroke="#ea580c" />
+        <text x="565" y="82" textAnchor="middle" fontSize="11" fontWeight="700" fill="#ea580c">turbopuffer</text>
+        <text x="565" y="100" textAnchor="middle" fontSize="10">embeddings + Merkle tree</text>
+        <text x="565" y="116" textAnchor="middle" fontSize="10" fill="#555">hundreds of TB of indexes</text>
+
+        <rect x="470" y="200" width="190" height="60" rx="8" fill="#fff7ed" stroke="#ea580c" />
+        <text x="565" y="224" textAnchor="middle" fontSize="11" fontWeight="700" fill="#ea580c">Anyrun (Rust)</text>
+        <text x="565" y="242" textAnchor="middle" fontSize="10">agent orchestrator</text>
+        <text x="565" y="256" textAnchor="middle" fontSize="9.5" fill="#555">EC2 + Firecracker VMs</text>
+
+        <rect x="470" y="300" width="190" height="60" rx="8" fill="#fff7ed" stroke="#ea580c" />
+        <text x="565" y="324" textAnchor="middle" fontSize="11" fontWeight="700" fill="#ea580c">Model hosts</text>
+        <text x="565" y="342" textAnchor="middle" fontSize="9.5">Fireworks / OpenAI / Anthropic</text>
+        <text x="565" y="355" textAnchor="middle" fontSize="9.5">Google Vertex / xAI</text>
+
+        <line x1="170" y1="73" x2="248" y2="90" stroke="#555" strokeWidth="1.5" markerEnd="url(#arr)" />
+        <line x1="170" y1="133" x2="248" y2="260" stroke="#555" strokeWidth="1.5" markerEnd="url(#arr)" />
+        <line x1="410" y1="229" x2="468" y2="95" stroke="#555" strokeWidth="1.5" markerEnd="url(#arr)" />
+        <line x1="410" y1="307" x2="468" y2="230" stroke="#555" strokeWidth="1.5" markerEnd="url(#arr)" />
+        <line x1="410" y1="349" x2="468" y2="330" stroke="#555" strokeWidth="1.5" markerEnd="url(#arr)" />
+      </svg>
+      <ChartNote>Architecture compiled from Cursor engineering posts and the Pragmatic Engineer deep-dive with cofounder Sualeh Asif (2025–2026). Component labels are FACTs from those sources; the two-lane split is the article's framing of the same system.</ChartNote>
+    </div>
+  );
+}
+
+/* What Broke — before/after database diagram (SVG). */
+function BrokeDiagram() {
+  return (
+    <div className="svg-wrap">
+      <svg viewBox="0 0 680 250" width="100%" role="img" aria-label="Database migration before and after">
+        <defs>
+          <marker id="arr2" markerWidth="10" markerHeight="10" refX="7" refY="3.5" orient="auto">
+            <path d="M0,0 L7,3.5 L0,7 Z" fill="#dc2626" />
+          </marker>
+        </defs>
+        <rect x="20" y="40" width="270" height="170" rx="8" fill="#fef2f2" stroke="#fca5a5" />
+        <text x="155" y="30" textAnchor="middle" fontSize="12" fontWeight="700">Before — the assumption that failed</text>
+        <rect x="45" y="60" width="220" height="40" rx="6" fill="#fff" stroke="#94a3b8" />
+        <text x="155" y="78" textAnchor="middle" fontSize="11">Yugabyte (“scales infinitely”)</text>
+        <text x="155" y="93" textAnchor="middle" fontSize="9.5" fill="#555">general-purpose distributed SQL</text>
+        <rect x="45" y="112" width="220" height="36" rx="6" fill="#fff" stroke="#94a3b8" />
+        <text x="155" y="134" textAnchor="middle" fontSize="10.5">manual sharding as load grew</text>
+        <rect x="45" y="158" width="220" height="40" rx="6" fill="#fff" stroke="#94a3b8" />
+        <text x="155" y="176" textAnchor="middle" fontSize="10.5">100x load in 12 months</text>
+        <text x="155" y="191" textAnchor="middle" fontSize="9.5" fill="#dc2626">large indexing outage</text>
+
+        <line x1="300" y1="125" x2="380" y2="125" stroke="#dc2626" strokeWidth="2" markerEnd="url(#arr2)" />
+        <text x="340" y="115" textAnchor="middle" fontSize="10" fill="#dc2626">migrate</text>
+
+        <rect x="390" y="40" width="270" height="170" rx="8" fill="#f0fdf4" stroke="#86efac" />
+        <text x="525" y="30" textAnchor="middle" fontSize="12" fontWeight="700">After — usage-shaped stores</text>
+        <rect x="415" y="60" width="220" height="40" rx="6" fill="#fff" stroke="#16a34a" />
+        <text x="525" y="78" textAnchor="middle" fontSize="11">PostgreSQL (transactional data)</text>
+        <text x="525" y="93" textAnchor="middle" fontSize="9.5" fill="#555">off the infinite-scale DB</text>
+        <rect x="415" y="112" width="220" height="40" rx="6" fill="#fff" stroke="#16a34a" />
+        <text x="525" y="130" textAnchor="middle" fontSize="11">turbopuffer (embeddings + trees)</text>
+        <text x="525" y="145" textAnchor="middle" fontSize="9.5" fill="#555">multi-tenant, no manual sharding</text>
+        <rect x="415" y="162" width="220" height="36" rx="6" fill="#fff" stroke="#16a34a" />
+        <text x="525" y="184" textAnchor="middle" fontSize="10.5">moved in hours, mid-outage</text>
+      </svg>
+      <ChartNote>FACT (deep-dive summary): Cursor moved off Yugabyte to PostgreSQL, and moved to turbopuffer "in hours, during a large indexing outage" (Pragmatic Engineer, 2025). Exact downtime figures were not published.</ChartNote>
+    </div>
+  );
+}
+
+/* ---------------------------------------------------------------- warm-up */
+
+const warmUp = [
+  {
+    prompt: "A team is deciding whether to add an ML ranker to a search box or ship a keyword rule first. Before comparing model accuracy, what should they check, and why?",
+    principle: "Feasibility is whether a model beats a transparent heuristic once error cost is priced in — make AI earn the incremental value against the simplest thing that could work.",
+    source: "When Not to Use AI: Google's Feasibility Gates (Type 1 — Feasibility)"
+  },
+  {
+    prompt: "A new coding-assistant startup wants a feature that 'understands your repo.' What property of its own data-generating process most determines whether that is feasible, and what durable advantage could it create?",
+    principle: "AI is feasible where the product itself produces fresh, representative ground-truth labels or signal as a byproduct of normal use — that data position, not the model, is the moat.",
+    source: "Data Readiness Before Model Selection: Stripe (Type 1 — Feasibility)"
+  },
+  {
+    prompt: "An AI feature's offline benchmark looks great. Which lifecycle risk does that not rule out, and which earlier decision most constrains what you can safely do at scale?",
+    principle: "Feasibility-phase decisions on data readiness and evaluation set the ceiling on what is trustworthy at scale; a strong offline score is a hypothesis until an online business metric confirms it.",
+    source: "Phase 0 — AI Product Lifecycle Spine"
+  }
+];
+
+function WarmUpScreen({ onDone, onSkip }) {
+  const [answers, setAnswers] = useState({});
+  const [revealed, setRevealed] = useState({});
+  return (
+    <div className="warmup">
+      <h2>Before you begin — recall from your prior reading</h2>
+      <p className="muted">Three short retrieval prompts from earlier articles. No scoring — this is spaced practice. You can skip, but skipping is noted in your Learning Summary.</p>
+      {warmUp.map((w, i) => (
+        <div className="q" key={i}>
+          <div className="q-prompt">{w.prompt}</div>
+          {!revealed[i] && (
+            <div>
+              <textarea className="ta" rows={2} value={answers[i] || ""} placeholder="Min 25 characters"
+                onChange={(e) => setAnswers({ ...answers, [i]: e.target.value })} />
+              <button className="btn" disabled={!clampChars(answers[i], 25)} onClick={() => setRevealed({ ...revealed, [i]: true })}>
+                {clampChars(answers[i], 25) ? "Reveal principle" : "Enter at least 25 characters"}
+              </button>
+            </div>
+          )}
+          {revealed[i] && (
+            <Reveal>
+              <div className="your-answer"><span>Your answer:</span> {answers[i]}</div>
+              <div className="authored-label">Principle tested</div>
+              <div>{w.principle}</div>
+              <div className="src">Source: {w.source}</div>
+            </Reveal>
+          )}
+        </div>
+      ))}
+      <div className="warmup-actions">
+        <button className="btn" onClick={() => onDone(Object.keys(revealed).length)}>Begin the article →</button>
+        <button className="btn btn-ghost" onClick={onSkip}>Skip warm-up</button>
+      </div>
+    </div>
+  );
+}
+
+/* ---------------------------------------------------------------- sections */
+
+const SECTIONS = [
+  { id: "intro", nav: "Introduction" },
+  { id: "landscape", nav: "Landscape" },
+  { id: "rq1", nav: "RQ1 · The two-lane architecture" },
+  { id: "rq2", nav: "RQ2 · Constraints became product" },
+  { id: "rq3", nav: "RQ3 · Economics at scale" },
+  { id: "broke", nav: "What Broke" },
+  { id: "summary", nav: "Learning Summary" },
+  { id: "conclusion", nav: "Conclusion" }
+];
+
+function App() {
+  const [warmDone, setWarmDone] = useState(false);
+  const [warmSkipped, setWarmSkipped] = useState(false);
+  const [warmReviewed, setWarmReviewed] = useState(0);
+  const [score, setScore] = useState(0);
+  const [maxScore] = useState(9);
+  const [active, setActive] = useState("intro");
+  const [wide, setWide] = useState(typeof window !== "undefined" ? window.innerWidth >= 1160 : true);
+
+  const [csub, setCsub] = useState({});
+  const [cans, setCans] = useState({});
+  const [principles, setPrinciples] = useState({});
+
+  function addScore(n) { setScore((s) => s + n); }
+
+  useEffect(() => {
+    function onResize() { setWide(window.innerWidth >= 1160); }
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+
+  useEffect(() => {
+    function onScroll() {
+      let cur = SECTIONS[0].id;
+      for (const s of SECTIONS) {
+        const el = document.getElementById(s.id);
+        if (el && el.getBoundingClientRect().top <= 120) cur = s.id;
+      }
+      setActive(cur);
+    }
+    window.addEventListener("scroll", onScroll);
+    onScroll();
+    return () => window.removeEventListener("scroll", onScroll);
+  }, [warmDone, warmSkipped]);
+
+  function goto(id) {
+    const el = document.getElementById(id);
+    if (el) el.scrollIntoView({ behavior: "smooth" });
+  }
+
+  if (!warmDone && !warmSkipped) {
+    return (
+      <div className="page">
+        <WarmUpScreen onDone={(n) => { setWarmReviewed(n); setWarmDone(true); }} onSkip={() => setWarmSkipped(true)} />
+      </div>
+    );
+  }
+
+  const chartProps = { submitted: csub, setSubmitted: setCsub, answers: cans, setAnswers: setCans };
+
+  return (
+    <div>
+      <div className="progress"><div className="progress-fill" style={{ width: (SECTIONS.findIndex(s => s.id === active) + 1) / SECTIONS.length * 100 + "%" }} /></div>
+
+      <header className="topbar">
+        <div className="topbar-inner">
+          <div>
+            <div className="title">How Cursor Actually Works: The Architecture Is the Product</div>
+            <div className="badges">
+              <span className="badge badge-type">AI Product Teardown (Type 2)</span>
+              <span className="badge">Company: Cursor / Anysphere</span>
+            </div>
+          </div>
+          <div className="score">Score {score}/{maxScore}</div>
+        </div>
+        <div className="lifecycle">
+          {["Feasibility", "Design", "Build", "Evaluate", "Deploy", "Scale", "Govern"].map((p) => (
+            <span key={p} className={"lc " + (p === "Build" || p === "Scale" ? "lc-on" : "")}>{p}</span>
+          ))}
+        </div>
+        <div className="crosslinks">
+          <span>← Upstream: Feasibility &amp; Technical Scoping (Type 1)</span>
+          <span>Downstream: AI-Native System Design (Type 4) →</span>
+        </div>
+      </header>
+
+      {wide && (
+        <nav className="navbar">
+          {SECTIONS.map((s) => (
+            <div key={s.id} className={"navitem " + (active === s.id ? "navitem-on" : "")} onClick={() => goto(s.id)}>{s.nav}</div>
+          ))}
+        </nav>
+      )}
+
+      <main className="page">
+
+        <section id="intro">
+          <p className="principle-statement">
+            In an AI product, the architecture <em>is</em> the product. The constraints a user never sees — a sub-second latency budget, a promise never to keep your code, the price of one embedding — are exactly what decide which features can ship and which cannot. Cursor looks like a familiar code editor with a smart autocomplete. Underneath, it is a latency-partitioned, multi-model retrieval system, and almost every visible product choice traces back to an architectural constraint the user never sees.
+          </p>
+
+          <h1>The gap between what Cursor looks like and what it does</h1>
+          <p>
+            This article uses Cursor to prove one claim: the architectural decisions in an AI product are the product decisions, and they are not separable. Cursor is the strongest available evidence because its makers have documented the internals in unusual depth — the company's own engineering blog plus a cofounder interview walk through the models, the index, and the data stores. Cursor is built by Anysphere, founded in 2022, with the first version shipped in March 2023 (Pragmatic Engineer, 2025). It is a fork of Visual Studio Code, the popular free code editor from Microsoft, so it inherits a familiar look while the team focuses on the AI layer.
+          </p>
+          <p>
+            The scale is the reason the constraints bite. In twelve months Cursor grew its load about 100x, at times doubling month over month; its data layer handles more than 1 million transactions per second at peak; and it serves close to a billion lines of code completions a day (Pragmatic Engineer, 2025). Revenue tracked the same curve: about $100M annualized in January 2025, $300M by early May, and past $500M by June 2025 (Pragmatic Engineer, 2025; TechCrunch, 2025). More than half of the 1,000 largest US companies use it. A tool at that scale cannot treat latency or cost as an afterthought.
+          </p>
+          <p>
+            The conventional mental model — "it is VS Code, plus a model that autocompletes" — is wrong in a way that matters. A single model answering every request would be either too slow for a keystroke or too weak for a refactor, would need your code sitting on a server, and would cost far too much per query at a billion completions a day. The real system splits the work by its latency budget, routes different jobs to different models, and keeps source code off the server by design. Those three moves are architecture, and they are also the product.
+          </p>
+          <p>
+            This article addresses three questions: First, what actually runs when a developer presses Tab versus asks the agent a question? Second, which visible product decisions were forced by architectural constraints rather than chosen freely? Third, how does Cursor control the economics of generative AI — latency and cost — at a scale where small per-query numbers become enormous?
+          </p>
+          <Glossary items={[
+            { t: "IDE — Integrated Development Environment", d: "the app a programmer writes code in; Cursor is one, forked from VS Code." },
+            { t: "Autocomplete / Tab", d: "grey suggested code that appears as you type and is accepted with the Tab key." },
+            { t: "Agent", d: "an AI that can take multiple steps on its own — search files, edit several of them, run tools — from one instruction." },
+            { t: "ARR — Annualized Recurring Revenue", d: "current subscription revenue projected out to a full year." },
+            { t: "QPS / TPS — Queries (Transactions) Per Second", d: "how many requests a system handles each second; a load measure." }
+          ]} />
+        </section>
+
+        <section id="landscape">
+          <h2>The landscape: why the old editor pattern could not hold</h2>
+          <p>
+            Before AI-native editors, a code editor was a local program. It ran on your machine, kept your files on your disk, and asked a server for little more than extension updates. Latency was whatever your laptop could do. That pattern breaks the moment the intelligence lives in a large model that is too big to run on a laptop. Now every helpful keystroke may need a round trip to a graphics-processing-unit (GPU) in a data center, and the editor's job becomes moving the right context to that model fast enough to feel instant.
+          </p>
+          <p>
+            Two competing responses existed. One was to build a brand-new editor from scratch, as the editor Zed did, to own every millisecond. The other was to fork VS Code and inherit a stable editor for free. Cursor's cofounder said they forked precisely so they could spend their effort "changing how devs program" rather than rebuilding a stable editor — the "tab model" that predicts your next edit was "trivial with the fork" and would have been very hard without it (Pragmatic Engineer, 2025). That build-vs-fork call is the first place architecture and product meet: the fork bought speed-to-market at the cost of carrying VS Code's constraints.
+          </p>
+          <p>
+            The scale that follows is what turns tiny per-request costs into first-order business problems. A completion that costs a fraction of a cent is fine once; at close to a billion a day it sets your margins. A round trip that takes an extra 200 milliseconds is invisible once; across 1 million transactions a second it defines whether the product feels alive. This is the structural gap the rest of the article examines: classical editor architecture assumed the work was local and cheap, and AI-native editing makes it remote and metered.
+          </p>
+
+          <h3>Chart 1 — Revenue scale is why the constraints bite</h3>
+          <ArrChart />
+          <ChartPrompts id="c-arr" prompts={[
+            { kind: "Quantitative reasoning", q: "From $100M (Jan 2025) to $500M (Jun 2025), compute the run-rate multiple over that ~5-month window and state what it implies about how fast per-query cost mistakes would compound.", a: "Revenue rose 5x in about five months. At that pace, any per-query inefficiency scales with usage almost as fast as revenue does — a cost bug that is tolerable at $100M ARR is 5x more expensive months later. <strong>Implication:</strong> in a hyper-growth AI product, cost and latency optimizations are not 'later' work; the window where they are cheap to fix closes as the multiplier climbs." },
+            { kind: "So-what / decision implication", q: "Load grew ~100x in 12 months while ARR grew ~5x over the shown window. Using a unit-economics lens, what does that gap tell a PM about where to spend the next quarter of engineering?", a: "Load outran revenue by roughly 20x, so cost-per-request must fall or margins erode as usage grows. <strong>Decision:</strong> invest in the parts that make each request cheaper — caching, index reuse, routing cheap work to cheap models — before adding features that multiply request volume again. The architecture spend is the margin strategy." }
+          ]} {...chartProps} />
+
+          <Glossary items={[
+            { t: "GPU — Graphics Processing Unit", d: "specialized chip that runs AI models; renting them in the cloud is the main cost of serving a model." },
+            { t: "Fork", d: "starting a new product from a copy of existing open-source code (here, VS Code) instead of writing it from scratch." },
+            { t: "Latency", d: "the delay between a request and its response; for typing help it must feel instant." }
+          ]} />
+        </section>
+
+        <section id="rq1">
+          <h2>RQ1 — What actually runs: one product, two latency lanes</h2>
+          <p>
+            The thesis to defend here: Cursor is not one AI feature but a system partitioned by latency budget, and that partition is invisible to the user yet decides everything about how each feature behaves. When you press Tab, you are on a lane with a hard sub-second deadline. When you ask the agent to refactor, you are on a lane where seconds are fine and quality wins. The same editor, two very different machines behind it.
+          </p>
+          <p>
+            On the Tab lane, the client grabs a small slice of surrounding code, encrypts it, and sends it to Cursor's servers, where an in-house model generates the suggestion and returns it — ideally in under a second (Pragmatic Engineer, 2025). Those fine-tuned models are hosted on Fireworks, a provider chosen for low-latency serving (ByteByteGo, 2025). The context is deliberately tiny because every extra token costs milliseconds, and the code is discarded after inference rather than stored. This lane is where most of that 1-million-transactions-per-second load comes from: many tiny requests, each racing a deadline.
+          </p>
+          <p>
+            On the Chat and Agent lane, the deadline relaxes and the machinery grows. The agent builds an understanding of the codebase using semantic search — retrieving code by meaning, like "where do we handle authentication?" — alongside plain text search (grep). Semantic search runs over embeddings (numeric fingerprints of code chunks) stored in a vector database called turbopuffer. Crucially, the server holds only embeddings, not code; when it needs the actual text it asks the client for those specific chunks. Then the request is routed to a frontier model — Anthropic's Claude, OpenAI's GPT, Google's Gemini, or xAI's Grok — sometimes several models for one task, since even when you pick one model, background jobs like summarization may go to another (ByteByteGo, 2025).
+          </p>
+          <p>
+            The evidence that this retrieval layer earns its complexity is direct. Cursor's own A/B test found that giving the agent semantic search raised answer accuracy by 12.5% on average (from 6.5% up to 23.5% depending on the model), and it helped most on large codebases (Cursor, 2025). The limit of the thesis is honest: semantic search is not free, it does not help every request, and the team still leans heavily on grep — the best results come from combining the two, not from replacing one with the other (Cursor, 2025).
+          </p>
+
+          <h3>Chart 2 — The two-lane architecture</h3>
+          <ArchDiagram />
+          <ChartPrompts id="c-arch" prompts={[
+            { kind: "Qualitative / mechanism", q: "The Tab lane deliberately sends a tiny context while the Agent lane runs full semantic search over turbopuffer. What underlying constraint forces that asymmetry, and why can't the Tab lane just use the richer retrieval too?", a: "The Tab lane has a sub-second deadline, and both retrieval and larger context add round-trips and tokens that cost milliseconds. Rich retrieval would blow the latency budget for something that fires on nearly every keystroke. <strong>Mechanism:</strong> latency budget, not model quality, is the binding constraint on the Tab lane — so the architecture spends context where deadlines are loose (Agent) and starves it where they are tight (Tab)." },
+            { kind: "So-what / decision implication", q: "The server stores embeddings but no code, then fetches chunks from the client on demand. Using a build-vs-constraint lens, what does that one design choice let a PM promise enterprise buyers that a code-storing competitor cannot?", a: "It lets the PM promise that source code is never persistently held on Cursor's servers — a concrete security claim, not a policy. <strong>Decision:</strong> the 'no code at rest' architecture becomes the enterprise sales wedge (over half the largest US firms adopted it), so the constraint is not a tax — it is the differentiator. But it also means every answer may need a client round-trip, which the roadmap must keep fast." }
+          ]} {...chartProps} />
+
+          <MC
+            id="rq1-arch"
+            kind="T-A · Architecture & system implication"
+            prompt="As users move from single-file edits to whole-repo agent tasks that scale 10x in codebase size, which component is most likely to become the binding bottleneck, and what should a PM invest in next quarter?"
+            options={[
+              "The Tab model on Fireworks — larger repos make each keystroke suggestion slower",
+              "The semantic-search + chunk-fetch retrieval path — bigger repos mean more embeddings to search and more client round-trips to assemble context",
+              "The VS Code fork's editor UI — more files make the text editor itself lag",
+              "The billing system — more agent tasks mean more Stripe invoices per second"
+            ]}
+            correct={1}
+            explain="Tab latency depends on the small local context around the cursor, not on repo size, so it does not scale with the codebase. The bottleneck as tasks grow is the retrieval lane: more code means more embeddings to search and more on-demand chunk fetches to build the model's context. That is why Cursor invests in retrieval quality (a custom embedding model) and in making the index cheap to build and reuse."
+            calibrationWrong={{
+              error: "applying a classical software assumption to an AI-native system",
+              note: "you tied slowdown to the editor or the keystroke path, but in an AI-native editor the cost that scales with data is retrieval and context assembly, not local UI rendering.",
+              correctNote: "the retrieval/context lane is where cost scales with corpus size — the same pattern shows up in any RAG system."
+            }}
+            scaffold="Ask which component's work grows with the number of files. The Tab suggestion looks only at nearby code; the agent's answer must search and assemble context across the whole repo."
+            generalizes="Any retrieval-augmented product (support-bot over a knowledge base, legal search) hits the same wall: the retrieval layer, not the front end, is what scales with corpus size."
+            onScore={addScore}
+          />
+
+          <Numeric
+            id="rq1-merkle"
+            kind="T-D · Engineering estimation (scaffolded)"
+            prompt="Cursor syncs its index every 3 minutes, and in a 50,000-file workspace the filenames plus SHA-256 hashes alone total about 3.2 MB (Cursor, 2026). If Cursor did NOT use a Merkle tree and instead re-sent that full 3.2 MB every sync, roughly how many MB would one developer's client push in a single 8-hour workday just for those hashes? Tolerance ±15% — this is straight arithmetic. Decomposition: syncs/hour × hours × MB/sync."
+            min={0} max={600} step={1} actual={512} unit="MB" tolerance={0.15}
+            anchors="3-minute sync = 20 syncs/hour (FACT, Pragmatic Engineer 2025); 3.2 MB of hashes per full sync in a 50k-file workspace (FACT, Cursor 2026); 8-hour workday."
+            decomposition="20 syncs/hour × 8 hours = 160 syncs; 160 × 3.2 MB = <strong>512 MB/day</strong> per developer — just for filenames and hashes, before any code chunks. The Merkle tree avoids almost all of this by walking only the branches whose hashes changed."
+            mostSensitive="The sync frequency: halving it to every 6 minutes halves the naive transfer. That is why the tree (transfer only what changed) matters more than tuning the interval."
+            onScore={addScore}
+          />
+
+          <Principle id="rq1" authored="Partition an AI product by latency budget first, then choose models and retrieval per lane — the deadline, not the model's intelligence, decides how much context and machinery each feature can afford." store={principles} setStore={setPrinciples} />
+
+          <Transfer
+            id="rq1-tf"
+            principle="An AI product should be partitioned by latency budget, with different models and retrieval depth on each lane."
+            context="A customer-support suite that offers both an inline 'suggested reply' as an agent types and a deep 'research this account across all past tickets' mode."
+            requirements="A strong answer notes that the inline reply needs a Tab-like sub-second lane (small context, cheap fast model) while the research mode is an agent lane (retrieval over ticket history, frontier model). A genuinely new failure mode: support replies are customer-facing and reversible only with reputational cost, so a fast-lane wrong suggestion can be sent before review — a risk Cursor's grey, opt-in Tab text does not carry."
+          />
+
+          <Glossary items={[
+            { t: "Embedding", d: "a list of numbers that captures the meaning of a piece of code or text, so similar things sit near each other." },
+            { t: "Semantic search", d: "finding code by meaning (via embeddings) rather than exact keywords." },
+            { t: "grep", d: "a classic tool that finds exact text matches; fast and literal, unlike semantic search." },
+            { t: "Vector database (turbopuffer)", d: "a store built to search embeddings quickly by similarity." },
+            { t: "Frontier model", d: "a top-tier general LLM (Claude, GPT, Gemini, Grok) used for the hard reasoning tasks." },
+            { t: "Merkle tree", d: "a tree of hashes where each folder's hash is built from its children's, so a single changed file flips only the hashes on its path to the root — making it cheap to spot exactly what changed." }
+          ]} />
+        </section>
+
+        <section id="rq2">
+          <h2>RQ2 — When a constraint becomes the product</h2>
+          <p>
+            The thesis here is sharper: Cursor's most distinctive product features are not free design choices — they are architectural constraints turned into promises. The clearest is privacy. Cursor decided the server would never persistently store your source code. That is a hard constraint, and meeting it required real machinery: code chunks are encrypted on the client, filenames are obfuscated (scrambled so they are not readable) before they leave your machine, only embeddings are stored, and the actual text is fetched from the client just for the moment it is needed, then discarded (ByteByteGo, 2025; Pragmatic Engineer, 2025).
+          </p>
+          <p>
+            That constraint forced the Merkle-tree design. Because the server cannot hold your code, it needs another way to know what changed without re-reading everything. A Merkle tree gives every file a hash and every folder a hash built from its children, so a single edit flips only the hashes along one path to the root. The client and server each keep a tree; every three minutes they compare, and only the branches that differ get re-indexed (Pragmatic Engineer, 2025). The privacy promise (no code at rest) and the efficiency mechanism (sync only what changed) are the same design seen from two sides.
+          </p>
+          <p>
+            The retrieval quality is a second constraint-turned-product. Off-the-shelf embeddings treat code like generic text, but Cursor trained its own embedding model using its agents' real work as training data: when an agent searches and opens files before finding the right code, an LLM looks back and ranks what should have been retrieved earlier, and the embedding model is trained to match those rankings (Cursor, 2025). This is the same lesson from earlier feasibility articles — the product's own usage generates the labels that make the model better — applied to a live retrieval system.
+          </p>
+          <p>
+            The evidence that these choices pay off in user outcomes, not just architecture diagrams, is the A/B result: code written with semantic search available was more likely to stay in the codebase, and the effect grew with size — a 0.3% retention lift across all repos but 2.6% on repos with 1,000 files or more, with 2.2% more dissatisfied follow-up requests when semantic search was removed (Cursor, 2025). The limit of the thesis: these are modest average effects because most requests do not need deep search at all, which is exactly why the fast Tab lane exists alongside it.
+          </p>
+
+          <h3>Chart 3 — The retrieval payoff grows with codebase size</h3>
+          <RetentionChart />
+          <ChartPrompts id="c-ret" prompts={[
+            { kind: "Quantitative reasoning", q: "Retention lift is +0.3% across all repos but +2.6% on repos with 1,000+ files. Compute the ratio between the two and say what it implies about which customers the retrieval investment is really for.", a: "2.6 / 0.3 ≈ 8.7x — the retrieval benefit is almost nine times larger on big codebases. <strong>Implication:</strong> semantic search is disproportionately a feature for enterprise-scale monorepos, so the ROI case for the whole indexing pipeline rests on large-repo, large-company users — the exact segment (half the largest US firms) Cursor monetizes. Averages hide who the feature is for." },
+            { kind: "So-what / decision implication", q: "The headline average lift is small (0.3%) yet Cursor keeps investing heavily in retrieval. Using a segment-value lens, what decision rule does the small-average / large-tail split imply for a PM defending this roadmap spend?", a: "Judge retrieval by its effect on the high-value segment where it concentrates (large repos), not by the blended average that dilutes it across requests that never search. <strong>Decision rule:</strong> when a feature's benefit is concentrated in a tail, size the investment against that tail's revenue, and measure it with segment-specific metrics — otherwise a small average will wrongly kill a feature that is load-bearing for your biggest accounts." }
+          ]} {...chartProps} />
+
+          <MC
+            id="rq2-case"
+            kind="T-C · PM consulting case (weakest link)"
+            caseLabel="fictional client: a hospital-records AI assistant"
+            prompt="A health-records startup wants to copy Cursor's 'never store customer data on our servers; keep only embeddings and fetch source on demand' architecture to win hospital buyers. Which assumption must hold for this to actually create value, and where is the evidence in this article thinnest?"
+            options={[
+              "That embeddings cannot be reversed back into the original records — the privacy promise depends on it, and the article only asserts embeddings are 'generally one-way' (a commenter flagged this is not guaranteed)",
+              "That hospitals have large repositories, so the retrieval benefit will be big",
+              "That the startup can fork an existing editor to save time",
+              "That frontier models will keep getting cheaper over time"
+            ]}
+            correct={0}
+            explain="The whole value of 'we store only embeddings' rests on embeddings not being reversible into the protected data. The article's own source hedges this ('embeddings are generally one-way'), and a reader comment cites research showing text can sometimes be recovered from embeddings. That is the load-bearing, thinly-supported assumption — and in a hospital context the cost of it being wrong is catastrophic, far higher than for source code. The other options are real but not load-bearing for the privacy claim."
+            calibrationWrong={{
+              error: "scope creep misdiagnosis",
+              note: "you picked a true but non-load-bearing fact (repo size, forking, model prices); the value of a privacy architecture stands or falls on whether the stored representation actually protects the data.",
+              correctNote: "you found the assumption the whole promise rests on and noticed the evidence for it is hedged — that is weakest-link reasoning."
+            }}
+            scaffold="Ask: if exactly one of these turned out false, which one destroys the core promise the client is selling? A privacy architecture is only as strong as the irreversibility of what it stores."
+            generalizes="Any 'we only keep a transformed version of your data' pitch (hashed identifiers, de-identified records, embeddings) rests on the transform being truly irreversible — verify that before it becomes a compliance claim."
+            onScore={addScore}
+          />
+
+          <Principle id="rq2" authored="Turn your hardest constraint into the promise: when a non-negotiable (privacy, latency, cost) forces specific machinery, make that machinery the differentiator you sell — and verify the assumption the promise rests on before you market it." store={principles} setStore={setPrinciples} />
+
+          <Transfer
+            id="rq2-tf"
+            principle="A hard architectural constraint can be turned into the product's differentiating promise, provided the assumption it rests on is verified."
+            context="A consumer photo app that promises 'your photos never leave your phone' but still offers cloud-powered AI search across them."
+            requirements="A strong answer applies the constraint-as-promise idea (on-device embeddings, only vectors sync) and names a new failure mode absent from Cursor: photos are irreplaceable personal data with no 'source of truth' copy elsewhere, so an index/embedding corruption is unrecoverable in a way a code index (rebuildable from the repo) never is."
+          />
+
+          <Glossary items={[
+            { t: "Obfuscated filenames", d: "scrambled file names sent to the server so it cannot tell what your files are called." },
+            { t: "At rest", d: "data stored persistently on disk; 'no code at rest' means code is never kept on Cursor's servers." },
+            { t: "A/B test", d: "an experiment splitting users into two groups to measure the effect of one change." }
+          ]} />
+        </section>
+
+        <section id="rq3">
+          <h2>RQ3 — Controlling the economics of generative AI at scale</h2>
+          <p>
+            The thesis: at Cursor's scale the winning move is not a cheaper model but doing less redundant work, and the biggest wins come from noticing that most work is duplicated. Two mechanisms carry this. The first is caching: Cursor stores embeddings keyed by chunk content, so when a file changes, the unchanged chunks hit the cache and are never re-embedded (Cursor, 2026). Because embedding is the expensive step, and most edits change little, the cache turns a costly operation into a near-free one for the common case.
+          </p>
+          <p>
+            The second is the sharper insight. Cursor noticed that teammates work from near-identical copies of the same repository — clones average 92% similarity across users within an organization (Cursor, 2026). So instead of every new user re-indexing from scratch, a new client computes a compact "similarity hash" (simhash) of its file tree, the server finds a teammate's existing index that matches closely, and the new user securely reuses it. The Merkle tree's cryptographic hashes double as proof of access: the client only sees results for files it can prove it already has, so reuse never leaks code across users (Cursor, 2026).
+          </p>
+          <p>
+            The payoff is dramatic and it compounds with repo size. Time-to-first-query — how long before a user can search their code — dropped from 7.87 seconds to 525 milliseconds at the median, from 2.82 minutes to 1.87 seconds at the 90th percentile, and from 4.03 hours to 21 seconds at the 99th percentile (Cursor, 2026). The largest repositories, which used to take hours, became usable in seconds. Notice what kind of optimization this is: not a faster model, but the elimination of repeated work the naive design never questioned.
+          </p>
+          <p>
+            The limit of the thesis is worth stating. These gains depend on the 92%-similarity pattern holding; a shop where every developer's tree diverges sharply would see far less benefit, and the access-proof machinery adds complexity that only pays off at team scale. For a solo user on a unique codebase, the plain from-scratch index is still what runs.
+          </p>
+
+          <h3>Chart 4 — Time-to-first-query collapses, and the effect compounds with size</h3>
+          <TtfqChart />
+          <ChartPrompts id="c-ttfq" prompts={[
+            { kind: "Quantitative reasoning", q: "At the 99th percentile, time-to-first-query fell from 14,508s to 21s. Compute the speedup factor and compare it to the median's factor (7.87s → 0.525s). What does the difference between the two factors tell you?", a: "99th pct: 14,508 / 21 ≈ 690x. Median: 7.87 / 0.525 ≈ 15x. The optimization is ~46x more powerful at the tail than at the median. <strong>Insight:</strong> index reuse is a tail-latency fix — it barely changes the typical user's already-fast experience but rescues the worst cases (huge monorepos) that were previously unusable for hours. Optimizations that target the tail can be invisible in the average and decisive for your biggest customers." },
+            { kind: "Causal / comparative", q: "The before-values rise steeply from median to 99th percentile while the after-values stay low and flat. Which mechanism causes the 'after' line to flatten, and why can't a 'faster embedding model' story explain that flattening?", a: "The flattening comes from reuse: once a teammate's index exists, a new user copies it in the background and queries almost immediately regardless of repo size, so size stops driving the wait. A faster embedding model would scale down every 'before' value proportionally but would still grow with repo size — it cannot flatten the curve, because the work still scales with the number of chunks. Only skipping the work (reuse) removes the size dependence. <strong>Comparative point:</strong> speed and elimination are different levers; only elimination breaks the coupling to corpus size." }
+          ]} {...chartProps} />
+
+          <Numeric
+            id="rq3-fermi"
+            kind="T-D · Open-ended Fermi (build your own decomposition)"
+            prompt="Estimate how many transactions Cursor's data layer handles in a single day. Before entering a number, name your decomposition path. Scored on order of magnitude (within ~3x counts), because this is a genuine Fermi estimate, not exact arithmetic."
+            min={0} max={200} step={1} actual={86} unit="billion/day"
+            fermi={true}
+            anchors="Cursor's data layer sustains ~1 million transactions per second, and higher at peak (FACT, Pragmatic Engineer 2025)."
+            decomposition="Decomposition: transactions/second × seconds/day = 1,000,000 × 86,400 = 86,400,000,000 ≈ <strong>86 billion/day</strong> at a sustained 1M QPS. Peak-driven days would run higher. The point is scale: even a fraction-of-a-cent inefficiency per transaction becomes a large daily number."
+            mostSensitive="Whether you use the sustained 1M QPS or a peak figure — peaks can be several times higher, which is why capacity is planned to peak, not average."
+            onScore={addScore}
+          />
+
+          <Principle id="rq3" authored="At scale, cut redundant work before you shop for a cheaper model: cache what rarely changes and reuse what is near-identical across users — elimination breaks the coupling between cost and data size in a way a faster model never can." store={principles} setStore={setPrinciples} />
+
+          <Transfer
+            id="rq3-tf"
+            principle="At scale, eliminating duplicated work (caching + cross-user reuse) beats buying a faster model, because it breaks the link between cost and data size."
+            context="A CI (continuous-integration) service that runs test suites for thousands of teams, many of whom fork the same popular open-source repos."
+            requirements="A strong answer applies content-keyed caching and cross-tenant reuse (shared test/result caches keyed by commit hash across forks) and names a new failure mode absent from Cursor: test results have side effects and environment dependence, so reusing another tenant's 'passed' result can hide a real failure in this tenant's environment — a correctness risk that a read-only code index does not have."
+          />
+
+          <Glossary items={[
+            { t: "Cache", d: "a store of already-computed results so the same work is not repeated." },
+            { t: "simhash — similarity hash", d: "one small value summarizing a whole file tree, so near-identical trees produce near-identical hashes and can be matched fast." },
+            { t: "Time-to-first-query", d: "how long after opening a project before a user can actually search their codebase." },
+            { t: "Percentile (P90/P99)", d: "the value below which that share of cases fall; P99 = the slowest 1%, i.e. worst-case users." }
+          ]} />
+        </section>
+
+        <section id="broke" className="broke">
+          <h2>What Broke — when "scales infinitely" met Cursor's real usage</h2>
+          <p>
+            Not every architectural bet held. Cursor originally stored data in Yugabyte, a distributed SQL database marketed as able to "scale infinitely." Under 100x growth in a year, that assumption failed in practice: the team ended up doing manual database sharding (splitting data across machines by hand) and eventually migrated off Yugabyte to PostgreSQL, a far more conventional database. Separately, during a large indexing outage, the team moved to turbopuffer "in hours" — an emergency migration under fire, not a planned one (Pragmatic Engineer, 2025).
+          </p>
+          <p>
+            Why did a database built to scale fail to scale here? Because "scales infinitely" is a claim about the general case, and Cursor's usage was not the general case. Its load is dominated by a specific, spiky pattern — hundreds of terabytes of embeddings and index trees, a million transactions a second, cold-start bursts when whole teams open projects in the morning. A general-purpose distributed database optimizes for a broad workload; it did not match the shape of Cursor's indexing traffic, and the mismatch only became visible at a scale the team reached faster than almost any company before it.
+          </p>
+          <p>
+            The mitigation was expensive in the way that matters most: engineering attention and risk at the worst possible time. Moving a live, hundreds-of-terabytes data layer during an outage is high-stakes surgery; doing it "in hours" means senior engineers dropped everything, and any misstep would have extended the outage for paying enterprise customers. The team also had to unwind manual sharding — work that existed only because the original database could not shape itself to the workload. The cost was not a line item; it was velocity diverted from product into keeping the lights on.
+          </p>
+          <p>
+            The lesson is the article's principle seen from the failure side: usage patterns dictate technology choices, and a vendor's scaling promise is not a substitute for matching the store to your actual traffic shape. The durable takeaway for a PM or CTO is to treat "it scales" as a question about your specific workload, and to build the ability to swap a data store before you are forced to swap it during an outage.
+          </p>
+
+          <h3>Chart 5 — The database bet, before and after</h3>
+          <BrokeDiagram />
+          <ChartPrompts id="c-broke" prompts={[
+            { kind: "Qualitative / mechanism", q: "The 'before' box relied on a database that 'scales infinitely' yet still needed manual sharding. What does the presence of manual sharding reveal about the gap between a vendor's scaling claim and Cursor's workload?", a: "Manual sharding is the tell: if the database truly scaled itself for this workload, engineers would not be splitting data by hand. Its presence shows the automatic scaling did not fit Cursor's traffic shape, so humans had to compensate. <strong>Mechanism:</strong> generic scale claims are made for the average workload; a spiky, embedding-heavy, cold-start-bursty pattern is not average, so the abstraction leaked and pushed work back onto the team." },
+            { kind: "So-what / decision implication", q: "Cursor could execute the turbopuffer move 'in hours' mid-outage. Using a reversibility / optionality lens, what should a CTO have already built for that to be possible, and what does it imply for the next architecture bet?", a: "A migration in hours is only possible if the data layer was abstracted enough to swap — the option to move was built before it was needed. <strong>Decision:</strong> treat store choice as reversible by keeping a clean seam around it, and pre-invest in that optionality for any component whose scaling behavior you can't fully predict. The takeaway for the next bet: buy the ability to swap, not just the store." }
+          ]} {...chartProps} />
+
+          <MC
+            id="broke-q"
+            kind="Failure-case reasoning"
+            prompt="Which assumption did the team most likely hold as uncontroversial before the migration, and why was it wrong?"
+            options={[
+              "That PostgreSQL could not handle their transactional load — wrong because Postgres is old technology",
+              "That a database advertised to 'scale infinitely' would fit their workload without custom work — wrong because a general scaling claim is not a claim about their specific, spiky, embedding-heavy traffic shape",
+              "That they would never have an outage — wrong because all systems fail eventually",
+              "That turbopuffer would be cheaper — wrong because they migrated for cost reasons"
+            ]}
+            correct={1}
+            explain="The uncontroversial-at-the-time belief was that a database sold as infinitely scalable would carry their growth without bespoke effort. It was reasonable — the vendor's whole pitch is scale — but it conflated a general capability with a fit for Cursor's particular workload. The manual sharding and the eventual move to Postgres show the mismatch. The other options are either hindsight-obvious ('all systems fail') or misdiagnose the root cause (cost, or Postgres's age)."
+            calibrationWrong={{
+              error: "hindsight bias in incident analysis",
+              note: "options like 'they assumed they'd never have an outage' are only obvious after the fact and do not name the specific design assumption (workload fit) that actually failed.",
+              correctNote: "you named the real design assumption — that a generic scaling promise equals fit for a specific workload — rather than a hindsight-obvious platitude."
+            }}
+            scaffold="Separate a truism that is true of every system ('all systems fail') from the specific belief this team acted on. What did buying an 'infinitely scalable' database let them assume they would not have to do?"
+            generalizes="Any 'infinitely scalable' or 'fully managed' vendor promise (serverless, autoscaling queues) must be tested against your own traffic shape; the abstraction leaks exactly where your workload is unusual."
+            onScore={addScore}
+          />
+
+          <Glossary items={[
+            { t: "Sharding", d: "splitting a database across many machines so no single one holds everything; doing it 'manually' means engineers manage the split by hand." },
+            { t: "Yugabyte / PostgreSQL", d: "databases; Yugabyte is a distributed SQL database, PostgreSQL a widely-used conventional one." },
+            { t: "Cold start", d: "the burst of work when many users open projects at once (e.g., a team every morning), stressing the system." }
+          ]} />
+        </section>
+
+        <section id="summary">
+          <h2>Learning Summary</h2>
+          <p className="muted">Score: {score} / {maxScore} scored questions. {warmSkipped ? "Warm-up skipped — 3 prior principles not reviewed this session." : "Warm-up: " + warmReviewed + " of 3 prior principles reviewed this session."}</p>
+
+          <h3>Your principles vs the authored ones</h3>
+          <p className="muted">You submitted principle statements at the end of each evidence section. Compare them to the authored versions above (RQ1, RQ2, RQ3). Which of your stated principles surprised you most when compared to the authored version, and why?</p>
+          <SelfNote placeholder="Which of your principles differed most from the authored version, and why?" />
+
+          <h3>One insight for a skeptical CTO</h3>
+          <p className="muted">You have now seen five pieces of evidence (two-lane latency, constraint-as-promise, index reuse, the A/B retrieval payoff, and the database failure). Write the single most non-obvious insight you would defend to a skeptical CTO, before revealing the authored cards.</p>
+          <InsightReveal cards={[
+            "In an AI product, latency budget — not model quality — is the first architectural axis; you design lanes before you pick models.",
+            "The optimizations that move your biggest customers (index reuse, retrieval) are often invisible in the average metric and only show up in the tail. Measure the tail.",
+            "A vendor's 'it scales' is a statement about the average workload; your job is to test it against the shape of your own traffic before it tests you during an outage."
+          ]} />
+
+          <h3>Apply It — present-day</h3>
+          <p className="muted">Apply the governing principle ("the architecture is the product") to a product you know. Give four labeled parts: (1) one-sentence so-what thesis, (2) the load-bearing assumption, (3) the strongest disconfirming evidence from this article, (4) a one-line pre-mortem: "If this fails in 12 months, the most likely reason is ___."</p>
+          <SelfNote placeholder="1) thesis  2) load-bearing assumption  3) disconfirming evidence  4) pre-mortem" rows={5} />
+
+          <h3>Apply It — 2027 forward-looking</h3>
+          <p className="muted">Assume 2027 foundation models have much longer context, cheaper inference, and stronger reasoning. What would you design differently for a Cursor-like product, and which load-bearing assumption does the 2027 version replace?</p>
+          <SelfNote placeholder="What changes as context gets longer and inference gets cheaper — and which assumption from today's design is retired?" rows={4} />
+
+          <h3>Principles to revisit</h3>
+          <p className="muted">If you missed a question, revisit it by the principle it tested — not the question number: latency partitioning (RQ1), constraint-as-promise and irreversibility of stored representations (RQ2), eliminate-redundant-work / tail vs average (RQ3), and workload-fit vs vendor scaling claims (What Broke).</p>
+        </section>
+
+        <section id="conclusion">
+          <h2>Conclusion</h2>
+          <p>
+            The governing principle, now stress-tested by both the evidence and the failure: in an AI product the architecture is the product, because the invisible constraints — latency budget, no code at rest, cost per query — decide the feature set. Partial failure of this principle looks exactly like the Yugabyte episode: a team that treated the data store as a solved, invisible layer discovered that the layer's shape was, in fact, a product-limiting decision it had not made on purpose.
+          </p>
+          <p>
+            For an AI PM, this changes what a roadmap is. You cannot scope features without scoping their lane: a request's latency budget, its model routing, and its retrieval depth are product requirements, not implementation details handed to engineering afterward. The Cursor case says the PM who understands the two-lane split can promise things (instant Tab, no code stored, whole-repo understanding) that a PM who sees only "add AI to the editor" cannot.
+          </p>
+          <p>
+            For a future CTO, the case argues for buying optionality over buying scale. The decisions that aged well — abstracting the data store enough to swap it in hours, training a custom embedding model on your own usage, caching and reusing near-identical work — all preserved the ability to change course. The decision that aged badly — trusting a generic scaling promise — removed it. Build the seams that let you swap models and stores before growth forces the swap.
+          </p>
+
+          <MC
+            id="concl-te"
+            kind="T-E · Forward-looking + falsification"
+            prompt="Which claim would, if it turned out true, most change this article's governing principle that 'the architecture is the product'?"
+            options={[
+              "Frontier models get cheaper each year",
+              "By 2027, a single model with a very long context window and near-free inference could take a whole repo as input and answer instantly — collapsing the two lanes into one and making retrieval, caching, and the no-code-at-rest workaround largely unnecessary",
+              "More Fortune 500 companies adopt Cursor",
+              "Cursor adds more programming-language support"
+            ]}
+            correct={1}
+            explain="The principle rests on scarcity: context is limited, inference is metered, latency is tight — so architecture must ration them. If a 2027 model made context effectively unlimited and inference effectively free, the rationing machinery (two lanes, retrieval, caching, on-demand chunk fetch) would lose much of its reason to exist, and 'the architecture is the product' would weaken toward 'the model is the product.' That is the falsification condition: observe cheap-enough, long-enough models and the central claim bends. The other options are consistent with the principle and do not test it. Note that even then, the no-code-at-rest privacy constraint might survive as a product promise — so the principle degrades rather than dies."
+            calibrationWrong={{
+              error: "confusing a metric for its cause",
+              note: "'models get cheaper' or 'more adoption' are trends consistent with the principle; they do not name the specific condition (abundant context + near-free inference) that would remove the need for the rationing architecture.",
+              correctNote: "you identified the scarcity assumption the principle depends on and the observation that would falsify it."
+            }}
+            scaffold="The principle exists because something is scarce. Ask which option describes that scarcity disappearing — not merely improving."
+            generalizes="Any 'the architecture is the product' claim is really a claim about scarcity; when the scarce resource becomes abundant (storage, bandwidth, context), the architecture that rationed it stops being the differentiator."
+            onScore={addScore}
+          />
+
+          <Transfer
+            id="concl-tf"
+            principle="In an AI product, the invisible architectural constraints (latency, cost, data-handling) determine the feature set — the architecture is the product."
+            context="A voice AI for call centers that must answer callers in real time, cite company policy accurately, and never store recordings of protected personal information."
+            requirements="A strong answer maps the three Cursor lessons onto voice: a hard real-time latency lane (fast small model for turn-taking) vs a retrieval lane (policy lookup), constraint-as-promise (no recordings stored — analogous to no code at rest), and eliminate-redundant-work (cache policy embeddings). A genuinely new failure mode absent from Cursor: speech is real-time and irreversible — a wrong answer is spoken to a caller before any 'review' step, and audio latency spikes cause awkward silences that have no text-editor equivalent."
+          />
+
+          <p className="closing">
+            The most important question the Cursor case does not answer: as foundation models absorb more of what retrieval and caching do today, how much of a product's durable advantage remains in its architecture versus its data position and its user trust? Cursor's own moat may end up being less its two-lane design — which competitors can copy — and more the private usage data it trains on and the enterprise trust its no-code-at-rest promise earned. That is the thread the next articles pick up.
+          </p>
+
+          <div className="sources">
+            <h3>Sources</h3>
+            <ul>
+              <li><a href="https://cursor.com/blog/secure-codebase-indexing" target="_blank" rel="noopener">Cursor — "Securely indexing large codebases" (Jan 27, 2026)</a>. Tier 1. Merkle tree, 92% clone similarity, 3.2 MB/50k-file hashes, 80% index threshold, time-to-first-query figures, simhash reuse, 12.5% accuracy.</li>
+              <li><a href="https://cursor.com/blog/semsearch" target="_blank" rel="noopener">Cursor — "Improving agent with semantic search" (Nov 6, 2025)</a>. Tier 1. +12.5% avg accuracy (6.5–23.5%), code retention +0.3% / +2.6% (1,000+ files), +2.2% dissatisfied requests, custom embedding model trained on agent traces, Cursor Context Bench.</li>
+              <li><a href="https://newsletter.pragmaticengineer.com/p/cursor" target="_blank" rel="noopener">The Pragmatic Engineer — "Real-world engineering challenges: building Cursor" (Jun 10, 2025)</a>. Tier 1 (cofounder interview). 50 engineers, 1M+ TPS, 100x/12mo, ~1B completions/day, ARR $100M→$500M, 25k files / 7M LOC, VS Code fork, TypeScript+Rust, turbopuffer/Pinecone, Anyrun (EC2+Firecracker), 3-min sync, Yugabyte→PostgreSQL, turbopuffer emergency migration.</li>
+              <li><a href="https://blog.bytebytego.com/p/how-cursor-serves-billions-of-ai" target="_blank" rel="noopener">ByteByteGo — "How Cursor Serves Billions of AI Code Completions Every Day" (Jul 29, 2025)</a>. Tier 2 (derived from Cursor docs). Model routing (OpenAI/Anthropic/Gemini/xAI + in-house), Fireworks for low-latency models, turbopuffer vector store, background-summarization routing.</li>
+              <li><a href="https://techcrunch.com/2025/06/05/cursors-anysphere-nabs-9-9b-valuation-soars-past-500m-arr/" target="_blank" rel="noopener">TechCrunch — "Cursor's Anysphere nabs $9.9B valuation, soars past $500M ARR" (Jun 5, 2025)</a>. Tier 4. Valuation and ARR context.</li>
+            </ul>
+            <p className="muted">Provenance: all cited numbers are FACTs confirmed at the linked sources for the stated unit and period. The two-lane framing and the What-Broke before/after diagram are the article's synthesis of facts stated across these sources; no QPS, latency, cost, or team-size figure was invented. Later-2025/2026 ARR and valuation figures beyond June 2025 are secondary and labeled as such.</p>
+          </div>
+        </section>
+
+      </main>
+      <footer className="foot">AI Product Intelligence · Type 2 — AI Product Teardown · built from cited sources, {new Date().getFullYear()}</footer>
+    </div>
+  );
+}
+
+function SelfNote({ placeholder, rows }) {
+  const [t, setT] = useState("");
+  const [done, setDone] = useState(false);
+  return (
+    <div className="q">
+      {!done && (
+        <div>
+          <textarea className="ta" rows={rows || 3} value={t} placeholder={placeholder} onChange={(e) => setT(e.target.value)} />
+          <button className="btn" disabled={!clampChars(t, 20)} onClick={() => setDone(true)}>{clampChars(t, 20) ? "Save" : "Enter at least 20 characters"}</button>
+        </div>
+      )}
+      {done && <Reveal><div className="your-answer"><span>Saved:</span> {t}</div><button className="btn btn-ghost" onClick={() => setDone(false)}>Edit</button></Reveal>}
+    </div>
+  );
+}
+
+function InsightReveal({ cards }) {
+  const [t, setT] = useState("");
+  const [done, setDone] = useState(false);
+  return (
+    <div className="q">
+      {!done && (
+        <div>
+          <textarea className="ta" rows={3} value={t} placeholder="Your single most non-obvious insight (min 30 characters)" onChange={(e) => setT(e.target.value)} />
+          <button className="btn" disabled={!clampChars(t, 30)} onClick={() => setDone(true)}>{clampChars(t, 30) ? "Reveal authored insights" : "Enter at least 30 characters"}</button>
+        </div>
+      )}
+      {done && (
+        <Reveal>
+          <div className="your-answer"><span>Your insight:</span> {t}</div>
+          <div className="authored-label">How your insight compares</div>
+          {cards.map((c, i) => <div className="insight-card" key={i}>{c}</div>)}
+        </Reveal>
+      )}
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+</script>
+</body>
+</html>

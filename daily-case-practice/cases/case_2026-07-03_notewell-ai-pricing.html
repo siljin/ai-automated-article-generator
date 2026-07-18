@@ -1,0 +1,373 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Case Practice — NoteWell AI</title>
+<style>
+  :root{ color-scheme: light;
+    --bg:#faf9f6; --card:#ffffff; --border:#e2ddd2; --text:#2c2c2a; --muted:#6b6a63;
+    --accent:#0f6e56; --accent-bg:#e1f5ee; --accent-text:#085041; --warn-bg:#faeeda; --warn-text:#633806;
+    --miss-bg:#fcebeb; --miss-text:#791f1f; --hit-bg:#eaf3de; --hit-text:#27500a;
+  }
+  html,body{background:var(--bg);}
+  body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;color:var(--text);max-width:780px;margin:0 auto;padding:2rem 1.25rem 4rem;line-height:1.6;}
+  h1{font-size:22px;font-weight:600;margin-bottom:.25rem;}
+  .meta{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:1.5rem;}
+  .badge{font-size:12px;padding:3px 10px;border-radius:20px;background:var(--accent-bg);color:var(--accent-text);}
+  .card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:1.25rem 1.4rem;margin-bottom:1.25rem;}
+  .card h2{font-size:16px;margin:0 0 .6rem;}
+  .card h3{font-size:14px;margin:0 0 .4rem;color:var(--muted);}
+  p{margin:.4rem 0;}
+  ul{margin:.4rem 0;padding-left:1.2rem;}
+  textarea,input[type=text]{width:100%;border:1px solid var(--border);border-radius:8px;padding:10px;font-family:inherit;font-size:14px;box-sizing:border-box;}
+  textarea{min-height:90px;resize:vertical;}
+  button{background:var(--text);color:#fff;border:none;border-radius:8px;padding:9px 16px;font-size:13px;cursor:pointer;margin-top:8px;margin-right:6px;}
+  button.secondary{background:transparent;color:var(--text);border:1px solid var(--border);}
+  button:disabled{opacity:.4;cursor:not-allowed;}
+  .hidden{display:none;}
+  .reveal{background:#fbfaf6;border:1px dashed var(--border);border-radius:8px;padding:12px 14px;margin-top:10px;}
+  .data-chip{display:inline-block;background:var(--warn-bg);color:var(--warn-text);font-size:12px;padding:4px 10px;border-radius:6px;margin:4px 4px 4px 0;cursor:pointer;}
+  table{width:100%;border-collapse:collapse;font-size:13px;margin-top:8px;}
+  td,th{border:1px solid var(--border);padding:6px 8px;text-align:left;}
+  .footer{font-size:12px;color:var(--muted);margin-top:2rem;border-top:1px solid var(--border);padding-top:1rem;}
+  .footer a{color:var(--accent-text);}
+  .qa-row{border-radius:8px;padding:8px 10px;margin-top:8px;font-size:13.5px;}
+  .qa-hit{background:var(--hit-bg);color:var(--hit-text);}
+  .qa-miss{background:var(--miss-bg);color:var(--miss-text);}
+  .qcount{font-size:12px;color:var(--muted);margin-top:4px;}
+  .chart-wrap{position:relative;height:240px;margin:10px 0;}
+</style>
+</head>
+<body>
+
+<h1>NoteWell AI — pricing strategy under margin squeeze</h1>
+<div class="meta">
+  <span class="badge">Pricing / Growth Strategy</span>
+  <span class="badge">Healthcare + AI</span>
+  <span class="badge">Difficulty: Medium-Hard</span>
+  <span class="badge">~35 min, full case</span>
+</div>
+
+<div class="card">
+  <h2>Prompt</h2>
+  <p>NoteWell AI sells an ambient AI scribe — a tool that listens to doctor-patient visits and auto-drafts the clinical note — to mid-sized hospital systems. NoteWell charges a flat <strong>$150 per provider per month</strong> subscription.</p>
+  <p>Two forces are squeezing NoteWell from both sides. Low-cost standalone apps now start around <strong>$40/provider/month</strong> and are peeling off small practices. At the same time, enterprise players like Abridge, Augmedix, and Microsoft's DAX Copilot (list price $500+/provider/month) are winning the largest health systems by bundling in EHR integration, coding/revenue-cycle support, and compliance guarantees that NoteWell can't yet match.</p>
+  <p>NoteWell's CEO has asked your team: <strong>should we change our pricing model to defend and grow our position in the mid-market hospital segment?</strong></p>
+  <button class="secondary" onclick="reveal('addl-info')">Reveal case givens (info usually offered upfront)</button>
+  <div id="addl-info" class="reveal hidden">
+    <ul>
+      <li>No specific revenue or margin target has been set — open-ended strategic question</li>
+      <li>NoteWell has three rough customer tiers: small outpatient practices, mid-market hospital systems, and large enterprise health systems</li>
+      <li>Gross margin on the current subscription is ~78% (cloud inference + support costs)</li>
+    </ul>
+  </div>
+</div>
+
+<div class="card">
+  <h2>Step 1 — Ask your own clarifying questions</h2>
+  <p style="color:var(--muted);font-size:13px;">Type a question you'd ask the interviewer. If it lines up with one of the 5 things a strong candidate would ask here, I'll reveal the answer. If not, you'll get "no information available" — just like a real interview where off-target questions don't move you forward.</p>
+  <input type="text" id="cq-input" placeholder="e.g. How does NoteWell make money today?">
+  <button onclick="askClarify()" id="cq-ask-btn">Ask</button>
+  <button class="secondary" onclick="revealGaps()">I'm done asking — show what I might have missed</button>
+  <div class="qcount" id="qcount">0 questions asked</div>
+  <div id="cq-transcript"></div>
+  <div id="cq-gaps" class="reveal hidden"></div>
+</div>
+
+<div class="card">
+  <h2>Step 2 — Build your framework</h2>
+  <p>Take 60-90 seconds. Write the buckets you'd use to structure this pricing decision before revealing a model answer.</p>
+  <textarea id="fw-input" placeholder="e.g. 1) Customer segments and willingness to pay... 2) Competitive positioning... 3)..."></textarea>
+  <br><button onclick="unlockReveal('fw-input','fw-answer','fw-btn')" id="fw-btn">Reveal model framework</button>
+  <div id="fw-answer" class="reveal hidden">
+    <h3>A reasonable structure</h3>
+    <p><strong>1. Customer segmentation & willingness to pay</strong> — how do small practices, mid-market systems, and large enterprise systems differ in what they'll pay and why?</p>
+    <p><strong>2. Value delivered vs. price</strong> — is $150/provider priced against time-saved, or against downstream revenue capture (coding accuracy, visit volume)?</p>
+    <p><strong>3. Competitive positioning</strong> — where does NoteWell sit between the $40 budget tier and the $500+ enterprise tier, and is the middle a viable place to live?</p>
+    <p><strong>4. Pricing model options</strong> — per-seat vs. per-visit vs. outcome/revenue-share vs. tiered bundling.</p>
+    <p><strong>5. Implementation & risk</strong> — margin impact, sales complexity, customer reaction, competitive response.</p>
+  </div>
+</div>
+
+<div class="card">
+  <h2>Step 3 — Brainstorm</h2>
+  <p><strong>Q:</strong> The mid-market hospital systems in the middle are the ones churning. What might be driving them toward the budget tier or away from NoteWell entirely? Generate at least 4-5 ideas.</p>
+  <textarea id="bs-input" placeholder="List your ideas..."></textarea>
+  <br><button onclick="unlockReveal('bs-input','bs-answer','bs-btn')" id="bs-btn">Reveal reference ideas</button>
+  <div id="bs-answer" class="reveal hidden">
+    <p><strong>Price-driven:</strong> budget apps are 3-4x cheaper and "good enough" for lower-acuity specialties; procurement pressure from hospital CFOs post-pandemic margin squeeze.</p>
+    <p><strong>Value-driven:</strong> mid-market systems don't have the EHR/coding integration that makes the enterprise tier's revenue-capture case compelling, so they don't see $150 fully justified either.</p>
+    <p><strong>Product-driven:</strong> budget tools may now match core transcription quality; NoteWell's differentiation (compliance, integration) may matter more to large systems than mid-market ones.</p>
+    <p><strong>Switching-cost driven:</strong> low integration depth today means low switching costs — nothing locks a mid-market customer in once price becomes the deciding factor.</p>
+    <p><strong>Trust/adoption driven:</strong> physician skepticism after mixed results in published trials (modest, inconsistent time savings) may make CFOs question whether the premium price is worth it.</p>
+  </div>
+</div>
+
+<div class="card">
+  <h2>Step 4 — Read the chart</h2>
+  <p><strong>Q:</strong> Here's how NoteWell's book of business breaks down by segment. What stands out to you, and what would you dig into next?</p>
+  <div class="chart-wrap"><canvas id="churnChart"></canvas></div>
+  <table>
+    <tr><th>Segment</th><th>Customers</th><th>Avg providers/customer</th><th>Churn rate</th></tr>
+    <tr><td>Small practice</td><td>900</td><td>8</td><td>16%</td></tr>
+    <tr><td>Mid-market hospital</td><td>400</td><td>120</td><td>11% (up from 8%)</td></tr>
+    <tr><td>Enterprise health system</td><td>35</td><td>650</td><td>3%</td></tr>
+  </table>
+  <div class="chart-wrap" style="margin-top:16px;"><canvas id="priceChart"></canvas></div>
+  <p style="font-size:13px;color:var(--muted);">Ambient scribe pricing across the market, per provider/month: budget apps ~$40, NoteWell ~$150, enterprise platforms $500+.</p>
+  <textarea id="chart-input" placeholder="Your read on the chart..."></textarea>
+  <br><button onclick="unlockReveal('chart-input','chart-answer','chart-btn')" id="chart-btn">Reveal model interpretation</button>
+  <div id="chart-answer" class="reveal hidden">
+    <p>Three things jump out. First, <strong>churn is concentrated exactly where NoteWell has the most revenue at stake</strong> — mid-market carries 400 customers at 120 providers each (the largest revenue base) and its churn just rose from 8% to 11%, while the much smaller enterprise base is far more stable at 3%.</p>
+    <p>Second, <strong>NoteWell sits almost exactly in the middle of the price spectrum</strong> ($150 vs. $40 and $500+) without a correspondingly differentiated value story for the mid-market — it's priced like a premium product but doesn't yet carry the enterprise-grade integration that would justify that gap.</p>
+    <p>Third, the <strong>small-practice segment has the highest churn (16%) but the least revenue at risk</strong> (8 providers each) — so while it's the noisiest number, it's not necessarily where NoteWell should spend the most effort fixing.</p>
+    <p style="color:var(--muted);font-size:13px;">A strong candidate reads the chart directionally, ties it back to the segmentation framework from Step 2, and prioritizes the mid-market churn as the real problem — not just the segment with the highest percentage.</p>
+  </div>
+</div>
+
+<div class="card">
+  <h2>Step 5 — Quant exercise</h2>
+  <p><strong>Q:</strong> NoteWell is considering replacing the flat $150/provider/month fee with a hybrid model: <strong>$60/provider/month base fee + $2 per completed visit note</strong>. For a typical mid-market hospital system, estimate whether this hybrid model raises or lowers NoteWell's revenue per system, and by how much. Ask the interviewer for any data you need.</p>
+  <div>
+    <span class="data-chip" onclick="reveal('d1')">Ask: providers per system</span>
+    <span class="data-chip" onclick="reveal('d2')">Ask: visits per provider</span>
+    <span class="data-chip" onclick="reveal('d3')">Ask: working days/month</span>
+  </div>
+  <div id="d1" class="reveal hidden">Average mid-market system has <strong>120 providers</strong> on NoteWell.</div>
+  <div id="d2" class="reveal hidden">Each provider sees roughly <strong>18 patient visits per working day</strong>, and NoteWell generates a note for about <strong>85% of those visits</strong> (some visits are too short or off-platform).</div>
+  <div id="d3" class="reveal hidden">Assume <strong>20 working days per month</strong> per provider.</div>
+  <textarea id="math-input" placeholder="Show your calculation..."></textarea>
+  <br><button onclick="unlockReveal('math-input','math-answer','math-btn')" id="math-btn">Reveal calculation</button>
+  <div id="math-answer" class="reveal hidden">
+    <table>
+      <tr><th></th><th>Current (flat $150)</th><th>Hybrid ($60 + $2/note)</th></tr>
+      <tr><td>Monthly revenue per system</td><td>120 × $150 = <strong>$18,000</strong></td><td>Base: 120 × $60 = $7,200<br>Notes: 120 × 18 × 20 × 85% = 36,720 notes × $2 = $73,440<br>Total = <strong>$80,640</strong></td></tr>
+    </table>
+    <p><strong>The hybrid model roughly 4.5x's monthly revenue per system</strong> ($80,640 vs $18,000) under these volume assumptions — because visit volume (2,160 visits/month per provider) is high relative to the $150 flat fee, so a $2/note charge scales revenue much faster than a seat fee.</p>
+    <p><strong>Sanity check / advanced comment:</strong> this is almost certainly too large a price increase to survive a renewal conversation — a 4.5x price hike would trigger heavy pushback or defection, especially from budget-sensitive mid-market CFOs already flagged as churn risks. The math shows the hybrid model directionally favors NoteWell if usage is high, but the actual per-note rate would need to be reverse-engineered from a target realistic increase (e.g. 10-20%) rather than accepted at face value — a good candidate flags this instead of just reporting the raw number.</p>
+  </div>
+</div>
+
+<div class="card">
+  <h2>Step 6 — Recommendation</h2>
+  <p>Pull it together: what should NoteWell's CEO do, and what's the biggest risk?</p>
+  <textarea id="rec-input" placeholder="Your recommendation..."></textarea>
+  <br><button onclick="unlockReveal('rec-input','rec-answer','rec-btn')" id="rec-btn">Reveal model recommendation</button>
+  <div id="rec-answer" class="reveal hidden">
+    <p>NoteWell should <strong>not</strong> adopt the hybrid model as calculated — the math reveals it's mispriced, not that usage-based pricing is wrong. Better path: introduce a <strong>tiered structure</strong> — keep a lower base seat fee for low-usage/small practices, add a modest per-note component calibrated to roughly a 10-15% blended increase, and reserve the premium enterprise bundle (coding/EHR integration) for large systems willing to pay closer to the $300-500 range.</p>
+    <p><strong>Biggest risk:</strong> repricing during a period of elevated churn and mixed clinical-outcome data could accelerate defection rather than stem it — any change should be piloted with a subset of stable mid-market accounts (the highest-revenue-at-risk segment from the chart) and paired with clearer ROI proof points before a broad rollout.</p>
+    <p style="color:var(--muted);font-size:13px;">Real-world grounding: enterprise ambient scribe pricing is genuinely contract-priced and can exceed $500/provider/month, while budget tools start near $40 — the mid-market squeeze in this case mirrors the real pricing spread reported in the ambient AI scribe market in 2026.</p>
+  </div>
+</div>
+
+<div class="footer">
+  Generated as part of a daily case-practice series (AI/Healthcare-heavy rotation). Grounded loosely in real 2026 reporting on ambient AI scribe pricing and adoption — used for practice purposes only, not a real company.
+  <br>Sources: <a href="https://www.commure.com/blog-scribe/scribe-pricing" target="_blank">Commure — AI Medical Scribe Pricing 2026</a>, <a href="https://www.statnews.com/2026/04/01/ai-ambient-scribes-modest-time-savings-clinical-documentation/" target="_blank">STAT — Large AI scribe study</a>, <a href="https://www.aha.org/aha-center-health-innovation-market-scan/2026-04-14-6-health-systems-enhancing-care-delivery-ambient-ai-scribes" target="_blank">AHA — Health systems using ambient AI scribes</a>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.0/dist/chart.umd.js" integrity="sha384-iU8HYtnGQ8Cy4zl7gbNMOhsDTTKX02BTXptVP/vqAWIaTfM7isw76iyZCsjL2eVi" crossorigin="anonymous"></script>
+<script>
+function reveal(id){document.getElementById(id).classList.remove('hidden');}
+
+function unlockReveal(inputId, answerId, btnId){
+  const val = document.getElementById(inputId).value.trim();
+  if(val.length < 5){
+    alert("Jot down at least a quick attempt first — that's the whole point of the drill.");
+    return;
+  }
+  reveal(answerId);
+  document.getElementById(btnId).disabled = true;
+}
+
+// ---- Clarifying question matching ----
+const CLARIFYING_QUESTIONS = [
+  {
+    tags: ["business model","how do they make money","revenue model","monetize","monetise","pricing model today","current pricing","how is notewell priced","how does notewell make money"],
+    q: "What is NoteWell's business model / how do they make money today?",
+    a: "Pure per-seat SaaS subscription, billed monthly to the hospital system, no usage-based component today."
+  },
+  {
+    tags: ["buyer","who buys","decision maker","who decides","who is the customer","who cares","stakeholder","who signs off"],
+    q: "Who are the buyers and what do they care about?",
+    a: "CFO/CMIO jointly sign off. CFOs care about total cost of ownership and predictability; CMIOs care about physician adoption and burnout reduction."
+  },
+  {
+    tags: ["market growing","growing market","share shift","market share","industry growth","market size","competition intensity","growing or shrinking","is this a growth market"],
+    q: "Is the market growing, or is this a share-shift problem?",
+    a: "The category is still growing fast (physician adoption at leading systems went from niche to majority within about two years), but competitive intensity is also rising sharply — so it's both."
+  },
+  {
+    tags: ["outcome data","time saved","revenue capture data","evidence","proof point","data on results","effectiveness data","do we have data"],
+    q: "Does NoteWell have data on outcomes (time saved, revenue capture)?",
+    a: "Yes — internal data shows roughly 15 minutes saved per encounter in documentation time, and early signs that more complete notes support more accurate coding."
+  },
+  {
+    tags: ["goal","target","objective","what does success look like","financial target","revenue target","margin target","what is the goal"],
+    q: "Is there a specific financial goal or target for this pricing change?",
+    a: "No specific revenue or margin target has been set — it's an open-ended strategic question about defending and growing the mid-market segment."
+  }
+];
+const askedIdx = new Set();
+let questionCount = 0;
+let cqBusy = false;
+
+// Matching is hybrid: try Claude-based semantic matching first (understands paraphrasing/
+// intent, not just shared words), and fall back to a tuned keyword matcher if the Cowork
+// bridge isn't available (e.g. this file opened directly outside the artifact) or errors out.
+
+const STOPWORDS = new Set(['a','an','the','is','are','was','were','do','does','did','how','what',
+  'why','who','which','can','could','would','will','of','to','for','in','on','at','and','or',
+  'this','that','it','its','we','you','your','im','i','me','my','have','has','had','be','been',
+  'being','with','about','so','if','as','doesnt']);
+
+function stem(w){
+  if(w.length > 5 && w.endsWith('ing')) return w.slice(0,-3);
+  if(w.length > 4 && w.endsWith('ed')) return w.slice(0,-2);
+  if(w.length > 4 && w.endsWith('es')) return w.slice(0,-2);
+  if(w.length > 3 && w.endsWith('s') && !w.endsWith('ss')) return w.slice(0,-1);
+  return w;
+}
+
+function normalize(s){ return s.toLowerCase().replace(/[^a-z0-9\s]/g,' ').replace(/\s+/g,' ').trim(); }
+
+function tokenize(s){
+  return normalize(s).split(' ').filter(w => w && !STOPWORDS.has(w)).map(stem);
+}
+
+function scoreMatch(input, tags){
+  const inputWords = new Set(tokenize(input));
+  let best = 0;
+  tags.forEach(tag => {
+    const tagWords = tokenize(tag);
+    if(tagWords.length === 0) return;
+    const hits = tagWords.filter(w => inputWords.has(w)).length;
+    const ratio = hits / tagWords.length;
+    best = Math.max(best, ratio);
+  });
+  return best;
+}
+
+function keywordMatch(text){
+  let bestIdx = -1, bestScore = 0;
+  CLARIFYING_QUESTIONS.forEach((item, idx) => {
+    const s = scoreMatch(text, item.tags);
+    if(s > bestScore){ bestScore = s; bestIdx = idx; }
+  });
+  return bestScore >= 0.4 ? bestIdx : -1;
+}
+
+async function semanticMatch(text){
+  if(!(window.cowork && typeof window.cowork.askClaude === 'function')) return null; // bridge unavailable
+  const list = CLARIFYING_QUESTIONS.map((item, idx) => (idx+1) + '. ' + item.q).join('\n');
+  const prompt = 'You are grading a case-interview candidate\'s clarifying question against a fixed list of ' +
+    'canonical questions the interviewer is prepared to answer. Reply with ONLY the number of the canonical ' +
+    'question that asks for essentially the same underlying information as the candidate\'s question, even if ' +
+    'worded very differently. If none of them are asking for the same thing, reply with exactly 0. No other text.';
+  try {
+    const res = await window.cowork.askClaude(prompt, [
+      'Candidate question: ' + text,
+      'Canonical questions:\n' + list
+    ]);
+    const raw = (typeof res === 'string') ? res : (res && res.text) ? res.text : JSON.stringify(res || '');
+    const match = raw.match(/-?\d+/);
+    if(!match) return null;
+    const n = parseInt(match[0], 10);
+    if(n >= 1 && n <= CLARIFYING_QUESTIONS.length) return n - 1;
+    return -1; // model explicitly said no match
+  } catch(e){
+    return null; // treat as unavailable, fall back to keyword matcher
+  }
+}
+
+async function askClarify(){
+  if(cqBusy) return;
+  const input = document.getElementById('cq-input');
+  const text = input.value.trim();
+  if(!text) return;
+  cqBusy = true;
+  const btn = document.getElementById('cq-ask-btn');
+  if(btn) btn.disabled = true;
+
+  questionCount++;
+  document.getElementById('qcount').textContent = questionCount + ' question' + (questionCount===1?'':'s') + ' asked' + (questionCount>=4 ? ' — most real interviews expect only 2-3, consider moving to structuring' : '');
+
+  const row = document.createElement('div');
+  row.className = 'qa-row';
+  row.style.background = 'var(--warn-bg)';
+  row.style.color = 'var(--warn-text)';
+  row.innerHTML = '<strong>You asked:</strong> ' + text + '<br><em>Checking...</em>';
+  document.getElementById('cq-transcript').prepend(row);
+  input.value = '';
+
+  let matchIdx = await semanticMatch(text);
+  if(matchIdx === null) matchIdx = keywordMatch(text);
+
+  if(matchIdx >= 0){
+    askedIdx.add(matchIdx);
+    row.className = 'qa-row qa-hit';
+    row.innerHTML = '<strong>You asked:</strong> ' + text + '<br><strong>Interviewer:</strong> ' + CLARIFYING_QUESTIONS[matchIdx].a;
+  } else {
+    row.className = 'qa-row qa-miss';
+    row.innerHTML = '<strong>You asked:</strong> ' + text + '<br><strong>Interviewer:</strong> "No information available for that — let\'s keep it focused on the business problem."';
+  }
+  if(btn) btn.disabled = false;
+  cqBusy = false;
+}
+
+function revealGaps(){
+  const missed = CLARIFYING_QUESTIONS.filter((_, idx) => !askedIdx.has(idx));
+  const box = document.getElementById('cq-gaps');
+  box.classList.remove('hidden');
+  if(missed.length === 0){
+    box.innerHTML = '<p><strong>Nice — you covered all the questions a strong candidate would typically ask here.</strong></p>';
+  } else {
+    box.innerHTML = '<p><strong>Questions you didn\'t ask that would have been worth it:</strong></p><ul>' +
+      missed.map(m => '<li>' + m.q + '<br><span style="color:var(--muted)">' + m.a + '</span></li>').join('') + '</ul>';
+  }
+}
+
+// ---- Charts ----
+window.addEventListener('load', function(){
+  new Chart(document.getElementById('churnChart'), {
+    type: 'bar',
+    data: {
+      labels: ['Small practice', 'Mid-market hospital', 'Enterprise health system'],
+      datasets: [{
+        label: 'Churn rate (%)',
+        data: [16, 11, 3],
+        backgroundColor: ['#f0997b', '#378add', '#5dcaa5']
+      }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        title: { display: true, text: 'Churn rate by segment' }
+      },
+      scales: { y: { beginAtZero: true, title: { display: true, text: '% churn' } } }
+    }
+  });
+
+  new Chart(document.getElementById('priceChart'), {
+    type: 'bar',
+    data: {
+      labels: ['Budget apps', 'NoteWell (current)', 'Enterprise platforms'],
+      datasets: [{
+        label: '$ per provider / month',
+        data: [40, 150, 500],
+        backgroundColor: ['#facf9b', '#f0997b', '#993c1d']
+      }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        title: { display: true, text: 'Ambient scribe pricing spread (2026)' }
+      },
+      scales: { y: { beginAtZero: true, title: { display: true, text: '$ / provider / month' } } }
+    }
+  });
+});
+</script>
+</body>
+</html>

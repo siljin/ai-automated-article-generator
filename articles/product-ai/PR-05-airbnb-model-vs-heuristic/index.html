@@ -1,0 +1,1266 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>When a Problem Warrants a Model, Not a Heuristic — Airbnb (AI Feasibility & Technical Scoping)</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #fff; color: #111827; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+  h2 { font-size: 24px; margin: 8px 0 12px; }
+  h3 { font-size: 18px; margin: 22px 0 8px; }
+  h4 { font-size: 15px; }
+  p { margin: 0 0 14px; }
+  em { color: #1e3a8a; font-style: italic; }
+  #root { min-height: 100vh; }
+  textarea:focus, input:focus { outline: 2px solid #93c5fd; }
+</style>
+<script crossorigin src="https://unpkg.com/react@18.3.1/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/prop-types@15.8.1/prop-types.min.js"></script>
+<script crossorigin src="https://unpkg.com/recharts@2.12.7/umd/Recharts.js"></script>
+<script src="https://unpkg.com/@babel/standalone@7.24.7/babel.min.js"></script>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel" data-presets="env,react">
+/* =============================================================================
+   Airbnb: When a Problem Warrants a Model, Not a Heuristic
+   Type 1 — AI Feasibility & Technical Scoping
+   Primary source: Davis et al., "Transforming Location Retrieval at Airbnb:
+   A Journey from Heuristics to Reinforcement Learning," arXiv:2408.13399v2
+   (2024), published at CIKM 2024. All numeric FACTs verified against Table 1
+   and the paper body. https://arxiv.org/abs/2408.13399
+   ============================================================================= */
+const { useState } = React;
+const R = window.Recharts || {};
+const {
+  BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
+  ResponsiveContainer, Cell, LabelList, ReferenceLine, Legend
+} = R;
+
+/* ---------- Palette ---------- */
+const C = {
+  accent: "#2563eb", green: "#16a34a", red: "#dc2626", amber: "#d97706",
+  gray: "#94a3b8", ink: "#111827", muted: "#6b7280", line: "#e5e7eb"
+};
+
+/* ---------- Cross-artifact prior records (from cross-artifact-state.json) ---------- */
+const PRIOR = [
+  { title: "Phase 0 — AI Product Lifecycle Spine (Shopify Sidekick)", phase: "Feasibility → Govern" },
+  { title: "When Not to Use AI: Google's Feasibility Gates", phase: "Feasibility" },
+  { title: "Data Readiness Before Model Selection: Stripe", phase: "Feasibility" }
+];
+
+/* ---------- Warm-up questions (test prior principles in NEW contexts) ---------- */
+const WARMUP = [
+  {
+    id: "w1",
+    prompt: "A team wants to auto-triage inbound support tickets and is choosing between a hand-written keyword rule set and a fine-tuned classifier. Before comparing model accuracy, what is the first question they should answer, and why?",
+    authored: "Feasibility is not 'can a model do this?' but 'does a model beat a transparent heuristic once the cost of a wrong answer is priced in?' Start with the simplest thing that could work and make the model earn the incremental value against real error costs.",
+    source: "When Not to Use AI: Google's Feasibility Gates", phase: "Feasibility"
+  },
+  {
+    id: "w2",
+    prompt: "A logistics startup wants a delivery-ETA feature. What property of its own product's data-generating process most determines whether the feature is feasible — and what durable advantage could that property create?",
+    authored: "AI is feasible where the product itself produces fresh, representative ground-truth labels as a byproduct of normal use. That data position — not the model architecture — is the moat a competitor cannot copy quickly.",
+    source: "Data Readiness Before Model Selection: Stripe", phase: "Feasibility"
+  },
+  {
+    id: "w3",
+    prompt: "A new AI feature's offline evaluation looks excellent. Which lifecycle risk does a strong offline score NOT rule out, and which earlier-phase decision most constrains what you can safely do at scale?",
+    authored: "A strong offline score does not rule out that the feature fails to move the business metric online, or that the data process feeding it will drift. Feasibility-phase decisions about data readiness and evaluation set the ceiling on what is trustworthy at scale.",
+    source: "Phase 0 — AI Product Lifecycle Spine", phase: "Feasibility → Scale"
+  }
+];
+
+/* ---------- Chart data (all FACT from arXiv:2408.13399v2, Table 1 & body) ---------- */
+
+// Launched path cumulative online uncancelled-bookers uplift.
+// H4 +0.35% (vs H3), ML +1.8% (vs heuristics), RL +0.51% (vs ML) => cumulative +2.66%.
+const CUM = [
+  { step: "Start", cum: 0 },
+  { step: "Heuristic 4", cum: 0.35 },
+  { step: "ML model", cum: 2.15 },
+  { step: "RL (MC Dropout)", cum: 2.66 }
+];
+
+// Per-approach ONLINE uncancelled-bookers uplift vs its own baseline.
+const PERSTEP = [
+  { name: "Heuristic 4", val: 0.35, base: "vs Heuristic 3" },
+  { name: "Statistics", val: 0.0, base: "vs Heuristics — NO stat sig" },
+  { name: "ML model", val: 1.8, base: "vs Heuristics" },
+  { name: "RL (MC Dropout)", val: 0.51, base: "vs ML" }
+];
+
+// Offline vs online: recall uplift (offline) vs uncancelled-bookers uplift (online).
+const OFFON = [
+  { name: "Statistics", offline: 1.05, online: 0.0 },
+  { name: "ML model", offline: 7.12, online: 1.8 }
+];
+
+// ML dual win (offline, cumulative over launch + 2 iterations; listings retrieved).
+const MLWIN = [
+  { metric: "Booked-listing recall", val: 7.12, kind: "offline" },
+  { metric: "Retrieval bounds size", val: -40.83, kind: "offline" },
+  { metric: "Listings retrieved", val: 0.57, kind: "online/offline" }
+];
+
+// RL vs ML baseline.
+const RLIMPACT = [
+  { metric: "Uncancelled bookers", val: 0.51, kind: "online" },
+  { metric: "Booked-listing recall", val: 0.25, kind: "offline" },
+  { metric: "Retrieval bounds size", val: -9.3, kind: "offline" },
+  { metric: "Model confidence", val: 7.33, kind: "since launch" }
+];
+
+// What Broke — the statistics rung: offline gain, zero online.
+const FAILDATA = [
+  { name: "Offline: booked-listing recall", val: 1.05, note: "measured gain" },
+  { name: "Online: uncancelled bookers", val: 0.0, note: "no stat-sig change" }
+];
+
+/* ======================= Small shared bits ======================= */
+function Pill({ children, bg, color }) {
+  return <span style={{ background: bg || "#eef2ff", color: color || C.accent, borderRadius: 999, padding: "2px 10px", fontSize: 12, fontWeight: 600, whiteSpace: "nowrap" }}>{children}</span>;
+}
+
+function LifecycleStrip({ active }) {
+  const phases = ["Feasibility", "Design", "Build", "Evaluate", "Deploy", "Scale", "Govern"];
+  return (
+    <div style={{ display: "flex", flexWrap: "wrap", gap: 4, alignItems: "center" }}>
+      {phases.map((p, i) => (
+        <React.Fragment key={p}>
+          <span style={{
+            fontSize: 11, padding: "2px 7px", borderRadius: 6,
+            background: active.includes(p) ? C.accent : "#f1f5f9",
+            color: active.includes(p) ? "#fff" : C.muted,
+            fontWeight: active.includes(p) ? 700 : 500
+          }}>{p}</span>
+          {i < phases.length - 1 && <span style={{ color: C.line, fontSize: 10 }}>›</span>}
+        </React.Fragment>
+      ))}
+    </div>
+  );
+}
+
+function Glossary({ items }) {
+  if (!items || !items.length) return null;
+  return (
+    <div style={{ background: "#f8fafc", border: "1px solid " + C.line, borderRadius: 10, padding: "14px 18px", marginTop: 26 }}>
+      <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: 0.5, color: C.muted, textTransform: "uppercase", marginBottom: 8 }}>Glossary</div>
+      {items.map((g, i) => (
+        <div key={i} style={{ fontSize: 14, marginBottom: 6, lineHeight: 1.5 }}>
+          <strong>{g.t}</strong> — {g.d}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function Confidence({ value, onChange, disabled }) {
+  return (
+    <div style={{ display: "flex", gap: 8, alignItems: "center", margin: "10px 0" }}>
+      <span style={{ fontSize: 13, color: C.muted }}>Confidence:</span>
+      {["Low", "Medium", "High"].map(l => (
+        <button key={l} disabled={disabled} onClick={() => onChange(l)}
+          style={{
+            fontSize: 13, padding: "4px 12px", borderRadius: 7, cursor: disabled ? "default" : "pointer",
+            border: "1px solid " + (value === l ? C.accent : C.line),
+            background: value === l ? "#eef2ff" : "#fff", color: value === l ? C.accent : C.ink
+          }}>{l}</button>
+      ))}
+    </div>
+  );
+}
+
+/* ======================= Chart block with 2 gated interpretation prompts ======================= */
+function ChartBlock({ id, children, note, prompts, interp, setInterp, reader, setReader }) {
+  const state = interp[id] || [false, false];
+  const rd = reader[id] || ["", "", ""]; // [ans0, ans1, numericPrediction]
+
+  function mark(idx) {
+    setInterp({ ...interp, [id]: state.map((v, i) => (i === idx ? true : v)) });
+  }
+  function submit(idx) {
+    if ((rd[idx] || "").trim().length < 15) return;
+    mark(idx);
+  }
+  function submitNum(idx) {
+    if (rd[2] === "" || rd[2] === undefined) return;
+    mark(idx);
+  }
+
+  return (
+    <div style={{ margin: "26px 0", border: "1px solid " + C.line, borderRadius: 12, padding: 18 }}>
+      {children}
+      <div style={{ fontSize: 12, color: C.muted, marginTop: 6, fontStyle: "italic" }}>{note}</div>
+      {prompts.map((p, idx) => {
+        const isNum = !!p.numeric;
+        const done = state[idx];
+        return (
+          <div key={idx} style={{ marginTop: 16, background: "#f8fafc", borderRadius: 8, padding: 14 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: C.accent, marginBottom: 4 }}>{p.kind}</div>
+            <div style={{ fontSize: 14, marginBottom: 8, lineHeight: 1.55 }}>{p.text}</div>
+            {isNum ? (
+              <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                <input type="number" step="any" disabled={done} placeholder={p.numeric.placeholder}
+                  value={rd[2]} onChange={e => setReader({ ...reader, [id]: [rd[0], rd[1], e.target.value] })}
+                  style={{ width: 130, padding: "7px 10px", border: "1px solid " + C.line, borderRadius: 7 }} />
+                <span style={{ fontSize: 13, color: C.muted }}>{p.numeric.unit}</span>
+                {!done && <button onClick={() => submitNum(idx)} style={btnStyle}>Submit prediction</button>}
+              </div>
+            ) : (
+              <React.Fragment>
+                <textarea disabled={done} value={rd[idx]}
+                  onChange={e => setReader({ ...reader, [id]: idx === 0 ? [e.target.value, rd[1], rd[2]] : [rd[0], e.target.value, rd[2]] })}
+                  placeholder="Write your answer (min 15 characters) before the authored one reveals…"
+                  style={{ width: "100%", minHeight: 54, padding: 10, border: "1px solid " + C.line, borderRadius: 7, fontFamily: "inherit", fontSize: 14, boxSizing: "border-box" }} />
+                {!done && <button onClick={() => submit(idx)} style={{ ...btnStyle, marginTop: 6 }}>Submit answer</button>}
+              </React.Fragment>
+            )}
+            {done && (
+              <div style={{ marginTop: 10, background: "#fff", border: "1px solid " + C.line, borderLeft: "3px solid " + C.accent, borderRadius: 6, padding: "10px 12px" }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: C.muted, marginBottom: 4 }}>Compare your answer to the authored one</div>
+                <div style={{ fontSize: 14, lineHeight: 1.6 }}>{p.authored}</div>
+                {isNum && <div style={{ fontSize: 13, color: C.muted, marginTop: 6 }}>{p.numeric.reveal}</div>}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+const btnStyle = { fontSize: 13, padding: "7px 14px", borderRadius: 7, border: "none", background: C.accent, color: "#fff", cursor: "pointer", fontWeight: 600 };
+
+/* ======================= Multiple-choice with confidence + 2-attempt scaffolding ======================= */
+function MC({ q, qs, setQs }) {
+  const st = qs[q.id] || { sel: null, submitted: false, correct: false, attempts: 0, conf: null, scaffold: false };
+  function pick(i) { if (st.submitted) return; setQs({ ...qs, [q.id]: { ...st, sel: i } }); }
+  function submit() {
+    if (st.sel == null || !st.conf) return;
+    const correct = st.sel === q.answer;
+    const attempts = st.attempts + 1;
+    setQs({ ...qs, [q.id]: { ...st, submitted: true, correct, attempts } });
+  }
+  function tryAgain() {
+    setQs({ ...qs, [q.id]: { ...st, submitted: false, sel: null, scaffold: st.attempts >= 1 } });
+  }
+  const wrapBg = q.tc ? "#fffbeb" : "#fff";
+  const wrapBorder = q.tc ? { borderLeft: "3px solid " + C.amber } : {};
+  return (
+    <div style={{ margin: "22px 0", border: "1px solid " + C.line, borderRadius: 10, padding: 16, background: wrapBg, ...wrapBorder }}>
+      {q.tc && <div style={{ fontSize: 12, fontWeight: 700, color: C.amber, marginBottom: 6 }}>CASE PROMPT</div>}
+      <div style={{ fontSize: 12, fontWeight: 700, color: C.accent, marginBottom: 6 }}>{q.tag}</div>
+      <div style={{ fontSize: 15, fontWeight: 600, lineHeight: 1.55, marginBottom: 12 }}>{q.prompt}</div>
+      {st.scaffold && !st.submitted && (
+        <div style={{ background: "#fef9c3", border: "1px solid #fde047", borderRadius: 8, padding: 12, marginBottom: 12, fontSize: 14, lineHeight: 1.55 }}>
+          <strong>Hint:</strong> {q.scaffold}
+        </div>
+      )}
+      {q.options.map((o, i) => {
+        let bd = C.line, bg = "#fff";
+        if (st.submitted) {
+          if (i === q.answer) { bd = C.green; bg = "#f0fdf4"; }
+          else if (i === st.sel) { bd = C.red; bg = "#fef2f2"; }
+        } else if (i === st.sel) { bd = C.accent; bg = "#eef2ff"; }
+        return (
+          <div key={i} onClick={() => pick(i)} style={{
+            border: "1px solid " + bd, background: bg, borderRadius: 8, padding: "10px 12px",
+            marginBottom: 8, cursor: st.submitted ? "default" : "pointer", fontSize: 14, lineHeight: 1.5
+          }}>
+            <strong>{String.fromCharCode(65 + i)}.</strong> {o}
+          </div>
+        );
+      })}
+      {!st.submitted && <Confidence value={st.conf} onChange={c => setQs({ ...qs, [q.id]: { ...st, conf: c } })} />}
+      {!st.submitted && <button onClick={submit} disabled={st.sel == null || !st.conf} style={{ ...btnStyle, opacity: (st.sel == null || !st.conf) ? 0.5 : 1 }}>Submit</button>}
+      {st.submitted && (
+        <div style={{ marginTop: 12 }}>
+          <div style={{ fontSize: 14, lineHeight: 1.6, marginBottom: 8 }}>{q.explain}</div>
+          <div style={{ fontSize: 13, fontWeight: 600, color: st.correct ? C.green : C.red, marginBottom: 8 }}>
+            {st.correct
+              ? st.conf + " confidence, correct — " + q.calibCorrect
+              : st.conf + " confidence, incorrect — " + q.calibWrong}
+          </div>
+          <div style={{ fontSize: 13, color: C.muted, fontStyle: "italic" }}>Where this generalizes: {q.generalizes}</div>
+          {!st.correct && <button onClick={tryAgain} style={{ ...btnStyle, marginTop: 10, background: "#fff", color: C.accent, border: "1px solid " + C.accent }}>Try again</button>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ======================= Numeric estimation (T-D) ======================= */
+function Numeric({ q, qs, setQs }) {
+  const st = qs[q.id] || { val: "", submitted: false, conf: null };
+  function submit() {
+    if (st.val === "" || !st.conf) return;
+    setQs({ ...qs, [q.id]: { ...st, submitted: true } });
+  }
+  const guess = parseFloat(st.val);
+  const within = st.submitted && Math.abs(guess - q.answer) <= q.tol;
+  return (
+    <div style={{ margin: "22px 0", border: "1px solid " + C.line, borderRadius: 10, padding: 16 }}>
+      <div style={{ fontSize: 12, fontWeight: 700, color: C.accent, marginBottom: 6 }}>{q.tag}</div>
+      <div style={{ fontSize: 15, fontWeight: 600, lineHeight: 1.55, marginBottom: 6 }}>{q.prompt}</div>
+      <div style={{ fontSize: 13, color: C.muted, marginBottom: 12 }}>Tolerance: {q.tolText}</div>
+      <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+        <input type="number" step="any" disabled={st.submitted} value={st.val}
+          onChange={e => setQs({ ...qs, [q.id]: { ...st, val: e.target.value } })}
+          style={{ width: 140, padding: "8px 10px", border: "1px solid " + C.line, borderRadius: 7 }} placeholder="Your estimate" />
+        <span style={{ fontSize: 13, color: C.muted }}>{q.unit}</span>
+      </div>
+      {!st.submitted && <Confidence value={st.conf} onChange={c => setQs({ ...qs, [q.id]: { ...st, conf: c } })} />}
+      {!st.submitted && <button onClick={submit} disabled={st.val === "" || !st.conf} style={{ ...btnStyle, marginTop: 6, opacity: (st.val === "" || !st.conf) ? 0.5 : 1 }}>Submit estimate</button>}
+      {st.submitted && (
+        <div style={{ marginTop: 12 }}>
+          <div style={{ fontSize: 14, marginBottom: 8 }}>
+            Your estimate: <strong>{guess}{q.unit}</strong> · Actual: <strong>{q.answer}{q.unit}</strong>{" "}
+            <span style={{ color: within ? C.green : C.red, fontWeight: 600 }}>{within ? "within tolerance" : "outside tolerance"}</span>
+          </div>
+          <div style={{ fontSize: 14, lineHeight: 1.6, marginBottom: 8 }}><strong>Decomposition:</strong> {q.decomp}</div>
+          <div style={{ fontSize: 13, color: st.conf === "High" && !within ? C.red : C.muted, marginBottom: 6 }}>
+            {within ? (st.conf + " confidence, correct — trust this arithmetic reasoning.")
+              : (st.conf + " confidence, off — " + q.calibWrong)}
+          </div>
+          <div style={{ fontSize: 13, color: C.muted, fontStyle: "italic" }}>Most sensitive assumption: {q.sensitive}</div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ======================= Free-text pattern transfer (T-F) ======================= */
+function Transfer({ q, qs, setQs }) {
+  const st = qs[q.id] || { val: "", submitted: false, checks: [false, false, false] };
+  function submit() { if ((st.val || "").trim().length < 50) return; setQs({ ...qs, [q.id]: { ...st, submitted: true } }); }
+  return (
+    <div style={{ margin: "22px 0", border: "1px solid " + C.line, borderRadius: 10, padding: 16, background: "#f5f3ff" }}>
+      <div style={{ fontSize: 12, fontWeight: 700, color: "#7c3aed", marginBottom: 6 }}>T-F · PATTERN TRANSFER</div>
+      <div style={{ fontSize: 14, lineHeight: 1.6, marginBottom: 10 }}>{q.prompt}</div>
+      <textarea disabled={st.submitted} value={st.val} onChange={e => setQs({ ...qs, [q.id]: { ...st, val: e.target.value } })}
+        placeholder="Min 50 characters. Name the principle, apply it to the new context, and name a NEW failure mode."
+        style={{ width: "100%", minHeight: 90, padding: 10, border: "1px solid " + C.line, borderRadius: 7, fontFamily: "inherit", fontSize: 14, boxSizing: "border-box" }} />
+      {!st.submitted && <button onClick={submit} style={{ ...btnStyle, marginTop: 8 }}>Submit</button>}
+      {st.submitted && (
+        <div style={{ marginTop: 12, background: "#fff", borderRadius: 8, padding: 12 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8 }}>Self-evaluation — check each honestly:</div>
+          {["Did I name the principle accurately?", "Is my application genuinely different from the Airbnb case?", "Is my failure mode new (not one covered in the article)?"].map((t, i) => (
+            <label key={i} style={{ display: "block", fontSize: 14, marginBottom: 6, cursor: "pointer" }}>
+              <input type="checkbox" checked={st.checks[i]} onChange={e => setQs({ ...qs, [q.id]: { ...st, checks: st.checks.map((c, j) => j === i ? e.target.checked : c) } })} /> {t}
+            </label>
+          ))}
+          <div style={{ fontSize: 13, color: C.muted, fontStyle: "italic", marginTop: 6 }}>{q.authored}</div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ======================= Principle-in-one-sentence gate ======================= */
+function PrincipleGate({ id, authored, gate, setGate }) {
+  const val = gate[id] || "";
+  const done = val.length >= 20;
+  return (
+    <div style={{ margin: "24px 0", border: "1px dashed " + C.accent, borderRadius: 10, padding: 16, background: "#eff6ff" }}>
+      <div style={{ fontSize: 13, fontWeight: 700, color: C.accent, marginBottom: 8 }}>Principle in one sentence (required to unlock the next section)</div>
+      <div style={{ fontSize: 14, marginBottom: 8 }}>In one sentence, state the transferable principle from this section — something a PM or CTO at a different company could apply tomorrow.</div>
+      <textarea value={val} onChange={e => setGate({ ...gate, [id]: e.target.value })}
+        placeholder="Min 20 characters…"
+        style={{ width: "100%", minHeight: 54, padding: 10, border: "1px solid " + C.line, borderRadius: 7, fontFamily: "inherit", fontSize: 14, boxSizing: "border-box" }} />
+      {done && (
+        <div style={{ marginTop: 10, fontSize: 13, color: C.muted }}>
+          <strong>Authored principle:</strong> {authored}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ======================= Chart primitives ======================= */
+function pctLabel(v) { return (v > 0 ? "+" : "") + v + "%"; }
+
+function BarPct({ data, xKey, valKey, colorFn, domain, height }) {
+  return (
+    <ResponsiveContainer width="100%" height={height || 300}>
+      <BarChart data={data} margin={{ top: 24, right: 20, left: 0, bottom: 40 }}>
+        <CartesianGrid strokeDasharray="3 3" stroke={C.line} />
+        <XAxis dataKey={xKey} tick={{ fontSize: 12 }} interval={0} angle={-12} textAnchor="end" height={60} />
+        <YAxis domain={domain} tick={{ fontSize: 12 }} unit="%" />
+        <Tooltip formatter={v => pctLabel(v)} />
+        <ReferenceLine y={0} stroke={C.muted} />
+        <Bar dataKey={valKey}>
+          {data.map((d, i) => <Cell key={i} fill={colorFn(d)} />)}
+          <LabelList dataKey={valKey} position="top" formatter={pctLabel} style={{ fontSize: 12, fontWeight: 600 }} />
+        </Bar>
+      </BarChart>
+    </ResponsiveContainer>
+  );
+}
+
+/* ======================= App ======================= */
+function App() {
+  const PAGES = ["Intro", "Landscape", "RQ1", "RQ2", "RQ3", "WhatBroke", "Summary", "Conclusion"];
+  const [warmDone, setWarmDone] = useState(false);
+  const [warmSkipped, setWarmSkipped] = useState(false);
+  const [warmAns, setWarmAns] = useState({});
+  const [warmRevealed, setWarmRevealed] = useState({});
+  const [page, setPage] = useState(0);
+  const [unlocked, setUnlocked] = useState(0);
+  const [qs, setQs] = useState({});
+  const [interp, setInterp] = useState({});
+  const [reader, setReader] = useState({});
+  const [gate, setGate] = useState({});
+  const [apply, setApply] = useState({ now: "", future: "", insight: "" });
+
+  const bothInterp = id => (interp[id] || [false, false]).every(Boolean);
+  const mcDone = id => (qs[id] || {}).submitted;
+  const gateDone = id => (gate[id] || "").length >= 20;
+  const tfDone = id => (qs[id] || {}).submitted;
+
+  // completion predicate per page
+  function pageComplete(p) {
+    switch (PAGES[p]) {
+      case "Intro": return gateDone("intro");
+      case "Landscape": return bothInterp("cum") && bothInterp("perstep") && gateDone("landscape");
+      case "RQ1": return bothInterp("offon") && mcDone("mc1") && mcDone("tc1") && tfDone("tf1") && gateDone("rq1");
+      case "RQ2": return bothInterp("mlwin") && mcDone("mc2") && mcDone("td1") && tfDone("tf2") && gateDone("rq2");
+      case "RQ3": return bothInterp("rl") && mcDone("mc3") && mcDone("td2") && tfDone("tf3") && gateDone("rq3");
+      case "WhatBroke": return bothInterp("fail") && mcDone("mc4") && gateDone("broke");
+      case "Summary": return (apply.now.length >= 40 && apply.future.length >= 40 && apply.insight.length >= 30);
+      case "Conclusion": return mcDone("te") && tfDone("tffinal");
+      default: return true;
+    }
+  }
+  function next() {
+    if (!pageComplete(page)) return;
+    const np = Math.min(page + 1, PAGES.length - 1);
+    setPage(np); setUnlocked(u => Math.max(u, np));
+    window.scrollTo(0, 0);
+  }
+  function goto(p) { if (p <= unlocked) { setPage(p); window.scrollTo(0, 0); } }
+
+  const score = Object.keys(qs).filter(k => qs[k] && qs[k].submitted && qs[k].correct).length;
+  const totalScored = 5; // mc1,mc2,mc3,mc4,te + td counted separately
+
+  /* ---------------- WARM-UP SCREEN ---------------- */
+  if (!warmDone) {
+    return (
+      <div style={{ maxWidth: 720, margin: "0 auto", padding: "40px 20px" }}>
+        <div style={{ background: "#f1f5f9", borderRadius: 12, padding: 24 }}>
+          <h2 style={{ marginTop: 0, fontSize: 22 }}>Before you begin — recall from your prior reading</h2>
+          <p style={{ color: C.muted, fontSize: 14, lineHeight: 1.6 }}>
+            You have completed three prior Feasibility-phase articles. Apply their principles to new situations below.
+            This is retrieval practice, not a test — nothing here is scored. You can skip, but skipping is noted in your learning summary.
+          </p>
+          {WARMUP.map(w => {
+            const val = warmAns[w.id] || "";
+            const rev = warmRevealed[w.id];
+            return (
+              <div key={w.id} style={{ background: "#fff", borderRadius: 10, padding: 16, marginBottom: 14 }}>
+                <div style={{ fontSize: 14, lineHeight: 1.55, marginBottom: 8 }}>{w.prompt}</div>
+                <textarea value={val} onChange={e => setWarmAns({ ...warmAns, [w.id]: e.target.value })}
+                  placeholder="Min 25 characters…" disabled={rev}
+                  style={{ width: "100%", minHeight: 60, padding: 10, border: "1px solid " + C.line, borderRadius: 7, fontFamily: "inherit", fontSize: 14, boxSizing: "border-box" }} />
+                {!rev && <button onClick={() => { if (val.length >= 25) setWarmRevealed({ ...warmRevealed, [w.id]: true }); }} style={{ ...btnStyle, marginTop: 6 }}>Reveal principle</button>}
+                {rev && (
+                  <div style={{ marginTop: 10, fontSize: 13, lineHeight: 1.6 }}>
+                    <div><strong>Principle tested:</strong> {w.authored}</div>
+                    <div style={{ color: C.muted, marginTop: 6 }}>Source: {w.source} · <Pill>{w.phase}</Pill></div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+          <div style={{ display: "flex", gap: 12, marginTop: 8 }}>
+            <button onClick={() => setWarmDone(true)} style={btnStyle}>Begin the article →</button>
+            <button onClick={() => { setWarmDone(true); setWarmSkipped(true); }} style={{ ...btnStyle, background: "#fff", color: C.muted, border: "1px solid " + C.line }}>Skip warm-up</button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  /* ---------------- MAIN ARTICLE ---------------- */
+  const progress = ((page + 1) / PAGES.length) * 100;
+  return (
+    <div>
+      {/* progress bar */}
+      <div style={{ position: "fixed", top: 0, left: 0, right: 0, height: 4, background: "#e5e7eb", zIndex: 50 }}>
+        <div style={{ height: "100%", width: progress + "%", background: C.accent, transition: "width .3s" }} />
+      </div>
+
+      {/* header */}
+      <div style={{ position: "sticky", top: 4, background: "#fff", borderBottom: "1px solid " + C.line, zIndex: 40, padding: "10px 20px" }}>
+        <div style={{ maxWidth: 760, margin: "0 auto" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
+            <div style={{ fontSize: 14, fontWeight: 700 }}>When a Problem Warrants a Model, Not a Heuristic</div>
+            <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+              <Pill bg="#ecfdf5" color={C.green}>AI Feasibility &amp; Technical Scoping</Pill>
+              <Pill bg="#eef2ff" color={C.accent}>Score {score}/{totalScored}</Pill>
+            </div>
+          </div>
+          <div style={{ marginTop: 8 }}><LifecycleStrip active={["Feasibility"]} /></div>
+          <div style={{ fontSize: 12, color: C.muted, marginTop: 6 }}>
+            ‹ Prev: Data Readiness Before Model Selection (Stripe) &nbsp;·&nbsp; Next: AI-Native System Design (RAG / serving) ›
+          </div>
+          {/* section nav */}
+          <div style={{ display: "flex", gap: 4, marginTop: 8, flexWrap: "wrap" }}>
+            {PAGES.map((p, i) => (
+              <button key={p} onClick={() => goto(i)} disabled={i > unlocked}
+                style={{
+                  fontSize: 11, padding: "3px 8px", borderRadius: 6, cursor: i <= unlocked ? "pointer" : "default",
+                  border: "1px solid " + (i === page ? C.accent : C.line),
+                  background: i === page ? "#eef2ff" : "#fff",
+                  color: i > unlocked ? C.gray : (i === page ? C.accent : C.ink)
+                }}>{i > unlocked ? "🔒 " : ""}{p}</button>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* body */}
+      <div style={{ maxWidth: 720, margin: "0 auto", padding: "28px 20px 80px", fontSize: 16, lineHeight: 1.7, color: C.ink }}>
+        {PAGES[page] === "Intro" && <Intro gate={gate} setGate={setGate} warmSkipped={warmSkipped} />}
+        {PAGES[page] === "Landscape" && <Landscape {...{ interp, setInterp, reader, setReader, gate, setGate }} />}
+        {PAGES[page] === "RQ1" && <RQ1 {...{ interp, setInterp, reader, setReader, qs, setQs, gate, setGate }} />}
+        {PAGES[page] === "RQ2" && <RQ2 {...{ interp, setInterp, reader, setReader, qs, setQs, gate, setGate }} />}
+        {PAGES[page] === "RQ3" && <RQ3 {...{ interp, setInterp, reader, setReader, qs, setQs, gate, setGate }} />}
+        {PAGES[page] === "WhatBroke" && <WhatBroke {...{ interp, setInterp, reader, setReader, qs, setQs, gate, setGate }} />}
+        {PAGES[page] === "Summary" && <Summary {...{ qs, gate, apply, setApply, warmSkipped }} />}
+        {PAGES[page] === "Conclusion" && <Conclusion {...{ qs, setQs }} />}
+
+        {/* nav footer */}
+        <div style={{ display: "flex", justifyContent: "space-between", marginTop: 40, borderTop: "1px solid " + C.line, paddingTop: 20 }}>
+          <button onClick={() => goto(Math.max(0, page - 1))} disabled={page === 0}
+            style={{ ...btnStyle, background: "#fff", color: C.muted, border: "1px solid " + C.line, opacity: page === 0 ? 0.4 : 1 }}>← Back</button>
+          {page < PAGES.length - 1 &&
+            <button onClick={next} disabled={!pageComplete(page)}
+              style={{ ...btnStyle, opacity: pageComplete(page) ? 1 : 0.45 }}>
+              {pageComplete(page) ? "Next section →" : "Complete this section's gates to continue"}
+            </button>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ============ SECTION 1: INTRO ============ */
+function Intro({ gate, setGate, warmSkipped }) {
+  return (
+    <div>
+      {warmSkipped && <div style={{ background: "#fef3c7", borderRadius: 8, padding: 10, fontSize: 13, marginBottom: 16 }}>Warm-up skipped — 3 prior principles not reviewed this session.</div>}
+      <p style={{ fontSize: 19, fontWeight: 600, lineHeight: 1.55 }}>
+        Sophistication is not feasibility. The right question before building a model is never "can a model do this?" but
+        "does the data let a model <em>generalize</em> and <em>differentiate</em> in ways a heuristic cannot — and does that
+        advantage survive contact with the business metric, not just the offline score?" The clearest proof is the rung of the
+        ladder that failed: a data-driven method that fit past bookings better than any rule, yet moved zero real bookings.
+      </p>
+      <h2>Introduction</h2>
+      <p>
+        This article uses Airbnb's search location-retrieval system to build and stress-test that principle. Airbnb spent years
+        climbing a ladder of methods for one narrow problem — deciding which map area to search for a given query — going from
+        simple rules, to statistics, to a neural network, to reinforcement learning. It is the right evidence precisely because
+        the team published the whole climb, including the rung that did not work, in a peer-reviewed paper
+        (Davis et al., CIKM 2024). Most engineering write-ups show only the win. This one shows the failure in the same table.
+      </p>
+      <p>
+        The scale sets the stakes. Airbnb runs over <strong>7M+ active listings</strong> and about <strong>390M nights booked per
+        year</strong> (Davis et al., 2024). It is "infeasible to rank every listing for every search," so the system first draws a
+        rectangle on the map — the <em>retrieval bounds</em> — and only ranks listings inside it. Draw the box too small and you drop
+        homes a guest would have booked; draw it too big and you add irrelevant listings and slow the search down. About
+        <strong> 52%</strong> of guests then pan and zoom the map themselves, but many never look past the first screen — so the box the
+        system infers largely decides what inventory a guest ever sees. Every experiment ran as a 3-week 50/50 A/B test on about
+        <strong> 54M guests</strong>, where the team notes an improvement of even <strong>0.2%</strong> in bookers is "very significant and
+        difficult to achieve" (Davis et al., 2024).
+      </p>
+      <p>
+        The conventional instinct is to reach for the most capable model first. Airbnb's own data shows why that instinct is
+        dangerous: their statistics method fit booking history well but could not tell a solo traveler's San Francisco from a
+        ten-guest group's San Francisco, and it produced <strong>no statistically significant change</strong> in bookers. The structural
+        gap is that offline fit and online value are different things, and only some data conditions close the gap.
+      </p>
+      <p>
+        This article addresses three questions: First, when does a problem actually warrant a model over a transparent heuristic?
+        Second, what must be true about the data for the model's advantage to reach real users? Third, how do you scope a v1 model
+        when the model itself biases the data it will learn from next?
+      </p>
+      <PrincipleGate id="intro" gate={gate} setGate={setGate}
+        authored="Before building a model, define the transparent baseline it must beat, and demand that its advantage show up in the business metric — not just an offline score." />
+      <Glossary items={[
+        { t: "Location retrieval", d: "Airbnb's step, before ranking, that infers a map rectangle (retrieval bounds) to filter which listings a search even considers." },
+        { t: "Retrieval bounds", d: "The rectangular map area the system searches; too small drops good listings, too big adds noise and latency." },
+        { t: "Heuristic", d: "A hand-written rule of thumb (e.g. 'use a 25-mile radius for a city') — transparent and cheap, but blind to context it wasn't told about." },
+        { t: "Uncancelled bookers", d: "Airbnb's launch metric: unique guests who booked and did not cancel during the experiment — the real business outcome." },
+        { t: "A/B test", d: "A controlled experiment splitting users into two groups to measure whether a change causes a real difference in an outcome." }
+      ]} />
+    </div>
+  );
+}
+
+/* ============ SECTION 2: LANDSCAPE ============ */
+function Landscape(props) {
+  const { interp, setInterp, reader, setReader, gate, setGate } = props;
+  return (
+    <div>
+      <h2>The Ladder and the Missing Rung</h2>
+      <p>
+        Before location retrieval, travel search treated a destination as a fixed box. Hotels cluster in a few blocks, so a tight box
+        works. Airbnb inventory does not cluster — a family priced out of San Francisco may be perfectly happy in Daly City, one town
+        over. A rule that filters to "exactly inside the searched city" hides that inventory. So Airbnb started with rules anyway,
+        because rules are the only thing you can ship with no data. That is the honest starting point of most AI features: you begin
+        with a heuristic not because it is best, but because it lets the product run while it collects the data a model would need.
+      </p>
+      <p>
+        Airbnb climbed four rungs. <strong>Heuristics</strong> used geocoding boxes, a 25-mile radius for cities, and a 2.5&times; scaling
+        for addresses, later smoothed by a log-scale expansion function. <strong>Statistics</strong> used millions of past bookings to draw
+        a box containing 96% of the closest booked listings per destination. <strong>Machine learning</strong> trained a small neural network
+        on about 365M examples to predict a custom box per search. <strong>Reinforcement learning</strong> added exploration so the model
+        could learn about boxes it had never tried. Two charts frame the whole journey; every later section explains one rung.
+      </p>
+
+      <ChartBlock id="cum"
+        note="FACT — cumulative online uncancelled-bookers uplift along the launched path (Heuristic 4 → ML → RL), from Table 1, Davis et al., CIKM 2024. The statistics rung is absent because it never launched."
+        interp={interp} setInterp={setInterp} reader={reader} setReader={setReader}
+        prompts={[
+          { kind: "So-what / decision implication", text: "The launched path adds +0.35%, then +1.8%, then +0.51% to reach +2.66% cumulatively. The biggest single jump is the move to ML, not the move to RL. For a PM allocating the next quarter's effort on a mature feature, what does that ordering imply about where to spend — and when a further model upgrade stops being worth it?", authored: "The largest gain came from the first real model, and each later rung returned less. That is a diminishing-returns curve: on a mature feature, invest in the step that unlocks a new capability (rules → learned model) before spending on incremental sophistication (ML → RL). The RL rung was still worth it here only because a 0.2% move is 'very significant' at Airbnb's scale — at a smaller company the same +0.51% might not clear the cost of building and maintaining an exploration system." },
+          { kind: "Quantitative reasoning", text: "Of the +2.66% total cumulative uplift, what share was delivered by the ML rung alone (+1.8%)? Give the percentage and say what that share implies about the 'is a model worth it?' decision.", authored: "1.8 / 2.66 ≈ 68%. Roughly two-thirds of the entire multi-year gain came from the single decision to replace rules and statistics with a learned model. The model was overwhelmingly where the value was — which is exactly why the earlier statistics detour, which returned nothing, is the instructive failure." }
+        ]}>
+        <h4 style={{ margin: "0 0 8px" }}>Chart 1 · Cumulative uncancelled-bookers uplift (launched path)</h4>
+        <ResponsiveContainer width="100%" height={300}>
+          <LineChart data={CUM} margin={{ top: 24, right: 20, left: 0, bottom: 10 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke={C.line} />
+            <XAxis dataKey="step" tick={{ fontSize: 12 }} />
+            <YAxis tick={{ fontSize: 12 }} unit="%" domain={[0, 3]} />
+            <Tooltip formatter={v => "+" + v + "%"} />
+            <Line type="monotone" dataKey="cum" stroke={C.accent} strokeWidth={2} dot={{ r: 5, fill: C.accent }}>
+              <LabelList dataKey="cum" position="top" formatter={v => "+" + v + "%"} style={{ fontSize: 12, fontWeight: 600 }} />
+            </Line>
+          </LineChart>
+        </ResponsiveContainer>
+      </ChartBlock>
+
+      <ChartBlock id="perstep"
+        note="FACT — per-approach online uncancelled-bookers uplift vs each method's own baseline, Table 1, Davis et al., CIKM 2024. 'Statistics' = no statistically significant change; shown as 0."
+        interp={interp} setInterp={setInterp} reader={reader} setReader={setReader}
+        prompts={[
+          { kind: "Causal / comparative", text: "Every rung except Statistics moved bookers, yet Statistics was the most 'data-driven' step up to that point. Why does being more data-driven than the heuristics NOT explain a business win here — and what separates the two rungs that used data (Statistics vs ML)?", authored: "Statistics and ML both used booking data, so 'uses data' cannot be the causal factor. The separating variable is generalization and differentiation: statistics keyed a single box per destination and could not tell contexts apart, so its fit never became new inventory for real guests. ML predicted a different box per search context. The cause of the win is contextual differentiation, not data volume — a classic correlation-vs-cause trap for anyone who assumes 'more data = more value.'" },
+          { kind: "Qualitative / mechanism", text: "The Heuristic 4 rung still won +0.35% on its own. What mechanism let a hand-tuned rule move a business metric at all, and why does its existence make the 'always jump straight to ML' instinct expensive?", authored: "Heuristic 4 simply expanded bounds for tiny locations (e.g. a specific building) that previously returned almost no results — turning 5 results into pages of bookable ones. The mechanism is fixing a coverage gap, which needs no model. Its success shows a cheap rule can capture real value first; jumping straight to ML would have spent months of modeling to earn a gain a one-line function already delivered." }
+        ]}>
+        <h4 style={{ margin: "0 0 8px" }}>Chart 2 · Online uplift by approach (vs own baseline)</h4>
+        <BarPct data={PERSTEP} xKey="name" valKey="val" domain={[0, 2]}
+          colorFn={d => d.val === 0 ? C.red : C.green} />
+      </ChartBlock>
+
+      <p>
+        Read together, the charts state the article's problem. The most sophisticated-sounding intermediate step (statistics over
+        millions of bookings) is the one flat bar. The lesson is not "statistics are bad" — it is that a method's value is decided by
+        whether it can do something the cheaper method structurally cannot, and whether that shows up where the business measures it.
+      </p>
+      <PrincipleGate id="landscape" gate={gate} setGate={setGate}
+        authored="Rank candidate methods by the new capability each unlocks, not by their technical sophistication; a fancier method that adds no new capability adds no value." />
+      <Glossary items={[
+        { t: "Statistics method", d: "Airbnb's rung that drew one box per destination covering 96% of past booked listings — data-driven, but the same box for every kind of trip." },
+        { t: "Generalization", d: "A model's ability to give a sensible answer for a search it has little or no history for." },
+        { t: "Differentiation", d: "Giving different answers for different search contexts (e.g. a 10-guest trip vs a solo trip to the same city)." },
+        { t: "Diminishing returns", d: "Each successive improvement yields a smaller gain than the one before it." }
+      ]} />
+    </div>
+  );
+}
+
+/* ============ SECTION 3: RQ1 — model vs heuristic decision ============ */
+function RQ1(props) {
+  const { interp, setInterp, reader, setReader, qs, setQs, gate, setGate } = props;
+  return (
+    <div>
+      <h2>RQ1 — When does a problem warrant a model over a heuristic?</h2>
+      <p>
+        The thesis to defend: a model is warranted only when the problem has context the heuristic cannot use, <em>and</em> the data
+        exists to learn that context. Airbnb's own results are the test. The statistics method improved the offline recall metric by
+        <strong> +1.05%</strong> but delivered <strong>no statistically significant change</strong> in uncancelled bookers (Davis et al., 2024).
+        The ML model improved offline recall by <strong>+7.12%</strong> and moved bookers by <strong>+1.8%</strong>. Same data source; very
+        different outcomes.
+      </p>
+      <p>
+        The obstacle is that "fits the data better" is seductive and cheap to measure, while "creates value" is expensive and slow to
+        measure. The statistics box fit history well because it was built directly from history. But it was keyed only by the searched
+        location, so it could not tell that "San Francisco for 10 guests" books in different places than "San Francisco" overall.
+        Guests in under-served contexts still got the average box. The offline gain was real; it just never turned into new bookable
+        inventory for anyone whose context differed from the average.
+      </p>
+      <p>
+        The evidence for the thesis is that the model's win came exactly from context: adding features like guest count, trip dates,
+        and a cell identifier for the location center let it draw a different box per search. The evidence against over-reading the
+        thesis is Heuristic 4 — a hand-tuned rule that still won +0.35% by fixing a pure coverage gap. So the rule is not "models beat
+        heuristics." It is "models beat heuristics only where context and data both exist; otherwise a rule may be the correct,
+        cheaper answer."
+      </p>
+
+      <div style={{ border: "1px solid " + C.line, borderRadius: 12, padding: 18, margin: "24px 0", background: "#fafafa" }}>
+        <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 12 }}>Decision frame · Model vs heuristic (teaching framework — not measured data)</div>
+        <svg viewBox="0 0 640 300" width="100%" style={{ maxWidth: 640 }} role="img" aria-label="Model vs heuristic decision matrix">
+          <rect x="120" y="40" width="240" height="110" fill="#ecfdf5" stroke={C.green} />
+          <rect x="360" y="40" width="240" height="110" fill="#eff6ff" stroke={C.accent} />
+          <rect x="120" y="150" width="240" height="110" fill="#f1f5f9" stroke={C.gray} />
+          <rect x="360" y="150" width="240" height="110" fill="#fffbeb" stroke={C.amber} />
+          <text x="240" y="95" textAnchor="middle" fontSize="13" fill={C.ink}>Rule is fine</text>
+          <text x="240" y="115" textAnchor="middle" fontSize="11" fill={C.muted}>little context matters</text>
+          <text x="480" y="88" textAnchor="middle" fontSize="13" fill={C.ink}>Model warranted</text>
+          <text x="480" y="106" textAnchor="middle" fontSize="11" fill={C.muted}>context + data both present</text>
+          <text x="480" y="122" textAnchor="middle" fontSize="11" fill={C.accent}>← Airbnb ML rung</text>
+          <text x="240" y="205" textAnchor="middle" fontSize="13" fill={C.ink}>Fix coverage first</text>
+          <text x="240" y="223" textAnchor="middle" fontSize="11" fill={C.muted}>cheap rule / expansion</text>
+          <text x="480" y="198" textAnchor="middle" fontSize="13" fill={C.ink}>Model starves</text>
+          <text x="480" y="216" textAnchor="middle" fontSize="11" fill={C.muted}>context matters but no data</text>
+          <text x="480" y="234" textAnchor="middle" fontSize="11" fill={C.amber}>cold-start → heuristic first</text>
+          <text x="120" y="285" fontSize="11" fill={C.muted}>Data available →</text>
+          <text x="30" y="150" fontSize="11" fill={C.muted} transform="rotate(-90 30 150)">Context matters →</text>
+        </svg>
+        <div style={{ fontSize: 12, color: C.muted, marginTop: 8 }}>Illustrative framework — not reported statistics. The quadrant labels place Airbnb's rungs; the axes are the two feasibility conditions.</div>
+      </div>
+
+      <ChartBlock id="offon"
+        note="FACT — offline recall uplift vs online uncancelled-bookers uplift, Statistics and ML rungs, Table 1, Davis et al., CIKM 2024."
+        interp={interp} setInterp={setInterp} reader={reader} setReader={setReader}
+        prompts={[
+          { kind: "Quantitative reasoning (pre-reveal prediction)", text: "Before revealing: for the ML rung, by roughly what factor does the offline recall gain (+7.12%) exceed the online bookers gain (+1.8%)? Enter your predicted multiple.", numeric: { placeholder: "e.g. 4", unit: "×", reveal: "7.12 / 1.8 ≈ 4.0×. The offline metric moved about 4 times as much as the business metric. The gap is normal and expected — most offline improvement is absorbed before it reaches the outcome — so an offline lift must be discounted, never read as a business forecast." }, authored: "About 4×. Offline recall rose roughly four times as much as bookers did. That ratio is the whole feasibility warning in one number: the offline metric is a leading indicator at best, and a large offline gain can shrink to a modest — or zero — business gain." },
+          { kind: "So-what / decision implication", text: "The Statistics bars show +1.05% offline and 0% online; the ML bars show +7.12% offline and +1.8% online. Using an offline-to-online 'conversion' lens, what launch rule should a PM adopt before trusting any offline win — and what does the Statistics pair say about the minimum offline lift worth shipping?", authored: "The rule: never launch on an offline win alone; gate every model on a business-metric A/B before rollout. The Statistics pair shows a positive offline lift (+1.05%) can convert to exactly zero — so there is no 'safe' offline threshold that guarantees value. Offline metrics screen out obviously-worse candidates cheaply; only the online test decides launch. That is precisely how Airbnb used a 3-week 50/50 test on ~54M guests as the launch gate." }
+        ]}>
+        <h4 style={{ margin: "0 0 8px" }}>Chart 3 · Offline gain vs online business gain</h4>
+        <ResponsiveContainer width="100%" height={320}>
+          <BarChart data={OFFON} margin={{ top: 24, right: 20, left: 0, bottom: 10 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke={C.line} />
+            <XAxis dataKey="name" tick={{ fontSize: 12 }} />
+            <YAxis tick={{ fontSize: 12 }} unit="%" domain={[0, 8]} />
+            <Tooltip formatter={v => "+" + v + "%"} />
+            <Legend />
+            <Bar dataKey="offline" name="Offline recall" fill={C.gray}>
+              <LabelList dataKey="offline" position="top" formatter={v => "+" + v + "%"} style={{ fontSize: 11 }} />
+            </Bar>
+            <Bar dataKey="online" name="Online bookers" fill={C.accent}>
+              <LabelList dataKey="online" position="top" formatter={v => "+" + v + "%"} style={{ fontSize: 11 }} />
+            </Bar>
+          </BarChart>
+        </ResponsiveContainer>
+      </ChartBlock>
+
+      <MC q={{
+        id: "mc1", tag: "T-B · CAUSAL DISTINCTION",
+        prompt: "The statistics method fit booking data better than any heuristic (offline recall +1.05%) yet produced no statistically significant change in uncancelled bookers. Which is the strongest reason NOT to conclude that a better data-fit causes more bookings?",
+        options: [
+          "Because it was keyed only by searched location, it could not generalize or differentiate across contexts, so the offline gain never reached guests as new bookable inventory.",
+          "The statistics method was trained on a smaller dataset than the ML model, so its fit was unreliable.",
+          "Offline recall and online bookings are always inversely correlated, so one rising means the other falls.",
+          "The A/B test had too few users to detect the effect."
+        ],
+        answer: 0,
+        explain: "The statistics method used the same booking data as ML, so 'better data-fit' is correlated with, not the cause of, value. The causal variable is contextual differentiation: statistics gave one box per destination, so its offline fit could not become differentiated inventory for guests whose context (e.g. group size) differed from the average.",
+        scaffold: "Both statistics and ML used booking data and both improved the offline metric. If 'fits data better' caused bookings, statistics should have moved bookers too. Ask what ML did that statistics structurally could not.",
+        calibCorrect: "this correlation-vs-cause discipline generalizes to any offline-metric win.",
+        calibWrong: "confusing a metric for its cause: a better offline fit was assumed to cause the business outcome, but the causal factor was differentiation, not fit.",
+        generalizes: "A recommender whose offline NDCG rises but whose click-through is flat — the ranking got 'more correct' on history without changing what users actually do."
+      }} qs={qs} setQs={setQs} />
+
+      <MC q={{
+        id: "tc1", tag: "T-C · WEAKEST LINK", tc: true,
+        prompt: "MedRoute, a telehealth startup, wants to replace a rule ('route by symptom keyword') with an ML triage model to send patients to the right specialty. Which assumption must hold for the ML decision to create value — and which article evidence most warns it may be the thinnest?",
+        options: [
+          "That the model can be trained on a GPU cluster — the Airbnb model trained in 9 hours, so compute is not a constraint.",
+          "That specialty routing has learnable context the keyword rule ignores AND that MedRoute has labeled outcomes proving the right specialty — the statistics rung warns that context without differentiated, outcome-linked data yields offline gains that never convert.",
+          "That patients prefer AI routing — the paper shows 52% of guests interact with results.",
+          "That the model's offline accuracy exceeds the rule's — Airbnb's +7.12% recall proves offline accuracy is sufficient to launch."
+        ],
+        answer: 1,
+        explain: "Value requires both real context the rule misses (e.g. history, comorbidities) and outcome-linked labels showing the correct specialty. The statistics rung is the warning: it had data but no differentiation, and its offline gain converted to zero business value. Option D repeats the exact mistake the article refutes — treating an offline win as sufficient.",
+        scaffold: "The 'load-bearing assumption' is the one thing that, if false, makes the whole decision worthless. Ask which option names a condition ML needs that a keyword rule cannot supply, and ties it to the failure the article documents.",
+        calibCorrect: "naming the load-bearing data assumption is the core feasibility skill.",
+        calibWrong: "survivorship bias / metric-for-cause: options A, C, and D borrow a real Airbnb fact to justify launching on the wrong signal.",
+        generalizes: "A fraud team replacing a rules engine with a model — the load-bearing assumption is fresh, labeled fraud outcomes, not model accuracy in a backtest."
+      }} qs={qs} setQs={setQs} />
+
+      <PrincipleGate id="rq1" gate={gate} setGate={setGate}
+        authored="A model is warranted only where the problem has context a rule cannot use and the data to learn it exists; otherwise the rule is the correct, cheaper answer." />
+
+      <Transfer q={{
+        id: "tf1",
+        prompt: "Principle: a model is warranted only where context the heuristic ignores exists AND the data to learn it exists. Apply this to a warehouse robotics company choosing between a fixed pick-path rule and a learned path optimizer. Name the principle, describe a non-trivial application, and name a failure mode that did NOT appear in Airbnb's location-retrieval case.",
+        authored: "A strong answer notes that learned paths are warranted only if layout/order context varies enough to matter and the warehouse logs outcomes (pick time, collisions) as labels. A new failure mode absent from Airbnb: physical safety — a wrong retrieval box costs a lost booking, but a wrong robot path can cause a collision, so exploration cannot be as free as Airbnb's UCB expansion."
+      }} qs={qs} setQs={setQs} />
+
+      <Glossary items={[
+        { t: "Booked-listing recall", d: "Offline metric: the share of actually-booked listings that fall inside the box the method predicted." },
+        { t: "Offline metric", d: "A score computed on held-out historical data before launch — cheap, fast, but only a proxy for real value." },
+        { t: "NDCG", d: "Normalized Discounted Cumulative Gain — a common ranking-quality score; used here as an example of an offline metric that can rise without moving user behavior." }
+      ]} />
+    </div>
+  );
+}
+
+/* ============ SECTION 4: RQ2 — data readiness / how the advantage reaches users ============ */
+function RQ2(props) {
+  const { interp, setInterp, reader, setReader, qs, setQs, gate, setGate } = props;
+  return (
+    <div>
+      <h2>RQ2 — What must be true about the data for the model's edge to reach users?</h2>
+      <p>
+        The thesis: a model earns its keep only when it can satisfy two objectives a rule must trade off against each other. In
+        location retrieval those objectives fight: include every listing anyone might book (high recall) <em>and</em> keep the box small
+        (low latency, fewer irrelevant results). A rule picks one; expand the box and recall rises but so does noise. The ML model's
+        headline result is that it moved both the right way at once: booked-listing recall <strong>+7.12%</strong> while retrieval-bounds
+        size <strong>fell 40.83%</strong>, offline, cumulatively over the launch and two iterations (Davis et al., 2024).
+      </p>
+      <p>
+        That double move is only possible because of how the data was prepared. Airbnb used one year of examples — about
+        <strong> 365M</strong> — attributing a booking to a search only if the booking was not cancelled after 7 days and the search happened
+        the same day or one day before. The model took 9 continuous and 10 categorical features (five more were withheld for privacy),
+        and it was trained with a custom loss with three parts: a recall term that punishes boxes missing the booked listing, a size
+        term that punishes needlessly large boxes, and a validity term that punishes impossible boxes. The size term is the key — the
+        paper calls it a "quasi-negative," because location retrieval has <em>no true negatives</em>: a San Francisco searcher booking in
+        Oakland does not mean the system should not have retrieved San Francisco.
+      </p>
+      <p>
+        This is the data-readiness gate made concrete. The reason a model could beat the rule is that the product generates the exact
+        labels it needs — booked coordinates — as a byproduct of normal use, fresh, and at volume. The evidence against complacency is
+        the attribution rules: the 7-day cancellation window and the one-day search window are judgment calls that shape what counts as
+        a label. Get them wrong and the 365M examples teach the wrong lesson. Data readiness is not "do we have data?" but "does our
+        data, after honest attribution, represent the outcome we actually care about?"
+      </p>
+
+      <ChartBlock id="mlwin"
+        note="FACT — ML rung, cumulative over launch + 2 iterations. Recall and bounds-size are offline (held-out ~7M examples); listings-retrieved from Table 1. Davis et al., CIKM 2024."
+        interp={interp} setInterp={setInterp} reader={reader} setReader={setReader}
+        prompts={[
+          { kind: "Qualitative / mechanism", text: "Recall rose +7.12% while the box shrank 40.83% — normally these move in opposite directions. What in the training design made the model able to improve recall and shrink the box at the same time, rather than trading one for the other?", authored: "The custom loss let the model be selective per context instead of globally. The recall term pushed boxes to cover booked listings; the size term ('quasi-negative') punished blanket expansion. With per-search features, the model could tighten the box where data is dense and only expand where a booking would otherwise be missed — so average size fell even as coverage rose. A single rule has no per-context lever, so it can only slide both metrics together." },
+          { kind: "So-what / decision implication", text: "The 40.83% size cut is an efficiency gain (less latency, fewer irrelevant listings) that a recall-only view would miss. For a PM specifying a v1 model, what does the presence of the 'quasi-negative' size term imply about how to write the objective — and what goes wrong if you specify recall alone?", authored: "Specify the objective as an operating point, not a single metric: reward the outcome (recall) AND penalize the cost (box size / latency). If you specify recall alone, the model's cheapest win is to expand the box toward the whole world — maximizing recall while destroying latency and relevance. The size term is what makes 'good enough' well-defined. The PM's job in feasibility is to name both the reward and its cost term before modeling starts." }
+        ]}>
+        <h4 style={{ margin: "0 0 8px" }}>Chart 4 · What the model did that a rule cannot (offline, cumulative)</h4>
+        <ResponsiveContainer width="100%" height={320}>
+          <BarChart data={MLWIN} margin={{ top: 24, right: 20, left: 0, bottom: 40 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke={C.line} />
+            <XAxis dataKey="metric" tick={{ fontSize: 11 }} interval={0} angle={-10} textAnchor="end" height={60} />
+            <YAxis tick={{ fontSize: 12 }} unit="%" domain={[-50, 15]} />
+            <Tooltip formatter={v => pctLabel(v)} />
+            <ReferenceLine y={0} stroke={C.muted} />
+            <Bar dataKey="val">
+              {MLWIN.map((d, i) => <Cell key={i} fill={d.val < 0 ? C.accent : C.green} />)}
+              <LabelList dataKey="val" position="top" formatter={pctLabel} style={{ fontSize: 11, fontWeight: 600 }} />
+            </Bar>
+          </BarChart>
+        </ResponsiveContainer>
+      </ChartBlock>
+
+      <Numeric q={{
+        id: "td1", tag: "T-D · ESTIMATION (skeleton supplied)",
+        prompt: "The ML model trained on ~365M examples drawn from 1 year. Estimate the average number of qualifying training examples generated per DAY. Use the skeleton: examples ÷ days-in-year.",
+        unit: "M/day", answer: 1.0, tol: 0.2, tolText: "±0.2M/day (tight band — this is arithmetic, not a Fermi guess).",
+        decomp: "365M examples ÷ 365 days = ~1.0M qualifying examples per day. The round number is not a coincidence — the paper's '~365M for 1 year' implies roughly a million attributable, uncancelled bookings feeding the model daily.",
+        calibWrong: "misreading scale: dividing by the wrong unit (e.g. by 12 months or 52 weeks) instead of 365 days.",
+        sensitive: "the attribution yield — how many searches convert to an uncancelled, attributable booking; the paper's window (7-day cancel, 1-day search) sets this."
+      }} qs={qs} setQs={setQs} />
+
+      <MC q={{
+        id: "mc2", tag: "T-A · ARCHITECTURE IMPLICATION",
+        prompt: "The model's loss combines a recall term, a size term, and a validity term. As Airbnb pushes for even higher recall by raising the recall weight, which failure is most likely to appear first, and where should the PM watch?",
+        options: [
+          "Training time explodes, because more loss terms mean slower gradient descent.",
+          "The validity term starts producing impossible boxes, because it is the least sensitive term.",
+          "Average retrieval-bounds size creeps back up (latency and irrelevant listings rise), because a higher recall weight lets the model buy recall by enlarging boxes — the exact trade the size term exists to restrain.",
+          "Categorical feature embeddings stop training, because the loss no longer references them."
+        ],
+        answer: 2,
+        explain: "Recall and size are the two terms in tension. Raising the recall weight tips that balance, so the cheapest way for the model to gain recall is to enlarge boxes — pushing size, latency, and irrelevance back up. The paper says they tune mainly the recall/size tradeoff weight and keep validity's weight arbitrarily high, so B and D are wrong.",
+        scaffold: "Which two of the three loss terms are described as being in tension? Increasing the weight on one of them lets the model 'pay' with the other. That other quantity is what degrades first.",
+        calibCorrect: "reading a multi-term objective as a set of tradeoffs generalizes to any constrained model.",
+        calibWrong: "applying a classical-software assumption: treating loss terms as independent knobs rather than a coupled tradeoff surface.",
+        generalizes: "A summarization model tuned for higher coverage that starts producing longer, slower outputs — coverage bought with length."
+      }} qs={qs} setQs={setQs} />
+
+      <PrincipleGate id="rq2" gate={gate} setGate={setGate}
+        authored="Specify a v1 AI feature as a reward plus an explicit cost term (an operating point), and confirm the product generates fresh, honestly-attributed labels for that reward as a byproduct of use." />
+
+      <Transfer q={{
+        id: "tf2",
+        prompt: "Principle: a model earns its keep only when the objective is an operating point (reward + cost term) and the product supplies fresh, honestly-attributed labels. Apply this to a bank building a loan-approval model. Name the principle, give a non-trivial application, and name a failure mode absent from Airbnb's case.",
+        authored: "Strong answers specify both approval-value reward and a default-cost term, and note that labels (defaults) are censored — you never see whether a rejected applicant would have repaid. A failure mode absent from Airbnb: label censoring from the model's own decisions, plus fairness/regulatory constraints that make 'expand the box' (approve more) legally, not just operationally, costly."
+      }} qs={qs} setQs={setQs} />
+
+      <Glossary items={[
+        { t: "Loss function", d: "The formula a model tries to minimize during training; its terms encode what 'good' means." },
+        { t: "Quasi-negative", d: "Airbnb's box-size penalty that acts like a negative example even though the problem has no true negatives, stopping the model from covering the whole map." },
+        { t: "Attribution", d: "The rules deciding which search a booking is credited to — here: booking not cancelled after 7 days, search the same or prior day." },
+        { t: "Categorical feature", d: "An input that is a category (e.g. device type, country) rather than a number; converted into a learned vector (an embedding) during training." },
+        { t: "Operating point", d: "A chosen balance between competing objectives (here recall vs box size) — the spec for 'good enough' rather than a single maximized metric." }
+      ]} />
+    </div>
+  );
+}
+
+/* ============ SECTION 5: RQ3 — scoping under self-biasing data ============ */
+function RQ3(props) {
+  const { interp, setInterp, reader, setReader, qs, setQs, gate, setGate } = props;
+  return (
+    <div>
+      <h2>RQ3 — How do you scope a v1 when the model biases its own future data?</h2>
+      <p>
+        The thesis: a deployed model shapes the data it will learn from next, so a feasibility spec must plan for that feedback loop
+        from day one. Airbnb names the trap plainly. Their first ML approach was "cyclical in nature": the model only ever saw bookings
+        that happened inside the boxes it already drew. If a better listing sat just outside the box, no guest could book it, so no
+        data ever told the model the box was too small. The model was confidently, quietly trapped inside its own past decisions.
+      </p>
+      <p>
+        The fix was to treat location retrieval as a contextual multi-armed bandit — a setup where the system sometimes tries a
+        slightly different action to learn, instead of always exploiting what it already believes. The four "actions" were how far to
+        expand the box north, south, east, and west. But Airbnb had product constraints most textbook bandits ignore: the box had to be
+        <em> deterministic</em> (two guests with the same query on the same day see the same result), <em>optimistic only</em> (explore by
+        enlarging boxes for low-confidence searches, never shrinking randomly), and <em>fast enough</em> to serve live traffic.
+      </p>
+      <p>
+        Those constraints killed the obvious tools. Thompson sampling is random, so it would give different guests different boxes —
+        breaking determinism. Deep ensembles and Bayesian networks would multiply parameters and latency. Airbnb chose Monte Carlo
+        Dropout: score the same search 32 times with a heavy 0.95 dropout rate, take the mean as the prediction and the spread as the
+        uncertainty, then expand the box by two standard deviations (UCB with &lambda;=2) only when the model is unsure. They retrain
+        daily so exploration feeds back quickly. The payoff: <strong>+0.51%</strong> uncancelled bookers over the ML baseline, and — the
+        subtle result — average model confidence rose <strong>7.33%</strong> since launch as exploration filled in the blind spots (Davis et
+        al., 2024).
+      </p>
+      <p>
+        The evidence for the thesis is a clean experiment. Airbnb tested the explorer against a production model retrained to the
+        experiment start, and against a production model trained on data <strong>8 months stale</strong>. There was <em>no statistically
+        significant difference</em> between fresh-retrained and 8-months-stale — retraining alone bought nothing. Exploration is what
+        moved the metric. That is the whole feedback-loop lesson: pouring in more recent data does not help if every datum was collected
+        inside the model's existing blind spots.
+      </p>
+
+      <div style={{ border: "1px solid " + C.line, borderRadius: 12, padding: 18, margin: "24px 0", background: "#fafafa" }}>
+        <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 12 }}>Before / after · the cyclical-bias trap and the exploration fix</div>
+        <svg viewBox="0 0 660 250" width="100%" style={{ maxWidth: 660 }} role="img" aria-label="Cyclical bias vs exploration">
+          <text x="165" y="20" textAnchor="middle" fontSize="13" fontWeight="700" fill={C.red}>Before: ML feedback loop</text>
+          <rect x="60" y="40" width="210" height="34" rx="6" fill="#fef2f2" stroke={C.red} />
+          <text x="165" y="62" textAnchor="middle" fontSize="12">Model draws box</text>
+          <rect x="60" y="150" width="210" height="34" rx="6" fill="#fef2f2" stroke={C.red} />
+          <text x="165" y="172" textAnchor="middle" fontSize="12">Learns only inside box</text>
+          <path d="M165 74 L165 150" stroke={C.red} strokeWidth="2" markerEnd="url(#ar)" />
+          <path d="M270 167 Q330 120 270 57" stroke={C.red} strokeWidth="2" fill="none" markerEnd="url(#ar)" />
+          <text x="330" y="120" fontSize="10" fill={C.red}>blind to outside</text>
+
+          <text x="500" y="20" textAnchor="middle" fontSize="13" fontWeight="700" fill={C.green}>After: UCB exploration</text>
+          <rect x="395" y="40" width="210" height="34" rx="6" fill="#f0fdf4" stroke={C.green} />
+          <text x="500" y="62" textAnchor="middle" fontSize="12">Score 32× (MC Dropout)</text>
+          <rect x="395" y="95" width="210" height="34" rx="6" fill="#f0fdf4" stroke={C.green} />
+          <text x="500" y="112" textAnchor="middle" fontSize="11">Low confidence? expand μ+2σ</text>
+          <rect x="395" y="150" width="210" height="34" rx="6" fill="#f0fdf4" stroke={C.green} />
+          <text x="500" y="172" textAnchor="middle" fontSize="12">Retrain daily on new data</text>
+          <path d="M500 74 L500 95" stroke={C.green} strokeWidth="2" markerEnd="url(#ar)" />
+          <path d="M500 129 L500 150" stroke={C.green} strokeWidth="2" markerEnd="url(#ar)" />
+          <path d="M605 167 Q650 110 605 57" stroke={C.green} strokeWidth="2" fill="none" markerEnd="url(#ar)" />
+          <defs><marker id="ar" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0 0 L6 3 L0 6 z" fill={C.muted} /></marker></defs>
+        </svg>
+        <div style={{ fontSize: 12, color: C.muted, marginTop: 8 }}>Structural diagram of the mechanism described in Davis et al., 2024 (dropout 0.95, N=32, UCB &lambda;=2, daily retrain).</div>
+      </div>
+
+      <ChartBlock id="rl"
+        note="FACT — RL (MC Dropout) rung vs ML baseline. Bookers online; recall & size offline; confidence = average per-prediction confidence rise since launch. Table 1 & §6.5, Davis et al., 2024."
+        interp={interp} setInterp={setInterp} reader={reader} setReader={setReader}
+        prompts={[
+          { kind: "Causal / comparative", text: "Retraining a fresh model vs an 8-month-stale one showed NO significant difference, yet adding exploration moved bookers +0.51%. Why does this pair of results isolate exploration — not data freshness — as the cause of the gain?", authored: "It is a controlled contrast. Freshness was varied (fresh vs 8-months-stale) with exploration held off, and nothing changed — ruling out 'newer data helps.' Then exploration was added and the metric moved. Because only the explore-vs-not variable differs in the second comparison, exploration is the causal factor. More data collected inside old blind spots is not more information; only exploration creates genuinely new observations." },
+          { kind: "So-what / decision implication", text: "Confidence rose +7.33% since launch while bookers rose +0.51%. For a PM deciding whether an exploration system is worth its ongoing cost, what does a rising-confidence, modest-booking signal imply about how to justify the investment — and what compounding effect are you betting on?", authored: "The bet is compounding: exploration's immediate booking gain is small, but rising confidence means the model keeps discovering inventory it was previously blind to, so the curve should keep paying off as blind spots fill. Justify it as a data-asset investment (widening the observable action space) rather than a one-time metric bump — and only at a scale where 0.2% is 'very significant,' as Airbnb notes, since the maintenance cost is real." }
+        ]}>
+        <h4 style={{ margin: "0 0 8px" }}>Chart 5 · Reinforcement learning vs ML baseline</h4>
+        <ResponsiveContainer width="100%" height={320}>
+          <BarChart data={RLIMPACT} margin={{ top: 24, right: 20, left: 0, bottom: 44 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke={C.line} />
+            <XAxis dataKey="metric" tick={{ fontSize: 11 }} interval={0} angle={-12} textAnchor="end" height={64} />
+            <YAxis tick={{ fontSize: 12 }} unit="%" domain={[-12, 10]} />
+            <Tooltip formatter={v => pctLabel(v)} />
+            <ReferenceLine y={0} stroke={C.muted} />
+            <Bar dataKey="val">
+              {RLIMPACT.map((d, i) => <Cell key={i} fill={d.val < 0 ? C.accent : C.green} />)}
+              <LabelList dataKey="val" position="top" formatter={pctLabel} style={{ fontSize: 11, fontWeight: 600 }} />
+            </Bar>
+          </BarChart>
+        </ResponsiveContainer>
+      </ChartBlock>
+
+      <Numeric q={{
+        id: "td2", tag: "T-D · OPEN-ENDED FERMI (build your own decomposition)",
+        prompt: "Monte Carlo Dropout scores each search 32 times to estimate uncertainty. Estimate the MULTIPLE by which this raises per-prediction compute at serving time versus scoring once, ignoring batching gains. Name your decomposition path before entering a number.",
+        unit: "×", answer: 32, tol: 8, tolText: "order-of-magnitude / ±8× — the naive factor is exactly the number of forward passes; credit for reasoning to ~32×.",
+        decomp: "Decomposition: forward-passes-per-prediction = 32 (paper's N). Naive serving cost multiple = 32× a single pass. This is why the paper's SECOND RL experiment embedded the 32 passes into the TensorFlow graph rather than scoring 32 separate times — a 'significant latency improvement' that made the 32× tolerable in production.",
+        calibWrong: "base-rate neglect on cost: assuming uncertainty estimation is 'free' rather than counting the literal 32 forward passes it requires.",
+        sensitive: "the implementation: naive looping is ~32×; graph-embedding and parallelism cut the wall-clock cost far below 32×, which is exactly the optimization Airbnb shipped."
+      }} qs={qs} setQs={setQs} />
+
+      <MC q={{
+        id: "mc3", tag: "T-B · TREND REASONING",
+        prompt: "A fresh-retrained model and an 8-month-stale model performed the same, but exploration moved bookers. A team elsewhere concludes 'our model is fine, we just need to retrain more often.' Which reasoning error is that, given Airbnb's evidence?",
+        options: [
+          "Correct reasoning — more frequent retraining is the documented fix.",
+          "Survivorship bias — assuming retraining works because other successful teams retrain.",
+          "Misdiagnosing the root cause — retraining recycles data collected inside existing blind spots, so without exploration the new data carries the same bias; the fix is exploration, not frequency.",
+          "Confusing rate and level — reading a retraining frequency as a data volume."
+        ],
+        answer: 2,
+        explain: "Airbnb's controlled result shows freshness alone changed nothing; the biased data-generating process is the root cause. Retraining more often just re-learns the same blind spots faster. The fix is to change what data gets collected (exploration), not how often you re-read biased data.",
+        scaffold: "The experiment already tested 'more recent data' (fresh vs stale) and found no difference. If more recent data didn't help, will more frequent recent data help? Identify what the team is treating as the cause vs the real root cause.",
+        calibCorrect: "distinguishing a data-process root cause from a schedule symptom generalizes to any feedback-loop system.",
+        calibWrong: "scope-creep / root-cause misdiagnosis: blaming retraining cadence (a symptom) instead of the biased data-generating process (the cause).",
+        generalizes: "A search team that keeps retraining a click model that only ever shows top-3 results — it never learns whether result #8 was better."
+      }} qs={qs} setQs={setQs} />
+
+      <PrincipleGate id="rq3" gate={gate} setGate={setGate}
+        authored="A deployed model censors its own future training data, so scope exploration and counterfactual data collection into v1 — retraining on self-selected data cannot escape a blind spot." />
+
+      <Transfer q={{
+        id: "tf3",
+        prompt: "Principle: a deployed model biases the data it will learn from next, so plan exploration at scoping time. Apply this to a music app whose recommender only logs plays of songs it already surfaces. Name the principle, give a non-trivial application, and name a failure mode that did NOT appear in Airbnb's case.",
+        authored: "Strong answers note the app never learns about songs it never shows, so it needs deliberate exploration slots. A failure mode absent from Airbnb: taste/consumption feedback loops that narrow user preferences over time (filter bubble) — Airbnb's boxes don't reshape what a guest wants, but a music recommender can homogenize the user's own taste, an outcome-level harm beyond a missed booking."
+      }} qs={qs} setQs={setQs} />
+
+      <Glossary items={[
+        { t: "Contextual multi-armed bandit", d: "A decision setup where a system repeatedly chooses an action given context, balancing exploiting what it knows against exploring to learn more." },
+        { t: "Monte Carlo Dropout", d: "Running a network many times with random neurons switched off to get a spread of predictions, used here as a cheap uncertainty estimate." },
+        { t: "UCB (Upper Confidence Bound)", d: "An explore rule that acts on an optimistic estimate (mean + a margin for uncertainty), so it explores more where it is less sure." },
+        { t: "Exploration vs exploitation", d: "The tradeoff between trying new actions to gather information and repeating the best-known action for immediate reward." },
+        { t: "Feedback loop / cyclical bias", d: "When a model's own outputs restrict the data it later sees, so it cannot learn about options it never surfaced." }
+      ]} />
+    </div>
+  );
+}
+
+/* ============ SECTION 6: WHAT BROKE ============ */
+function WhatBroke(props) {
+  const { interp, setInterp, reader, setReader, qs, setQs, gate, setGate } = props;
+  return (
+    <div style={{ background: "#FEF2F2", borderLeft: "4px solid #FCA5A5", borderRadius: 10, padding: "18px 20px" }}>
+      <h2 style={{ marginTop: 0 }}>What Broke — the statistics rung that fit the data and moved nothing</h2>
+      <p>
+        The failure is not hidden in a footnote; Airbnb put it in the same results table as the wins. After the heuristics, the team
+        built a statistics method from millions of real bookings, drawing a box that contained 96% of the closest booked listings for
+        each destination. They believed, in their own words, that it "would be much more robust than the naive heuristics because it
+        aligned better with guest's booking behavior." It improved the offline recall metric by <strong>+1.05%</strong>. Then it went to a
+        3-week A/B test on about 54M guests and produced <strong>no statistically significant change</strong> in uncancelled bookers. It was
+        never launched to 100% of traffic (Davis et al., 2024).
+      </p>
+      <p>
+        Why it happened: the assumption that failed was that fitting booking history more closely would produce more bookings. It was a
+        reasonable assumption — the method was built from the outcome data itself. But the box was keyed only by the searched location.
+        It gave the same San Francisco box to a solo traveler and a ten-guest group, even though the paper shows those two book in
+        visibly different places. The offline gain was concentrated in the average case, where guests were already well served. For the
+        guests whose context differed — exactly the ones a better system should help — nothing changed. The method could not
+        differentiate, so its offline fit never became new inventory anyone actually booked.
+      </p>
+      <p>
+        The cost was mostly opportunity and time: an entire modeling rung built, instrumented, A/B tested for three weeks, and shelved.
+        In dollars the direct cost is modest; the real cost is the counterfactual — the months between "we have booking data" and "we
+        have a method that moves bookings," during which the wrong lesson ("we just need to use our data") looked correct on the offline
+        dashboard. Had the team trusted the offline +1.05% and shipped, they would have added serving complexity for zero business value
+        and possibly masked the case for the ML model that followed.
+      </p>
+      <p>
+        The lesson is the article's spine, and it is the non-survivorship-biased one: an offline metric improving is necessary but not
+        sufficient evidence that a method is feasible. The gate is a business-metric A/B test, and the design property that decides the
+        outcome is whether the method can differentiate across the contexts that matter. "More data-driven" is not a feasibility
+        argument. "Can act differently where acting differently helps, proven online" is.
+      </p>
+
+      <ChartBlock id="fail"
+        note="FACT — statistics rung: offline booked-listing recall vs online uncancelled bookers (no statistically significant change). Table 1, Davis et al., CIKM 2024."
+        interp={interp} setInterp={setInterp} reader={reader} setReader={setReader}
+        prompts={[
+          { kind: "Qualitative / mechanism", text: "Offline recall rose +1.05% but online bookers stayed flat. What specific property of the statistics method — keyed only by searched location — turned a genuine offline gain into zero business movement?", authored: "The single-box-per-destination design meant the offline recall gain landed mostly on average searches that were already served well, while context-specific searches (e.g. large groups) still got the average box. Recall improved in aggregate without changing the boxes for the guests who needed a different one, so no new bookings appeared. Undifferentiated gain on already-served cases is invisible to the business metric." },
+          { kind: "So-what / decision implication", text: "A dashboard showing +1.05% offline recall would have looked like progress. What launch-gating rule should a PM institutionalize so a positive offline metric can never, by itself, authorize a rollout — and what is the minimum evidence that should?", authored: "Institutionalize an offline-as-screen / online-as-gate rule: offline metrics can only kill weak candidates cheaply, never green-light a launch. The minimum evidence for rollout is a pre-registered, statistically significant lift in the business metric (here uncancelled bookers) in a controlled A/B — the exact standard Airbnb applied, and the exact standard that stopped this rung from shipping." }
+        ]}>
+        <h4 style={{ margin: "0 0 8px" }}>Chart 6 · The failure, in one comparison</h4>
+        <BarPct data={FAILDATA} xKey="name" valKey="val" domain={[0, 1.5]} height={300}
+          colorFn={d => d.val === 0 ? C.red : C.gray} />
+      </ChartBlock>
+
+      <MC q={{
+        id: "mc4", tag: "T-B · FAILURE REASONING",
+        prompt: "Given the statistics rung's failure, which assumption did the team most likely hold as uncontroversial at the time — and why was it wrong?",
+        options: [
+          "That millions of bookings was too little data — wrong because Airbnb had billions of events.",
+          "That the A/B test was reliable — wrong because 3 weeks is too short to measure bookings.",
+          "That neural networks were unnecessary for this problem — wrong because only deep learning can draw boxes.",
+          "That a method fitting booking history more closely would necessarily produce more bookings — wrong because the box was undifferentiated, so its offline fit never reached the guests whose context differed from the average."
+        ],
+        answer: 3,
+        explain: "The reasonable, uncontroversial belief was 'align with the data and value follows.' It failed because value depends on differentiation, not fit: an undifferentiated box improved recall on average cases without changing outcomes for the contexts that needed a different answer. A and B misdiagnose data volume or test validity; C is hindsight-biased and factually loose.",
+        scaffold: "The team explicitly said they expected the method to be 'more robust because it aligned better with booking behavior.' That sentence contains the assumption. Ask why aligning with history did not move bookings.",
+        calibCorrect: "surfacing the load-bearing, uncontroversial assumption is the core skill of a pre-mortem.",
+        calibWrong: "hindsight bias: options A–C pick causes that look plausible only after knowing it failed, rather than the belief the team actually held.",
+        generalizes: "A churn model with rising offline AUC that never reduces churn — because the high-risk users it flags are ones the business already contacts."
+      }} qs={qs} setQs={setQs} />
+
+      <PrincipleGate id="broke" gate={gate} setGate={setGate}
+        authored="Treat every offline metric win as a hypothesis, not a result; the feasibility gate is a business-metric A/B test, and the deciding design property is differentiation across the contexts that matter." />
+      <Glossary items={[
+        { t: "Statistically significant", d: "An observed difference unlikely to be due to chance (here p < 0.05); Airbnb required it in the business metric before launching." },
+        { t: "Opportunity cost", d: "The value lost by spending time and effort on one path instead of the better one — here, the months on a rung that never shipped." },
+        { t: "Pre-mortem", d: "Imagining in advance that a project has failed and asking why, to surface the risky assumptions before they cost anything." }
+      ]} />
+    </div>
+  );
+}
+
+/* ============ SECTION 7: LEARNING SUMMARY ============ */
+function Summary({ qs, gate, apply, setApply, warmSkipped }) {
+  const scored = ["mc1", "tc1", "mc2", "mc3", "mc4"];
+  const correct = scored.filter(k => qs[k] && qs[k].correct).length;
+  const highWrong = scored.filter(k => qs[k] && qs[k].submitted && !qs[k].correct && qs[k].conf === "High");
+  const lowRight = scored.filter(k => qs[k] && qs[k].correct && qs[k].conf === "Low");
+  const gateKeys = [["intro", "Intro"], ["landscape", "Landscape"], ["rq1", "RQ1"], ["rq2", "RQ2"], ["rq3", "RQ3"], ["broke", "What Broke"]];
+  const AUTH = {
+    intro: "Define the transparent baseline a model must beat, and demand the advantage show up in the business metric.",
+    landscape: "Rank methods by the new capability each unlocks, not by sophistication.",
+    rq1: "A model is warranted only where context a rule ignores exists AND the data to learn it exists.",
+    rq2: "Specify a v1 model as reward + cost term, with fresh, honestly-attributed labels from product use.",
+    rq3: "A deployed model censors its own future data; scope exploration into v1.",
+    broke: "Every offline win is a hypothesis; the gate is a business-metric A/B, decided by differentiation."
+  };
+  return (
+    <div>
+      <h2>Learning Summary</h2>
+      <div style={{ background: "#eef2ff", borderRadius: 10, padding: 16, marginBottom: 20 }}>
+        <div style={{ fontSize: 15, fontWeight: 700 }}>Multiple-choice score: {correct}/{scored.length}</div>
+        <div style={{ fontSize: 14, marginTop: 6 }}>Calibration — high-confidence wrong: <strong>{highWrong.length}</strong> · low-confidence right: <strong>{lowRight.length}</strong>.
+          {highWrong.length > 0 ? " Where you were sure but wrong, re-read the reasoning-error note — that is where an intuition needs rebuilding." : " No high-confidence misses — your confidence tracked your accuracy well."}</div>
+        <div style={{ fontSize: 13, color: C.muted, marginTop: 6 }}>Numeric estimates: the day-rate item rewards ÷365; the MC-Dropout item rewards the 32× forward-pass count. If you under-shot the 32×, you likely treated uncertainty estimation as free.</div>
+        {warmSkipped && <div style={{ fontSize: 13, color: C.amber, marginTop: 6 }}>Warm-up skipped — 3 prior principles not reviewed this session.</div>}
+      </div>
+
+      <h3>Your principles vs the authored ones</h3>
+      {gateKeys.map(([k, label]) => (
+        <div key={k} style={{ borderLeft: "3px solid " + C.line, paddingLeft: 12, marginBottom: 12 }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: C.muted }}>{label}</div>
+          <div style={{ fontSize: 14 }}><strong>You:</strong> {gate[k] || <em style={{ color: C.gray }}>(not recorded)</em>}</div>
+          <div style={{ fontSize: 14, color: C.muted }}><strong>Authored:</strong> {AUTH[k]}</div>
+        </div>
+      ))}
+      <p style={{ fontSize: 14, fontStyle: "italic", color: C.muted }}>Which of your stated principles surprised you most when compared to the authored version? Why?</p>
+
+      <h3>Your governing insight</h3>
+      <p style={{ fontSize: 14 }}>You have seen six pieces of evidence across one AI feature's multi-year climb. Write the single most non-obvious insight you would defend to a skeptical CTO (min 30 chars).</p>
+      <textarea value={apply.insight} onChange={e => setApply({ ...apply, insight: e.target.value })}
+        style={{ width: "100%", minHeight: 60, padding: 10, border: "1px solid " + C.line, borderRadius: 7, fontFamily: "inherit", fontSize: 14, boxSizing: "border-box" }} />
+      {apply.insight.length >= 30 && (
+        <div style={{ marginTop: 10 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 6 }}>How your insight compares — three authored takeaways:</div>
+          {[
+            "The failed rung is the most valuable data point: it proves 'more data-driven' and 'more valuable' are different axes.",
+            "The business-metric A/B was the real feasibility gate; every offline number was only a screen.",
+            "The model's biggest long-run risk was learning only inside its own past decisions — solved by scoping exploration, not by retraining harder."
+          ].map((t, i) => <div key={i} style={{ fontSize: 14, background: "#f8fafc", borderRadius: 8, padding: 10, marginBottom: 6 }}>{t}</div>)}
+        </div>
+      )}
+
+      <h3>Apply It — both variants required to unlock the conclusion</h3>
+      <div style={{ border: "1px solid " + C.line, borderRadius: 10, padding: 14, marginBottom: 14 }}>
+        <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 6 }}>(a) Present-day</div>
+        <div style={{ fontSize: 14, marginBottom: 8 }}>Apply the governing principle to a product you know. Include four labeled parts: (1) one-sentence so-what thesis, (2) load-bearing assumption, (3) strongest disconfirming evidence from this article, (4) pre-mortem: "If this fails in 12 months, the most likely reason is ___." (min 40 chars)</div>
+        <textarea value={apply.now} onChange={e => setApply({ ...apply, now: e.target.value })}
+          style={{ width: "100%", minHeight: 80, padding: 10, border: "1px solid " + C.line, borderRadius: 7, fontFamily: "inherit", fontSize: 14, boxSizing: "border-box" }} />
+      </div>
+      <div style={{ border: "1px solid " + C.line, borderRadius: 10, padding: 14 }}>
+        <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 6 }}>(b) 2027 forward-looking</div>
+        <div style={{ fontSize: 14, marginBottom: 8 }}>Given the same problem but assuming foundation models with far longer context, cheaper inference, and better reasoning, what would you design or decide differently — and which load-bearing assumption from today does the 2027 version replace? (min 40 chars)</div>
+        <textarea value={apply.future} onChange={e => setApply({ ...apply, future: e.target.value })}
+          style={{ width: "100%", minHeight: 80, padding: 10, border: "1px solid " + C.line, borderRadius: 7, fontFamily: "inherit", fontSize: 14, boxSizing: "border-box" }} />
+      </div>
+      {(apply.now.length < 40 || apply.future.length < 40 || apply.insight.length < 30) &&
+        <p style={{ fontSize: 13, color: C.amber, marginTop: 10 }}>Complete the insight and both Apply-It variants to unlock the conclusion.</p>}
+
+      <div style={{ marginTop: 20, background: "#f8fafc", borderRadius: 10, padding: 14 }}>
+        <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 6 }}>Principles to revisit</div>
+        {highWrong.length === 0 && lowRight.length === 0
+          ? <div style={{ fontSize: 14, color: C.muted }}>No flagged questions — calibration looked solid.</div>
+          : <div style={{ fontSize: 14, color: C.muted }}>Revisit the principle behind: {[...highWrong, ...lowRight].map(k => ({
+            mc1: "correlation vs cause in offline metrics", tc1: "the load-bearing data assumption", mc2: "coupled loss-term tradeoffs",
+            mc3: "data-process root cause vs retraining cadence", mc4: "the uncontroversial assumption behind the failure"
+          }[k])).join("; ")}.</div>}
+      </div>
+    </div>
+  );
+}
+
+/* ============ SECTION 8: CONCLUSION ============ */
+function Conclusion(props) {
+  const { qs, setQs } = props;
+  return (
+    <div>
+      <h2>Conclusion</h2>
+      <p>
+        Stress-tested by both the wins and the shelved rung, the principle holds: sophistication is not feasibility, and a method's
+        value is decided by whether it does something the cheaper method structurally cannot — proven in the business metric, not the
+        offline one. Partial failure of this principle looks exactly like the statistics rung: a positive offline number, a confident
+        dashboard, and no movement where it counts. The most expensive version of that mistake is shipping on the offline number.
+      </p>
+      <p>
+        For an AI PM, this changes the order of work. Feasibility is not a yes/no verdict on whether a model <em>can</em> be built. It is a
+        sequence: name the transparent baseline; confirm the problem has context a rule ignores; confirm the product generates fresh,
+        honestly-attributed labels for that context; specify the objective as a reward plus a cost term; and gate the launch on a
+        business-metric A/B, treating every offline win as a hypothesis. The PM's most valuable single sentence in a scoping doc is not
+        "we'll use ML" — it is "here is the rule we must beat, and here is the online metric that decides."
+      </p>
+      <p>
+        For a future CTO, the platform implications are concrete. Build the A/B and offline-eval infrastructure before the modeling
+        team scales, because it is the gate that saves the most money. Budget for exploration and counterfactual data collection as
+        first-class infrastructure, since Airbnb's controlled result shows retraining on self-selected data cannot escape a blind spot.
+        And design objective specs as operating points so "good enough" is defined before anyone tunes a model.
+      </p>
+
+      <MC q={{
+        id: "te", tag: "T-E · FORWARD-LOOKING (present + 2027) with falsification",
+        prompt: "Present-day: a PM at a similar marketplace must choose the next six-month bet for a mature retrieval feature already on ML. 2027: assume foundation models offer very long context and cheap inference. Which pairing is soundest — and which observation would most falsify this article's governing principle?",
+        options: [
+          "Present: jump straight to the largest model. 2027: same. Falsifier: a case where a heuristic beat a model. (Ignores diminishing returns and the differentiation gate.)",
+          "Present: invest in exploration/counterfactual data since retraining alone bought nothing. 2027: a long-context model may ingest full session and inventory context, shifting the bet from hand-built exploration toward in-context reasoning — replacing the assumption that boxes must be hand-tuned per context. Falsifier: a rigorous A/B where a differentiated model still fails to beat a rule on the business metric despite ample context and data.",
+          "Present: retrain more frequently. 2027: retrain continuously. Falsifier: offline metrics disagreeing with each other. (Article showed freshness alone changed nothing.)",
+          "Present: drop A/B testing to move faster. 2027: trust model self-reports. Falsifier: a model that is slow. (Removes the very gate the article defends.)"
+        ],
+        answer: 1,
+        explain: "Only B carries the article's evidence forward: exploration (not freshness) moved the metric, and a 2027 long-context model changes the mechanism (in-context reasoning over full context) rather than the principle. Its falsifier is the right one — the principle would break if a well-differentiated model, given ample data and context, still could not beat a rule on the business metric in a clean A/B.",
+        scaffold: "Eliminate any option that repeats a mistake the article refutes (jump to biggest model, retrain-more, drop the A/B gate). The surviving option should also name a falsifier that would actually challenge the core claim — not a trivially different observation.",
+        calibCorrect: "separating the durable principle from the changing mechanism is exactly the 2027 reasoning skill.",
+        calibWrong: "extrapolating a short trend / removing the control: options A, C, D either over-extrapolate model power or discard the business-metric gate the evidence depends on.",
+        generalizes: "Any feature where 2028 model gains tempt teams to skip the online gate — the gate is what stays constant as models change."
+      }} qs={qs} setQs={setQs} />
+
+      <Transfer q={{
+        id: "tffinal",
+        prompt: "FINAL TRANSFER — to a domain not covered here. Governing principle: a model is warranted only where it does something a heuristic structurally cannot, proven in the business metric, not the offline one. Apply it to an industrial predictive-maintenance system deciding whether to replace a threshold rule ('alert if temperature > X') with a failure-prediction model. Name the principle, give a non-trivial application, and name a failure mode that did NOT appear in Airbnb's location-retrieval case.",
+        authored: "Strong answers require both that failures have learnable multi-sensor context a single threshold misses AND that the plant logs true failure/maintenance outcomes as labels; and they gate the model on a business/safety metric (avoided downtime, false-alarm cost), not offline AUC. A failure mode absent from Airbnb: extreme class imbalance and irreversibility — real failures are rare and a missed one destroys equipment or endangers people, so exploration cannot be casual and the cost term must weight false negatives far above false positives."
+      }} qs={qs} setQs={setQs} />
+
+      <p style={{ marginTop: 20 }}>
+        The most important unresolved question is where the boundary sits. Airbnb proved a model was warranted here because context and
+        labels both existed at massive scale. It does not tell us how sparse the context, or how thin the labels, can get before a rule
+        is once again the right answer — and that boundary is exactly where the next feasibility call you make will live.
+      </p>
+
+      <div style={{ marginTop: 28, borderTop: "1px solid " + C.line, paddingTop: 16 }}>
+        <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8 }}>Sources</div>
+        <div style={{ fontSize: 13, color: C.muted, lineHeight: 1.6 }}>
+          <div>· Davis, Gao, Legrand, Guo, Haldar, Deng, Zhao, He, Katariya. "Transforming Location Retrieval at Airbnb: A Journey from Heuristics to Reinforcement Learning." arXiv:2408.13399v2 (2024); CIKM 2024. — primary source for all Airbnb figures (Table 1; §1–6). https://arxiv.org/abs/2408.13399</div>
+          <div>· Airbnb Tech Blog (Medium) mirror of the same work — used to cross-check narrative framing. https://medium.com/airbnb-engineering</div>
+          <div style={{ marginTop: 6 }}>Cross-links: Prev — "Data Readiness Before Model Selection: Stripe" (Feasibility). Next — "AI-Native System Design: RAG / serving" (Design → Build). Warm-up drew on the Phase 0 Lifecycle Spine and the Google feasibility article.</div>
+          <div style={{ marginTop: 6 }}>All numeric values are FACT from the primary source. The decision-matrix diagram is an illustrative teaching framework (not reported statistics) and is not used in any scored answer key.</div>
+        </div>
+      </div>
+
+      <Glossary items={[
+        { t: "Falsification clause", d: "Naming the specific observation that, if seen, would disprove a claim — a discipline that keeps a principle testable rather than unfalsifiable." },
+        { t: "Counterfactual data", d: "Information about what would have happened under an action you did not take — hard to get precisely because you only observe the action you chose." }
+      ]} />
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+</script>
+</body>
+</html>

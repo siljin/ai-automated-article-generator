@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Case Practice — Cascade Health Partners</title>
+<style>
+  :root{ color-scheme: light;
+    --bg:#faf9f6; --card:#ffffff; --border:#e2ddd2; --text:#2c2c2a; --muted:#6b6a63;
+    --accent:#0f6e56; --accent-bg:#e1f5ee; --accent-text:#085041; --warn-bg:#faeeda; --warn-text:#633806;
+    --miss-bg:#fcebeb; --miss-text:#791f1f; --hit-bg:#eaf3de; --hit-text:#27500a;
+  }
+  html,body{background:var(--bg);}
+  body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;color:var(--text);max-width:780px;margin:0 auto;padding:2rem 1.25rem 4rem;line-height:1.6;}
+  h1{font-size:22px;font-weight:600;margin-bottom:.25rem;}
+  .meta{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:1.5rem;}
+  .badge{font-size:12px;padding:3px 10px;border-radius:20px;background:var(--accent-bg);color:var(--accent-text);}
+  .card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:1.25rem 1.4rem;margin-bottom:1.25rem;}
+  .card h2{font-size:16px;margin:0 0 .6rem;}
+  .card h3{font-size:14px;margin:0 0 .4rem;color:var(--muted);}
+  p{margin:.4rem 0;}
+  ul{margin:.4rem 0;padding-left:1.2rem;}
+  textarea,input[type=text]{width:100%;border:1px solid var(--border);border-radius:8px;padding:10px;font-family:inherit;font-size:14px;box-sizing:border-box;}
+  textarea{min-height:90px;resize:vertical;}
+  button{background:var(--text);color:#fff;border:none;border-radius:8px;padding:9px 16px;font-size:13px;cursor:pointer;margin-top:8px;margin-right:6px;}
+  button.secondary{background:transparent;color:var(--text);border:1px solid var(--border);}
+  button:disabled{opacity:.4;cursor:not-allowed;}
+  .hidden{display:none;}
+  .reveal{background:#fbfaf6;border:1px dashed var(--border);border-radius:8px;padding:12px 14px;margin-top:10px;}
+  .data-chip{display:inline-block;background:var(--warn-bg);color:var(--warn-text);font-size:12px;padding:4px 10px;border-radius:6px;margin:4px 4px 4px 0;cursor:pointer;}
+  table{width:100%;border-collapse:collapse;font-size:13px;margin-top:8px;}
+  td,th{border:1px solid var(--border);padding:6px 8px;text-align:left;}
+  .footer{font-size:12px;color:var(--muted);margin-top:2rem;border-top:1px solid var(--border);padding-top:1rem;}
+  .footer a{color:var(--accent-text);}
+  .qa-row{border-radius:8px;padding:8px 10px;margin-top:8px;font-size:13.5px;}
+  .qa-hit{background:var(--hit-bg);color:var(--hit-text);}
+  .qa-miss{background:var(--miss-bg);color:var(--miss-text);}
+  .qcount{font-size:12px;color:var(--muted);margin-top:4px;}
+</style>
+</head>
+<body>
+
+<h1>Cascade Health Partners — should we roll out ambient AI scribes system-wide?</h1>
+<div class="meta">
+  <span class="badge">Investment Decision / Cost-Benefit</span>
+  <span class="badge">AI + Healthcare</span>
+  <span class="badge">Difficulty: Easy-Medium (short drill)</span>
+  <span class="badge">~15 min</span>
+</div>
+
+<div class="card">
+  <h2>Prompt</h2>
+  <p>Your client is Cascade Health Partners, a 14-hospital nonprofit health system in the Pacific Northwest with about 900 physicians and advanced practice providers on staff.</p>
+  <p>A six-month pilot of an ambient AI documentation tool (a "digital scribe" that listens to visits and drafts clinical notes) at two hospitals just wrapped up. Clinicians who used it regularly liked it, but usage was inconsistent, and the measured time savings were smaller than the CFO expected going in.</p>
+  <p>The CFO wants to know: should Cascade sign a system-wide, multi-year contract with the vendor, and if so, on what terms?</p>
+  <button class="secondary" onclick="reveal('addl-info')">Reveal case givens (info usually offered upfront)</button>
+  <div id="addl-info" class="reveal hidden">
+    <ul>
+      <li>The pilot tool integrates with Cascade's existing EHR (Epic).</li>
+      <li>Cascade's operating margin has been thin the last two years (~1.5%), so the CFO is wary of new fixed costs.</li>
+      <li>The vendor is one of a handful of enterprise-grade ambient AI players already used by peer health systems.</li>
+      <li>Clinician burnout and turnover are a standing board-level concern independent of this decision.</li>
+    </ul>
+  </div>
+</div>
+
+<div class="card">
+  <h2>Step 1 — Ask your own clarifying questions</h2>
+  <p style="color:var(--muted);font-size:13px;">Type a question you'd ask the interviewer. If it lines up with one of the things a strong candidate would ask here, I'll reveal the answer. If not, you'll get "no information available" — just like a real interview where off-target questions don't move you forward.</p>
+  <input type="text" id="cq-input" placeholder="e.g. How is the vendor priced?">
+  <button onclick="askClarify()" id="cq-ask-btn">Ask</button>
+  <button class="secondary" onclick="revealGaps()">I'm done asking — show what I might have missed</button>
+  <div class="qcount" id="qcount">0 questions asked</div>
+  <div id="cq-transcript"></div>
+  <div id="cq-gaps" class="reveal hidden"></div>
+</div>
+
+<div class="card">
+  <h2>Step 2 — Build your framework</h2>
+  <p>Take 60-90 seconds. Write the buckets you'd use to decide whether Cascade should roll this out system-wide, before revealing a model answer.</p>
+  <textarea id="fw-input" placeholder="Your framework..."></textarea>
+  <br><button onclick="unlockReveal('fw-input','fw-answer','fw-btn')" id="fw-btn">Reveal model framework</button>
+  <div id="fw-answer" class="reveal hidden">
+    <h3>A reasonable structure</h3>
+    <p><strong>Cost structure</strong> — subscription/license fees, EHR integration and IT overhead, training and change-management cost, contract term and exit terms.</p>
+    <p><strong>Financial benefit</strong> — direct revenue effects (more complete billing/coding capture), any real reduction in headcount or overtime cost, versus benefits that are "soft" (time saved that isn't redeployed into anything billable).</p>
+    <p><strong>Clinician experience &amp; retention</strong> — burnout relief, adoption/usage rate, whether it actually changes behavior or just gets used by the clinicians who were already fine.</p>
+    <p><strong>Quality &amp; risk</strong> — note accuracy, error rates, liability exposure from AI-drafted documentation, patient trust/consent.</p>
+    <p><strong>Implementation risk</strong> — vendor lock-in, rollout sequencing across 14 hospitals, whether the pilot's inconsistent usage would persist at scale.</p>
+  </div>
+</div>
+
+<div class="card">
+  <h2>Step 3 — Brainstorm</h2>
+  <p><strong>Q:</strong> Beyond documentation time savings, what other ways could a system-wide ambient AI rollout create value or risk for Cascade — and how would you validate each before signing a multi-year contract?</p>
+  <textarea id="bs-input" placeholder="List your ideas..."></textarea>
+  <br><button onclick="unlockReveal('bs-input','bs-answer','bs-btn')" id="bs-btn">Reveal reference ideas</button>
+  <div id="bs-answer" class="reveal hidden">
+    <p><strong>Revenue-side:</strong> more complete capture of billing complexity (notes that better reflect the actual visit tend to support higher-acuity coding); fewer late/incomplete notes that delay claims submission; potential to see slightly more patients per day if documentation time is genuinely freed up rather than just shifted.</p>
+    <p><strong>Cost-side:</strong> reduced reliance on human medical scribes or transcription services where those are still used; lower overtime/after-hours "pajama time" charting; possible reduction in physician turnover cost if burnout improves.</p>
+    <p><strong>Risk-side:</strong> a "coding arms race" dynamic where payers get suspicious of systematically higher coding levels and tighten audits; AI transcription errors that go uncaught because clinicians trust the draft too much; multi-year vendor lock-in just as a wave of new, cheaper entrants is hitting the market.</p>
+  </div>
+</div>
+
+<div class="card">
+  <h2>Step 4 — Quant exercise</h2>
+  <p><strong>Q:</strong> The CFO wants a rough gut-check: on paper, does a system-wide rollout pay for itself in year one? Click each chip below as you'd ask the interviewer for data, then work the math.</p>
+  <div>
+    <span class="data-chip" onclick="reveal('d1')">How many clinicians would be enrolled?</span>
+    <span class="data-chip" onclick="reveal('d2')">What does the vendor charge?</span>
+    <span class="data-chip" onclick="reveal('d3')">What billing uplift is the vendor promising?</span>
+    <span class="data-chip" onclick="reveal('d4')">What did the pilot actually show about usage?</span>
+  </div>
+  <div id="d1" class="reveal hidden">900 physicians and advanced practice providers system-wide would be enrolled.</div>
+  <div id="d2" class="reveal hidden">Enterprise-tier pricing with full EHR integration: $250 per clinician per month.</div>
+  <div id="d3" class="reveal hidden">The vendor's case studies claim documentation completeness improvements worth about $3,000 in additional captured revenue per clinician per year, mainly from notes that better support the acuity level actually delivered.</div>
+  <div id="d4" class="reveal hidden">In the two-hospital pilot, only about 65% of enrolled clinicians used the tool on a majority of their visits — the rest used it occasionally or not at all, consistent with published findings that real-world ambient AI usage is "modest and inconsistent" even after go-live.</div>
+  <textarea id="math-input" placeholder="Show your calculation..."></textarea>
+  <br><button onclick="unlockReveal('math-input','math-answer','math-btn')" id="math-btn">Reveal calculation</button>
+  <div id="math-answer" class="reveal hidden">
+    <h3>Worked answer</h3>
+    <table>
+      <tr><th>Item</th><th>Calculation</th><th>Result</th></tr>
+      <tr><td>Annual subscription cost</td><td>900 clinicians × $250/mo × 12</td><td>$2.70M</td></tr>
+      <tr><td>Annual billing uplift (vendor's full claim)</td><td>900 clinicians × $3,000</td><td>$2.70M</td></tr>
+      <tr><td>Naive year-one net</td><td>$2.70M − $2.70M</td><td>≈ breakeven</td></tr>
+    </table>
+    <p><strong>Sanity check:</strong> that breakeven only holds if all 900 clinicians actually use the tool consistently — but the pilot showed just ~65% real adoption. If the billing uplift only accrues to clinicians who actually use the tool regularly, the realistic benefit is closer to 900 × 65% × $3,000 ≈ $1.76M against a full $2.70M cost — a roughly <strong>$0.94M net loss</strong> in year one on the CFO's own numbers, before counting integration and training costs.</p>
+    <p>That reframes the real question: the deal only pencils out if Cascade can either (a) negotiate pricing tied to actual usage/seats activated rather than headcount enrolled, or (b) invest in adoption (workflow redesign, champions, EHR tuning) to close the gap between enrollment and real usage — which is itself a cost and execution risk, not a given.</p>
+  </div>
+</div>
+
+<div class="card">
+  <h2>Step 5 — Quick take</h2>
+  <p>In two or three sentences, what would you tell the CFO — go, no-go, or go with conditions — and why?</p>
+  <textarea id="rec-input" placeholder="Your recommendation..."></textarea>
+  <br><button onclick="unlockReveal('rec-input','rec-answer','rec-btn')" id="rec-btn">Reveal model take</button>
+  <div id="rec-answer" class="reveal hidden">
+    <p><strong>Model take:</strong> Don't sign the full system-wide, multi-year deal on the vendor's headcount-based pricing — the pilot's own adoption data undercuts the breakeven case. Instead, negotiate a shorter initial term with usage-based or usage-tiered pricing, expand first to the hospitals/departments that showed the highest pilot engagement, and tie any further expansion to hitting a real (not enrolled) usage threshold plus independent verification that the billing uplift isn't just aggressive upcoding that invites payer audits.</p>
+    <p><strong>Biggest risk:</strong> locking into a multi-year, headcount-priced contract based on vendor-claimed benchmarks, then discovering — as Cascade's own pilot already hinted — that usage plateaus well below the level needed to justify the cost, with no easy exit.</p>
+  </div>
+</div>
+
+<div class="footer">
+  Generated as part of a daily case-practice series. Grounded in real 2026 findings on ambient AI scribe adoption: hospital uptake now over 60% among Epic-affiliated systems, but independent studies report modest, inconsistent time savings and usage in real-world deployment, and pricing spans roughly $40–several hundred dollars per clinician per month depending on integration depth.
+  <br>Sources:
+  <a href="https://www.statnews.com/2026/04/01/ai-ambient-scribes-modest-time-savings-clinical-documentation/" target="_blank">STAT — Large AI scribe study finds modest time savings, inconsistent use</a> ·
+  <a href="https://pmc.ncbi.nlm.nih.gov/articles/PMC12738533/" target="_blank">Policy brief — ambient AI scribes and the coding arms race</a>
+</div>
+
+<script>
+function reveal(id){document.getElementById(id).classList.remove('hidden');}
+
+function unlockReveal(inputId, answerId, btnId){
+  const val = document.getElementById(inputId).value.trim();
+  if(val.length < 5){
+    alert("Jot down at least a quick attempt first — that's the whole point of the drill.");
+    return;
+  }
+  reveal(answerId);
+  document.getElementById(btnId).disabled = true;
+}
+
+const CLARIFYING_QUESTIONS = [
+  { tags: ["how is the vendor priced", "pricing model", "how much does it cost", "cost structure of the tool", "contract terms"], q: "How is the vendor priced, and what's the contract structure?", a: "Per-clinician-per-month subscription at the enterprise integration tier, typically offered as a 3-year contract with modest year-over-year price escalators; pricing is based on clinicians enrolled, not clinicians who actively use it." },
+  { tags: ["how does cascade make money", "revenue model", "payer mix", "reimbursement"], q: "How does Cascade get paid — what's the payer mix?", a: "Standard mix for a regional nonprofit system: roughly half Medicare/Medicaid, the rest commercial insurance and self-pay; reimbursement is largely fee-for-service tied to coded visit complexity." },
+  { tags: ["what did the pilot show", "pilot results", "pilot usage", "time savings from pilot"], q: "What did the pilot actually show in terms of usage and time savings?", a: "About 65% of enrolled clinicians used it on a majority of visits; average documentation time savings were real but modest, and satisfaction was high mainly among consistent users." },
+  { tags: ["competitors", "other vendors", "alternatives", "market landscape"], q: "Are there competing vendors Cascade could consider instead?", a: "Yes — a handful of enterprise players plus several lower-cost standalone apps have entered the market recently, though they vary in EHR integration depth." },
+  { tags: ["clinician turnover", "burnout", "retention", "why does this matter to clinicians"], q: "Is clinician burnout or turnover a factor motivating this decision?", a: "Yes, it's a standing board-level concern, but it's separate from and not solely attributable to documentation burden — the CFO doesn't want to justify the investment purely on a soft retention story." }
+];
+const askedIdx = new Set();
+let questionCount = 0;
+let cqBusy = false;
+
+// Matching is hybrid: try Claude-based semantic matching first (understands paraphrasing/
+// intent, not just shared words), and fall back to a tuned keyword matcher if the Cowork
+// bridge isn't available (e.g. this file opened directly outside the artifact) or errors out.
+
+const STOPWORDS = new Set(['a','an','the','is','are','was','were','do','does','did','how','what',
+  'why','who','which','can','could','would','will','of','to','for','in','on','at','and','or',
+  'this','that','it','its','we','you','your','im','i','me','my','have','has','had','be','been',
+  'being','with','about','so','if','as','doesnt']);
+
+function stem(w){
+  if(w.length > 5 && w.endsWith('ing')) return w.slice(0,-3);
+  if(w.length > 4 && w.endsWith('ed')) return w.slice(0,-2);
+  if(w.length > 4 && w.endsWith('es')) return w.slice(0,-2);
+  if(w.length > 3 && w.endsWith('s') && !w.endsWith('ss')) return w.slice(0,-1);
+  return w;
+}
+
+function normalize(s){ return s.toLowerCase().replace(/[^a-z0-9\s]/g,' ').replace(/\s+/g,' ').trim(); }
+
+function tokenize(s){
+  return normalize(s).split(' ').filter(w => w && !STOPWORDS.has(w)).map(stem);
+}
+
+function scoreMatch(input, tags){
+  const inputWords = new Set(tokenize(input));
+  let best = 0;
+  tags.forEach(tag => {
+    const tagWords = tokenize(tag);
+    if(tagWords.length === 0) return;
+    const hits = tagWords.filter(w => inputWords.has(w)).length;
+    const ratio = hits / tagWords.length;
+    best = Math.max(best, ratio);
+  });
+  return best;
+}
+
+function keywordMatch(text){
+  let bestIdx = -1, bestScore = 0;
+  CLARIFYING_QUESTIONS.forEach((item, idx) => {
+    const s = scoreMatch(text, item.tags);
+    if(s > bestScore){ bestScore = s; bestIdx = idx; }
+  });
+  return bestScore >= 0.4 ? bestIdx : -1;
+}
+
+async function semanticMatch(text){
+  if(!(window.cowork && typeof window.cowork.askClaude === 'function')) return null; // bridge unavailable
+  const list = CLARIFYING_QUESTIONS.map((item, idx) => (idx+1) + '. ' + item.q).join('\n');
+  const prompt = 'You are grading a case-interview candidate\'s clarifying question against a fixed list of ' +
+    'canonical questions the interviewer is prepared to answer. Reply with ONLY the number of the canonical ' +
+    'question that asks for essentially the same underlying information as the candidate\'s question, even if ' +
+    'worded very differently. If none of them are asking for the same thing, reply with exactly 0. No other text.';
+  try {
+    const res = await window.cowork.askClaude(prompt, [
+      'Candidate question: ' + text,
+      'Canonical questions:\n' + list
+    ]);
+    const raw = (typeof res === 'string') ? res : (res && res.text) ? res.text : JSON.stringify(res || '');
+    const match = raw.match(/-?\d+/);
+    if(!match) return null;
+    const n = parseInt(match[0], 10);
+    if(n >= 1 && n <= CLARIFYING_QUESTIONS.length) return n - 1;
+    return -1; // model explicitly said no match
+  } catch(e){
+    return null; // treat as unavailable, fall back to keyword matcher
+  }
+}
+
+async function askClarify(){
+  if(cqBusy) return;
+  const input = document.getElementById('cq-input');
+  const text = input.value.trim();
+  if(!text) return;
+  cqBusy = true;
+  const btn = document.getElementById('cq-ask-btn');
+  if(btn) btn.disabled = true;
+
+  questionCount++;
+  document.getElementById('qcount').textContent = questionCount + ' question' + (questionCount===1?'':'s') + ' asked' + (questionCount>=4 ? ' — most real interviews expect only 2-3, consider moving to structuring' : '');
+
+  const row = document.createElement('div');
+  row.className = 'qa-row';
+  row.style.background = 'var(--warn-bg)';
+  row.style.color = 'var(--warn-text)';
+  row.innerHTML = '<strong>You asked:</strong> ' + text + '<br><em>Checking...</em>';
+  document.getElementById('cq-transcript').prepend(row);
+  input.value = '';
+
+  let matchIdx = await semanticMatch(text);
+  if(matchIdx === null) matchIdx = keywordMatch(text);
+
+  if(matchIdx >= 0){
+    askedIdx.add(matchIdx);
+    row.className = 'qa-row qa-hit';
+    row.innerHTML = '<strong>You asked:</strong> ' + text + '<br><strong>Interviewer:</strong> ' + CLARIFYING_QUESTIONS[matchIdx].a;
+  } else {
+    row.className = 'qa-row qa-miss';
+    row.innerHTML = '<strong>You asked:</strong> ' + text + '<br><strong>Interviewer:</strong> "No information available for that — let\'s keep it focused on the business problem."';
+  }
+  if(btn) btn.disabled = false;
+  cqBusy = false;
+}
+
+function revealGaps(){
+  const missed = CLARIFYING_QUESTIONS.filter((_, idx) => !askedIdx.has(idx));
+  const box = document.getElementById('cq-gaps');
+  box.classList.remove('hidden');
+  if(missed.length === 0){
+    box.innerHTML = '<p><strong>Nice — you covered all the questions a strong candidate would typically ask here.</strong></p>';
+  } else {
+    box.innerHTML = '<p><strong>Questions you didn\'t ask that would have been worth it:</strong></p><ul>' +
+      missed.map(m => '<li>' + m.q + '<br><span style="color:var(--muted)">' + m.a + '</span></li>').join('') + '</ul>';
+  }
+}
+</script>
+</body>
+</html>

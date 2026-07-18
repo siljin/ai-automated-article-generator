@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<!--
+  CASE TEMPLATE — daily-case-practice skill
+  Replace every <!-- CASE:xxx --> block with real content for the new case.
+  Fill in CLARIFYING_QUESTIONS and the two chart datasets near the bottom of the <script>.
+  For a SHORT DRILL (~15 min): delete the "Read the chart" card and simplify the
+  "Recommendation" card to a single short prompt, or omit it — keep framework + brainstorm + one quick calc.
+-->
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Case Practice — <!-- CASE:company_name --></title>
+<style>
+  :root{ color-scheme: light;
+    --bg:#faf9f6; --card:#ffffff; --border:#e2ddd2; --text:#2c2c2a; --muted:#6b6a63;
+    --accent:#0f6e56; --accent-bg:#e1f5ee; --accent-text:#085041; --warn-bg:#faeeda; --warn-text:#633806;
+    --miss-bg:#fcebeb; --miss-text:#791f1f; --hit-bg:#eaf3de; --hit-text:#27500a;
+  }
+  html,body{background:var(--bg);}
+  body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;color:var(--text);max-width:780px;margin:0 auto;padding:2rem 1.25rem 4rem;line-height:1.6;}
+  h1{font-size:22px;font-weight:600;margin-bottom:.25rem;}
+  .meta{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:1.5rem;}
+  .badge{font-size:12px;padding:3px 10px;border-radius:20px;background:var(--accent-bg);color:var(--accent-text);}
+  .card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:1.25rem 1.4rem;margin-bottom:1.25rem;}
+  .card h2{font-size:16px;margin:0 0 .6rem;}
+  .card h3{font-size:14px;margin:0 0 .4rem;color:var(--muted);}
+  p{margin:.4rem 0;}
+  ul{margin:.4rem 0;padding-left:1.2rem;}
+  textarea,input[type=text]{width:100%;border:1px solid var(--border);border-radius:8px;padding:10px;font-family:inherit;font-size:14px;box-sizing:border-box;}
+  textarea{min-height:90px;resize:vertical;}
+  button{background:var(--text);color:#fff;border:none;border-radius:8px;padding:9px 16px;font-size:13px;cursor:pointer;margin-top:8px;margin-right:6px;}
+  button.secondary{background:transparent;color:var(--text);border:1px solid var(--border);}
+  button:disabled{opacity:.4;cursor:not-allowed;}
+  .hidden{display:none;}
+  .reveal{background:#fbfaf6;border:1px dashed var(--border);border-radius:8px;padding:12px 14px;margin-top:10px;}
+  .data-chip{display:inline-block;background:var(--warn-bg);color:var(--warn-text);font-size:12px;padding:4px 10px;border-radius:6px;margin:4px 4px 4px 0;cursor:pointer;}
+  table{width:100%;border-collapse:collapse;font-size:13px;margin-top:8px;}
+  td,th{border:1px solid var(--border);padding:6px 8px;text-align:left;}
+  .footer{font-size:12px;color:var(--muted);margin-top:2rem;border-top:1px solid var(--border);padding-top:1rem;}
+  .footer a{color:var(--accent-text);}
+  .qa-row{border-radius:8px;padding:8px 10px;margin-top:8px;font-size:13.5px;}
+  .qa-hit{background:var(--hit-bg);color:var(--hit-text);}
+  .qa-miss{background:var(--miss-bg);color:var(--miss-text);}
+  .qcount{font-size:12px;color:var(--muted);margin-top:4px;}
+  .chart-wrap{position:relative;height:240px;margin:10px 0;}
+</style>
+</head>
+<body>
+
+<h1><!-- CASE:title --></h1>
+<div class="meta">
+  <span class="badge"><!-- CASE:case_type --></span>
+  <span class="badge"><!-- CASE:industry --></span>
+  <span class="badge">Difficulty: <!-- CASE:difficulty --></span>
+  <span class="badge"><!-- CASE:time_estimate --></span>
+</div>
+
+<div class="card">
+  <h2>Prompt</h2>
+  <!-- CASE:prompt_paragraphs (2-4 short <p> tags) -->
+  <button class="secondary" onclick="reveal('addl-info')">Reveal case givens (info usually offered upfront)</button>
+  <div id="addl-info" class="reveal hidden">
+    <ul>
+      <!-- CASE:givens (2-4 <li> bullets) -->
+    </ul>
+  </div>
+</div>
+
+<div class="card">
+  <h2>Step 1 — Ask your own clarifying questions</h2>
+  <p style="color:var(--muted);font-size:13px;">Type a question you'd ask the interviewer. If it lines up with one of the things a strong candidate would ask here, I'll reveal the answer. If not, you'll get "no information available" — just like a real interview where off-target questions don't move you forward.</p>
+  <input type="text" id="cq-input" placeholder="e.g. How does the client make money today?">
+  <button onclick="askClarify()" id="cq-ask-btn">Ask</button>
+  <button class="secondary" onclick="revealGaps()">I'm done asking — show what I might have missed</button>
+  <div class="qcount" id="qcount">0 questions asked</div>
+  <div id="cq-transcript"></div>
+  <div id="cq-gaps" class="reveal hidden"></div>
+</div>
+
+<div class="card">
+  <h2>Step 2 — Build your framework</h2>
+  <p><!-- CASE:framework_question (e.g. "Take 60-90 seconds. Write the buckets you'd use to structure this problem before revealing a model answer.") --></p>
+  <textarea id="fw-input" placeholder="Your framework..."></textarea>
+  <br><button onclick="unlockReveal('fw-input','fw-answer','fw-btn')" id="fw-btn">Reveal model framework</button>
+  <div id="fw-answer" class="reveal hidden">
+    <h3>A reasonable structure</h3>
+    <!-- CASE:framework_answer (3-5 <p><strong>Bucket</strong> — rationale</p> blocks) -->
+  </div>
+</div>
+
+<div class="card">
+  <h2>Step 3 — Brainstorm</h2>
+  <p><strong>Q:</strong> <!-- CASE:brainstorm_question --></p>
+  <textarea id="bs-input" placeholder="List your ideas..."></textarea>
+  <br><button onclick="unlockReveal('bs-input','bs-answer','bs-btn')" id="bs-btn">Reveal reference ideas</button>
+  <div id="bs-answer" class="reveal hidden">
+    <!-- CASE:brainstorm_answer (grouped <p><strong>Category:</strong> ideas</p> blocks) -->
+  </div>
+</div>
+
+<!-- FULL CASE ONLY — delete this card for short drills -->
+<div class="card">
+  <h2>Step 4 — Read the chart</h2>
+  <p><strong>Q:</strong> <!-- CASE:chart_question --></p>
+  <div class="chart-wrap"><canvas id="chart1"></canvas></div>
+  <table>
+    <!-- CASE:chart_data_table (thead row + data rows, printing every exact value) -->
+  </table>
+  <textarea id="chart-input" placeholder="Your read on the chart..."></textarea>
+  <br><button onclick="unlockReveal('chart-input','chart-answer','chart-btn')" id="chart-btn">Reveal model interpretation</button>
+  <div id="chart-answer" class="reveal hidden">
+    <!-- CASE:chart_answer -->
+  </div>
+</div>
+
+<div class="card">
+  <h2>Step 5 — Quant exercise</h2>
+  <p><strong>Q:</strong> <!-- CASE:math_question --></p>
+  <div>
+    <!-- CASE:math_data_chips (span.data-chip onclick="reveal('dN')" for each piece of data) -->
+  </div>
+  <!-- CASE:math_data_reveals (hidden .reveal divs matching each chip, dN ids) -->
+  <textarea id="math-input" placeholder="Show your calculation..."></textarea>
+  <br><button onclick="unlockReveal('math-input','math-answer','math-btn')" id="math-btn">Reveal calculation</button>
+  <div id="math-answer" class="reveal hidden">
+    <!-- CASE:math_answer (worked table + sanity-check comment) -->
+  </div>
+</div>
+
+<div class="card">
+  <h2>Step 6 — Recommendation</h2>
+  <p><!-- CASE:recommendation_question --></p>
+  <textarea id="rec-input" placeholder="Your recommendation..."></textarea>
+  <br><button onclick="unlockReveal('rec-input','rec-answer','rec-btn')" id="rec-btn">Reveal model recommendation</button>
+  <div id="rec-answer" class="reveal hidden">
+    <!-- CASE:recommendation_answer (model answer + biggest risk) -->
+  </div>
+</div>
+
+<div class="footer">
+  Generated as part of a daily case-practice series. <!-- CASE:grounding_note -->
+  <br>Sources: <!-- CASE:source_links (markdown-style <a> tags) -->
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.0/dist/chart.umd.js" integrity="sha384-iU8HYtnGQ8Cy4zl7gbNMOhsDTTKX02BTXptVP/vqAWIaTfM7isw76iyZCsjL2eVi" crossorigin="anonymous"></script>
+<script>
+function reveal(id){document.getElementById(id).classList.remove('hidden');}
+
+function unlockReveal(inputId, answerId, btnId){
+  const val = document.getElementById(inputId).value.trim();
+  if(val.length < 5){
+    alert("Jot down at least a quick attempt first — that's the whole point of the drill.");
+    return;
+  }
+  reveal(answerId);
+  document.getElementById(btnId).disabled = true;
+}
+
+// ---- Clarifying question matching ----
+// CASE: replace with 5 canonical questions. Each "tags" array should include several
+// realistic phrasings/synonyms so a candidate's own wording has a good chance of matching
+// via the keyword fallback below — but the primary matcher is semantic (see semanticMatch).
+const CLARIFYING_QUESTIONS = [
+  // { tags: ["...", "..."], q: "Canonical question text", a: "Answer text" },
+];
+const askedIdx = new Set();
+let questionCount = 0;
+let cqBusy = false;
+
+// Matching is hybrid: try Claude-based semantic matching first (understands paraphrasing/
+// intent, not just shared words), and fall back to a tuned keyword matcher if the Cowork
+// bridge isn't available (e.g. this file opened directly outside the artifact) or errors out.
+
+const STOPWORDS = new Set(['a','an','the','is','are','was','were','do','does','did','how','what',
+  'why','who','which','can','could','would','will','of','to','for','in','on','at','and','or',
+  'this','that','it','its','we','you','your','im','i','me','my','have','has','had','be','been',
+  'being','with','about','so','if','as','does','doesnt']);
+
+function stem(w){
+  if(w.length > 5 && w.endsWith('ing')) return w.slice(0,-3);
+  if(w.length > 4 && w.endsWith('ed')) return w.slice(0,-2);
+  if(w.length > 4 && w.endsWith('es')) return w.slice(0,-2);
+  if(w.length > 3 && w.endsWith('s') && !w.endsWith('ss')) return w.slice(0,-1);
+  return w;
+}
+
+function normalize(s){ return s.toLowerCase().replace(/[^a-z0-9\s]/g,' ').replace(/\s+/g,' ').trim(); }
+
+function tokenize(s){
+  return normalize(s).split(' ').filter(w => w && !STOPWORDS.has(w)).map(stem);
+}
+
+function scoreMatch(input, tags){
+  const inputWords = new Set(tokenize(input));
+  let best = 0;
+  tags.forEach(tag => {
+    const tagWords = tokenize(tag);
+    if(tagWords.length === 0) return;
+    const hits = tagWords.filter(w => inputWords.has(w)).length;
+    const ratio = hits / tagWords.length;
+    best = Math.max(best, ratio);
+  });
+  return best;
+}
+
+function keywordMatch(text){
+  let bestIdx = -1, bestScore = 0;
+  CLARIFYING_QUESTIONS.forEach((item, idx) => {
+    const s = scoreMatch(text, item.tags);
+    if(s > bestScore){ bestScore = s; bestIdx = idx; }
+  });
+  return bestScore >= 0.4 ? bestIdx : -1;
+}
+
+async function semanticMatch(text){
+  if(!(window.cowork && typeof window.cowork.askClaude === 'function')) return null; // bridge unavailable
+  const list = CLARIFYING_QUESTIONS.map((item, idx) => (idx+1) + '. ' + item.q).join('\n');
+  const prompt = 'You are grading a case-interview candidate\'s clarifying question against a fixed list of ' +
+    'canonical questions the interviewer is prepared to answer. Reply with ONLY the number of the canonical ' +
+    'question that asks for essentially the same underlying information as the candidate\'s question, even if ' +
+    'worded very differently. If none of them are asking for the same thing, reply with exactly 0. No other text.';
+  try {
+    const res = await window.cowork.askClaude(prompt, [
+      'Candidate question: ' + text,
+      'Canonical questions:\n' + list
+    ]);
+    const raw = (typeof res === 'string') ? res : (res && res.text) ? res.text : JSON.stringify(res || '');
+    const match = raw.match(/-?\d+/);
+    if(!match) return null;
+    const n = parseInt(match[0], 10);
+    if(n >= 1 && n <= CLARIFYING_QUESTIONS.length) return n - 1;
+    return -1; // model explicitly said no match
+  } catch(e){
+    return null; // treat as unavailable, fall back to keyword matcher
+  }
+}
+
+async function askClarify(){
+  if(cqBusy) return;
+  const input = document.getElementById('cq-input');
+  const text = input.value.trim();
+  if(!text) return;
+  cqBusy = true;
+  const btn = document.getElementById('cq-ask-btn');
+  if(btn) btn.disabled = true;
+
+  questionCount++;
+  document.getElementById('qcount').textContent = questionCount + ' question' + (questionCount===1?'':'s') + ' asked' + (questionCount>=4 ? ' — most real interviews expect only 2-3, consider moving to structuring' : '');
+
+  const row = document.createElement('div');
+  row.className = 'qa-row';
+  row.style.background = 'var(--warn-bg)';
+  row.style.color = 'var(--warn-text)';
+  row.innerHTML = '<strong>You asked:</strong> ' + text + '<br><em>Checking...</em>';
+  document.getElementById('cq-transcript').prepend(row);
+  input.value = '';
+
+  let matchIdx = await semanticMatch(text);
+  if(matchIdx === null) matchIdx = keywordMatch(text);
+
+  if(matchIdx >= 0){
+    askedIdx.add(matchIdx);
+    row.className = 'qa-row qa-hit';
+    row.innerHTML = '<strong>You asked:</strong> ' + text + '<br><strong>Interviewer:</strong> ' + CLARIFYING_QUESTIONS[matchIdx].a;
+  } else {
+    row.className = 'qa-row qa-miss';
+    row.innerHTML = '<strong>You asked:</strong> ' + text + '<br><strong>Interviewer:</strong> "No information available for that — let\'s keep it focused on the business problem."';
+  }
+  if(btn) btn.disabled = false;
+  cqBusy = false;
+}
+
+function revealGaps(){
+  const missed = CLARIFYING_QUESTIONS.filter((_, idx) => !askedIdx.has(idx));
+  const box = document.getElementById('cq-gaps');
+  box.classList.remove('hidden');
+  if(missed.length === 0){
+    box.innerHTML = '<p><strong>Nice — you covered all the questions a strong candidate would typically ask here.</strong></p>';
+  } else {
+    box.innerHTML = '<p><strong>Questions you didn\'t ask that would have been worth it:</strong></p><ul>' +
+      missed.map(m => '<li>' + m.q + '<br><span style="color:var(--muted)">' + m.a + '</span></li>').join('') + '</ul>';
+  }
+}
+
+// ---- Charts ----
+// CASE: replace labels/data/colors below with the real chart(s). Keep responsive + maintainAspectRatio:false.
+// Always pair a chart with a printed data table above (see Step 4 card) — never let a bar height be the only
+// place a number lives.
+window.addEventListener('load', function(){
+  new Chart(document.getElementById('chart1'), {
+    type: 'bar',
+    data: {
+      labels: [/* CASE: category labels */],
+      datasets: [{
+        label: /* CASE: metric label */ '',
+        data: [/* CASE: numeric values */],
+        backgroundColor: ['#f0997b', '#378add', '#5dcaa5']
+      }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        title: { display: true, text: /* CASE: chart title */ '' }
+      },
+      scales: { y: { beginAtZero: true, title: { display: true, text: /* CASE: y-axis label */ '' } } }
+    }
+  });
+});
+</script>
+</body>
+</html>

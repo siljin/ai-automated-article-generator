@@ -1,0 +1,1230 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>AI's Capex Question — Interactive Research Article</title>
+<style>
+:root {
+  --ink: #111111;
+  --muted: #6b7280;
+  --line: #e5e7eb;
+  --accent: #2563eb;
+  --accent-soft: #eff6ff;
+  --green: #16a34a;
+  --green-soft: #f0fdf4;
+  --red: #dc2626;
+  --red-soft: #fef2f2;
+  --amber: #d97706;
+  --amber-soft: #fffbeb;
+  --bg: #ffffff;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  line-height: 1.7;
+  font-size: 16px;
+}
+
+#progress-bar-track {
+  position: fixed;
+  top: 0; left: 0; right: 0;
+  height: 4px;
+  background: var(--line);
+  z-index: 50;
+}
+#progress-bar-fill {
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.3s ease;
+}
+
+.topbar {
+  position: fixed;
+  top: 4px; left: 0; right: 0;
+  height: 40px;
+  background: rgba(255,255,255,0.95);
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 16px;
+  z-index: 40;
+  font-size: 13px;
+  color: var(--muted);
+}
+.score-badge {
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.wrap {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 72px 20px 120px;
+}
+
+h1 { font-size: 30px; line-height: 1.25; margin: 8px 0 4px; }
+h2 { font-size: 22px; margin: 40px 0 6px; }
+h3 { font-size: 17px; margin: 26px 0 4px; }
+.kicker { color: var(--accent); font-weight: 600; font-size: 13px; letter-spacing: 0.04em; text-transform: uppercase; }
+.byline { color: var(--muted); font-size: 14px; margin-bottom: 8px; }
+p { margin: 12px 0; }
+.small { font-size: 13px; color: var(--muted); }
+
+.section-lock {
+  text-align: center;
+  color: var(--muted);
+  padding: 40px 0;
+}
+.lock-icon { font-size: 28px; }
+
+.chart-card {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 16px 14px 12px;
+  margin: 22px 0;
+  background: #fff;
+}
+.chart-title { font-weight: 600; font-size: 15px; margin: 0 0 2px; }
+.chart-sub { font-size: 12px; color: var(--muted); margin: 0 0 10px; }
+.prov {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 4px;
+  margin-right: 6px;
+  vertical-align: middle;
+}
+.prov-fact { background: var(--green-soft); color: var(--green); }
+.prov-estimate { background: var(--amber-soft); color: var(--amber); }
+.prov-illustration { background: #f5f3ff; color: #7c3aed; }
+.chart-note { font-size: 12px; color: var(--muted); margin-top: 8px; font-style: italic; }
+
+.interp {
+  border-top: 1px dashed var(--line);
+  margin-top: 12px;
+  padding-top: 10px;
+}
+.interp-label { font-size: 12px; font-weight: 600; color: var(--accent); text-transform: uppercase; letter-spacing: 0.03em; }
+.interp-kind { font-size: 11px; color: var(--muted); font-weight: 500; }
+textarea, input[type="number"], input[type="text"] {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-family: inherit;
+  font-size: 14px;
+  margin-top: 6px;
+  resize: vertical;
+}
+.authored {
+  background: var(--accent-soft);
+  border-left: 3px solid var(--accent);
+  padding: 8px 12px;
+  border-radius: 4px;
+  margin-top: 10px;
+  font-size: 14px;
+}
+.authored .tag { font-weight: 600; color: var(--accent); display:block; font-size:12px; margin-bottom:2px; }
+
+.q-card {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 16px;
+  margin: 20px 0;
+}
+.q-card.case { background: var(--amber-soft); border-left: 3px solid var(--amber); }
+.q-type {
+  font-size: 11px; font-weight: 700; letter-spacing: 0.04em;
+  color: var(--muted); text-transform: uppercase;
+}
+.q-prompt { font-weight: 500; margin: 6px 0 12px; }
+.opt {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin: 8px 0;
+  cursor: pointer;
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  transition: border-color 0.15s, background 0.15s;
+}
+.opt:hover { border-color: var(--accent); }
+.opt.selected { border-color: var(--accent); background: var(--accent-soft); }
+.opt.correct { border-color: var(--green); background: var(--green-soft); }
+.opt.wrong { border-color: var(--red); background: var(--red-soft); }
+.opt .letter { font-weight: 700; color: var(--muted); }
+.opt.disabled { cursor: default; }
+
+.conf-row { display: flex; gap: 8px; align-items: center; margin: 12px 0; flex-wrap: wrap; }
+.conf-btn {
+  border: 1px solid var(--line);
+  background: #fff;
+  border-radius: 20px;
+  padding: 4px 14px;
+  cursor: pointer;
+  font-size: 13px;
+}
+.conf-btn.on { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+
+button.primary {
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  padding: 9px 18px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+button.primary:disabled { background: #cbd5e1; cursor: not-allowed; }
+button.ghost {
+  background: #fff; color: var(--accent);
+  border: 1px solid var(--accent);
+  border-radius: 8px; padding: 9px 18px; font-size: 14px; font-weight: 600; cursor: pointer;
+}
+button.ghost:disabled { color: #cbd5e1; border-color: var(--line); cursor: not-allowed; }
+
+.explain {
+  margin-top: 12px;
+  padding: 12px;
+  border-radius: 8px;
+  background: #f9fafb;
+  font-size: 14px;
+}
+.explain .principle { font-weight: 600; }
+.explain .generalizes { color: var(--accent); font-style: italic; margin-top: 6px; }
+.calib { font-size: 13px; margin-top: 8px; font-weight: 600; }
+.calib.good { color: var(--green); }
+.calib.bad { color: var(--red); }
+
+.numline { position: relative; height: 44px; margin: 14px 0 4px; }
+.numline .track { position: absolute; top: 20px; left: 0; right: 0; height: 3px; background: var(--line); }
+.numline .mark { position: absolute; top: 12px; width: 2px; height: 18px; }
+.numline .mark.user { background: var(--accent); }
+.numline .mark.actual { background: var(--green); }
+.numline .lbl { position: absolute; top: -2px; font-size: 11px; transform: translateX(-50%); white-space: nowrap; }
+
+.glossary {
+  background: #f9fafb;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 14px 16px;
+  margin: 28px 0 8px;
+}
+.glossary .g-label { font-size: 12px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); }
+.glossary dl { margin: 8px 0 0; }
+.glossary dt { font-weight: 600; margin-top: 8px; }
+.glossary dd { margin: 0 0 2px; font-size: 14px; color: #374151; }
+
+.navrow { display: flex; justify-content: space-between; margin-top: 40px; gap: 12px; }
+
+.summary-card {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 16px;
+  margin: 14px 0;
+}
+.insight-card {
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--accent);
+  border-radius: 8px;
+  padding: 12px 14px;
+  margin: 10px 0;
+  background: #fff;
+}
+.gap-list { background: var(--red-soft); border-radius: 8px; padding: 10px 14px; font-size: 14px; }
+.stat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.stat-grid .cell { border: 1px solid var(--line); border-radius: 8px; padding: 10px; text-align: center; }
+.stat-grid .num { font-size: 22px; font-weight: 700; }
+.stat-grid .lab { font-size: 12px; color: var(--muted); }
+.principle-item { font-size: 14px; margin: 6px 0; padding-left: 10px; border-left: 2px solid var(--amber); }
+
+.src-list { font-size: 13px; }
+.src-list a { color: var(--accent); word-break: break-word; }
+
+.recharts-wrapper { font-size: 11px; }
+
+/* Free-navigation section layout + left navbar (PM/TPI-style) */
+.article-section {
+  scroll-margin-top: 60px;
+  padding-top: 18px;
+  border-top: 1px solid var(--line);
+}
+.article-section:first-of-type { border-top: none; }
+
+.section-nav {
+  position: fixed;
+  top: 60px;
+  left: 24px;
+  width: 190px;
+  max-height: calc(100vh - 90px);
+  overflow-y: auto;
+  z-index: 30;
+}
+.section-nav .nav-title {
+  font-size: 11px; font-weight: 700; letter-spacing: 0.05em;
+  text-transform: uppercase; color: var(--muted); margin-bottom: 8px;
+}
+.section-nav .nav-item {
+  display: block;
+  font-size: 13px;
+  color: var(--muted);
+  padding: 6px 10px;
+  border-left: 2px solid transparent;
+  cursor: pointer;
+  line-height: 1.35;
+  border-radius: 0 4px 4px 0;
+}
+.section-nav .nav-item:hover { color: var(--ink); background: #f9fafb; }
+.section-nav .nav-item.on {
+  color: var(--accent);
+  font-weight: 600;
+  border-left-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+@media (max-width: 520px) {
+  .stat-grid { grid-template-columns: 1fr; }
+  h1 { font-size: 25px; }
+}
+
+</style>
+<script crossorigin src="https://unpkg.com/react@18.3.1/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/prop-types@15.8.1/prop-types.min.js"></script>
+<script crossorigin src="https://unpkg.com/recharts@2.12.7/umd/Recharts.js"></script>
+<script src="https://unpkg.com/@babel/standalone@7.24.7/babel.min.js"></script>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel" data-presets="env,react">
+/* AI's Capex Question — interactive research article
+   Domain: Technology & AI. Built per interactive-research-articles skill.
+   All numeric values are labeled FACT / ESTIMATE / ILLUSTRATION in the UI. */
+
+const { useState, useMemo } = React;
+const {
+  ResponsiveContainer, LineChart, Line, AreaChart, Area, BarChart, Bar,
+  XAxis, YAxis, CartesianGrid, Tooltip, Cell, ReferenceLine, LabelList, Legend
+} = Recharts;
+
+/* ---------------- Chart data ---------------- */
+
+// Chart 1: combined hyperscaler capex, $B, calendar year (Alphabet+Amazon+Meta+Microsoft+Oracle)
+// Anchors: 2025 "nearing half a trillion", 2026 "$770B if trend continues" (Epoch AI, 2026).
+// 2022-2024 reconstructed from Epoch's stated 72%/yr fit -> ESTIMATE.
+const capexArea = [
+  { year: "2022", capex: 95, kind: "est" },
+  { year: "2023", capex: 165, kind: "est" },
+  { year: "2024", capex: 285, kind: "est" },
+  { year: "2025", capex: 490, kind: "fact" },
+  { year: "2026*", capex: 770, kind: "proj" },
+];
+
+// Chart 2: indexed to 2023 = 100. Capex vs OpenAI revenue (proxy for AI end-user revenue).
+// OpenAI annual revenue: 2023 ~$1.6B, 2024 ~$4B, 2025 ~$13B (FACT, reported). Capex from chart 1 (ESTIMATE).
+const indexed = [
+  { year: "2023", capexIdx: 100, revIdx: 100 },
+  { year: "2024", capexIdx: 173, revIdx: 250 },
+  { year: "2025", capexIdx: 297, revIdx: 813 },
+];
+
+// Chart 3: the "$600B question" decomposition (Cahn method) using Nvidia FY2025 data-center revenue $115.2B (FACT).
+// base = invisible offset, delta = visible bar. ESTIMATE (reconstruction of a published method).
+const waterfall = [
+  { name: "Nvidia data-center\nrevenue (run-rate)", base: 0, delta: 115, kind: "start" },
+  { name: "+ rest of data-center\ncost (×2 TCO)", base: 115, delta: 115, kind: "add" },
+  { name: "Total AI data-center\ncost", base: 0, delta: 230, kind: "sub" },
+  { name: "+ 50% end-user\ngross margin (×2)", base: 230, delta: 231, kind: "add" },
+  { name: "Required annual AI\nend-user revenue", base: 0, delta: 461, kind: "total" },
+];
+
+// Chart 4: slope chart — assumed book life vs claimed economic life of AI servers, years.
+// ILLUSTRATION: book lives ~5-6 yrs (company disclosures), economic life ~2-3 yrs (Burry, 2025). Per-firm points illustrative.
+const slope = [
+  { firm: "Amazon", book: 6, econ: 3 },
+  { firm: "Microsoft", book: 6, econ: 3 },
+  { firm: "Alphabet", book: 6, econ: 2.5 },
+  { firm: "Meta", book: 5.5, econ: 2.5 },
+  { firm: "Oracle", book: 5, econ: 2 },
+];
+const slopeData = [
+  { x: "Book life (assumed)", Amazon: 6, Microsoft: 6, Alphabet: 6, Meta: 5.5, Oracle: 5 },
+  { x: "Economic life (Burry)", Amazon: 3, Microsoft: 3, Alphabet: 2.5, Meta: 2.5, Oracle: 2 },
+];
+
+// Chart 5: MIT GenAI divide — 100% stacked (FACT, MIT NANDA 2025).
+const divide = [
+  { name: "All corporate\nGenAI pilots", value: 5, none: 95 },
+  { name: "Bought from\nvendor", value: 67, none: 33 },
+  { name: "Built\nin-house", value: 22, none: 78 },
+];
+
+const COL = { accent: "#2563eb", green: "#16a34a", amber: "#d97706", red: "#dc2626", grey: "#cbd5e1", purple: "#7c3aed" };
+
+/* ---------------- Chart components ---------------- */
+
+function Prov({ tier }) {
+  const map = { FACT: "prov-fact", ESTIMATE: "prov-estimate", ILLUSTRATION: "prov-illustration" };
+  return <span className={"prov " + map[tier]}>{tier}</span>;
+}
+
+function CapexAreaChart() {
+  return (
+    <ResponsiveContainer width="100%" height={260}>
+      <AreaChart data={capexArea} margin={{ top: 20, right: 20, left: 0, bottom: 0 }}>
+        <CartesianGrid strokeDasharray="3 3" stroke="#eee" />
+        <XAxis dataKey="year" tick={{ fontSize: 12 }} />
+        <YAxis tick={{ fontSize: 12 }} label={{ value: "$B", position: "insideTopLeft", fontSize: 11 }} />
+        <Tooltip formatter={(v) => "$" + v + "B"} />
+        <Area type="monotone" dataKey="capex" stroke={COL.accent} fill="#dbeafe" strokeWidth={2}>
+          <LabelList dataKey="capex" position="top" formatter={(v) => "$" + v + "B"} style={{ fontSize: 11, fill: "#111" }} />
+        </Area>
+      </AreaChart>
+    </ResponsiveContainer>
+  );
+}
+
+function IndexedChart() {
+  return (
+    <ResponsiveContainer width="100%" height={260}>
+      <LineChart data={indexed} margin={{ top: 20, right: 30, left: 0, bottom: 0 }}>
+        <CartesianGrid strokeDasharray="3 3" stroke="#eee" />
+        <XAxis dataKey="year" tick={{ fontSize: 12 }} />
+        <YAxis tick={{ fontSize: 12 }} label={{ value: "Index (2023 = 100)", angle: -90, position: "insideLeft", fontSize: 11 }} />
+        <Tooltip />
+        <ReferenceLine y={100} stroke="#999" strokeDasharray="4 4" />
+        <Legend wrapperStyle={{ fontSize: 12 }} />
+        <Line type="monotone" dataKey="capexIdx" name="Hyperscaler capex" stroke={COL.accent} strokeWidth={2}>
+          <LabelList dataKey="capexIdx" position="top" style={{ fontSize: 11, fill: COL.accent }} />
+        </Line>
+        <Line type="monotone" dataKey="revIdx" name="OpenAI revenue (AI proxy)" stroke={COL.green} strokeWidth={2}>
+          <LabelList dataKey="revIdx" position="bottom" style={{ fontSize: 11, fill: COL.green }} />
+        </Line>
+      </LineChart>
+    </ResponsiveContainer>
+  );
+}
+
+function WaterfallChart() {
+  const color = (k) => (k === "start" ? COL.grey : k === "add" ? COL.amber : k === "sub" ? "#94a3b8" : COL.red);
+  return (
+    <ResponsiveContainer width="100%" height={300}>
+      <BarChart data={waterfall} margin={{ top: 20, right: 10, left: 0, bottom: 30 }}>
+        <CartesianGrid strokeDasharray="3 3" stroke="#eee" />
+        <XAxis dataKey="name" tick={{ fontSize: 9 }} interval={0} height={50} />
+        <YAxis tick={{ fontSize: 12 }} label={{ value: "$B / year", angle: -90, position: "insideLeft", fontSize: 11 }} />
+        <Tooltip formatter={(v, n) => (n === "delta" ? "$" + v + "B" : null)} />
+        <Bar dataKey="base" stackId="a" fill="transparent" />
+        <Bar dataKey="delta" stackId="a">
+          {waterfall.map((d, i) => <Cell key={i} fill={color(d.kind)} />)}
+          <LabelList dataKey="delta" position="top" formatter={(v) => "$" + v + "B"} style={{ fontSize: 10, fill: "#111" }} />
+        </Bar>
+      </BarChart>
+    </ResponsiveContainer>
+  );
+}
+
+function SlopeChart() {
+  const firms = ["Amazon", "Microsoft", "Alphabet", "Meta", "Oracle"];
+  const colors = [COL.accent, COL.green, COL.amber, COL.purple, COL.red];
+  return (
+    <ResponsiveContainer width="100%" height={280}>
+      <LineChart data={slopeData} margin={{ top: 20, right: 70, left: 0, bottom: 0 }}>
+        <XAxis dataKey="x" tick={{ fontSize: 12 }} />
+        <YAxis tick={{ fontSize: 12 }} domain={[0, 7]} label={{ value: "Useful life (years)", angle: -90, position: "insideLeft", fontSize: 11 }} />
+        <Tooltip formatter={(v) => v + " yrs"} />
+        <Legend wrapperStyle={{ fontSize: 12 }} />
+        {firms.map((f, i) => (
+          <Line key={f} type="linear" dataKey={f} stroke={colors[i]} strokeWidth={2} dot={{ r: 4 }}>
+            {i === 0 && <LabelList dataKey={f} position="right" formatter={(v) => v + "y"} style={{ fontSize: 10 }} />}
+          </Line>
+        ))}
+      </LineChart>
+    </ResponsiveContainer>
+  );
+}
+
+function DivideChart() {
+  return (
+    <ResponsiveContainer width="100%" height={230}>
+      <BarChart data={divide} layout="vertical" stackOffset="expand" margin={{ top: 10, right: 20, left: 40, bottom: 0 }}>
+        <XAxis type="number" tickFormatter={(v) => Math.round(v * 100) + "%"} tick={{ fontSize: 12 }} />
+        <YAxis type="category" dataKey="name" tick={{ fontSize: 11 }} width={90} />
+        <Tooltip formatter={(v, n) => v + "%  (" + (n === "value" ? "measurable value" : "no measurable return") + ")"} />
+        <Legend wrapperStyle={{ fontSize: 12 }} />
+        <Bar dataKey="value" name="Measurable value" stackId="a" fill={COL.green}>
+          <LabelList dataKey="value" position="insideRight" formatter={(v) => v + "%"} style={{ fontSize: 11, fill: "#fff" }} />
+        </Bar>
+        <Bar dataKey="none" name="No measurable return" stackId="a" fill={COL.grey}>
+          <LabelList dataKey="none" position="insideLeft" formatter={(v) => v + "%"} style={{ fontSize: 11, fill: "#333" }} />
+        </Bar>
+      </BarChart>
+    </ResponsiveContainer>
+  );
+}
+
+const CHART_COMPONENTS = {
+  capex: CapexAreaChart, indexed: IndexedChart, waterfall: WaterfallChart, slope: SlopeChart, divide: DivideChart,
+};
+
+/* ---------------- Chart block with two gated interpretations ---------------- */
+
+function ChartBlock({ chart, state, setState }) {
+  const Comp = CHART_COMPONENTS[chart.id];
+  const st = state[chart.id] || { texts: ["", ""], submitted: [false, false] };
+  const submit = (j) => {
+    if ((st.texts[j] || "").trim().length < 15) return;
+    const submitted = st.submitted.slice(); submitted[j] = true;
+    setState({ ...state, [chart.id]: { ...st, submitted } });
+  };
+  const setText = (j, v) => {
+    const texts = st.texts.slice(); texts[j] = v;
+    setState({ ...state, [chart.id]: { ...st, texts } });
+  };
+  return (
+    <div className="chart-card">
+      <div className="chart-title">{chart.title}</div>
+      <div className="chart-sub"><Prov tier={chart.tier} />{chart.source}</div>
+      <Comp />
+      <div className="chart-note">{chart.note}</div>
+      {chart.prompts.map((p, j) => (
+        <div className="interp" key={j}>
+          <div><span className="interp-label">Your turn</span> <span className="interp-kind">· {p.kind}</span></div>
+          <div style={{ fontSize: 14, margin: "4px 0" }}>{p.text}</div>
+          {!st.submitted[j] ? (
+            <div>
+              <textarea rows={2} value={st.texts[j]} onChange={(e) => setText(j, e.target.value)}
+                placeholder="Write at least one sentence (min 15 characters) before the authored answer unlocks…" />
+              <button className="ghost" style={{ marginTop: 6 }} disabled={(st.texts[j] || "").trim().length < 15} onClick={() => submit(j)}>
+                Reveal authored answer
+              </button>
+            </div>
+          ) : (
+            <div>
+              <div className="small" style={{ marginTop: 4 }}><b>You wrote:</b> {st.texts[j]}</div>
+              <div className="authored"><span className="tag">Compare — authored answer</span>{p.authored}</div>
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/* ---------------- Question components ---------------- */
+
+/* Confidence rating removed — matches PM (TPI) design: no pre-reveal confidence step.
+   Calibration names the reasoning error only. */
+
+function MultipleChoice({ q, rec, setRec }) {
+  const r = rec[q.id] || { selected: null, submitted: false };
+  const letters = ["A", "B", "C", "D"];
+  const sub = (i) => { if (r.submitted) return; setRec({ ...rec, [q.id]: { ...r, selected: i } }); };
+  const submit = () => {
+    if (r.selected == null) return;
+    setRec({ ...rec, [q.id]: { ...r, submitted: true, isCorrect: r.selected === q.correct } });
+  };
+  const wrong = r.submitted && r.selected !== q.correct;
+  return (
+    <div className={"q-card" + (q.type === "C" ? " case" : "")}>
+      <div className="q-type">{q.label}{q.type === "C" ? " · Case Prompt" : ""}</div>
+      <div className="q-prompt">{q.prompt}</div>
+      {q.options.map((o, i) => {
+        let cls = "opt";
+        if (!r.submitted && r.selected === i) cls += " selected";
+        if (r.submitted && i === q.correct) cls += " correct";
+        if (r.submitted && r.selected === i && i !== q.correct) cls += " wrong";
+        if (r.submitted) cls += " disabled";
+        return (
+          <div key={i} className={cls} onClick={() => sub(i)}>
+            <span className="letter">{letters[i]}</span><span>{o}</span>
+          </div>
+        );
+      })}
+      {!r.submitted && r.selected == null && <div className="small" style={{ marginTop: 4 }}>Select an option to enable Submit.</div>}
+      {!r.submitted ? (
+        <button className="primary" disabled={r.selected == null} onClick={submit}>Submit</button>
+      ) : (
+        <div className="explain">
+          <div className={"calib " + (wrong ? "bad" : "good")}>
+            {wrong
+              ? "Incorrect — " + ((q.distractors && q.distractors[r.selected]) || "this option misreads the section's argument; see the principle below.")
+              : "Correct — this reasoning pattern generalizes beyond this case."}
+          </div>
+          <div className="principle">{q.principle}</div>
+          <div className="generalizes">Where this generalizes: {q.generalizes}</div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function NumericEstimate({ q, rec, setRec }) {
+  const r = rec[q.id] || { value: "", submitted: false };
+  const submit = () => {
+    if (r.value === "" || isNaN(parseFloat(r.value))) return;
+    const val = parseFloat(r.value);
+    let correct;
+    if (q.tol.type === "tight") correct = Math.abs(val - q.answer) / q.answer <= q.tol.band;
+    else { const ratio = val / q.answer; correct = ratio >= 1 / q.tol.factor && ratio <= q.tol.factor; }
+    setRec({ ...rec, [q.id]: { ...r, submitted: true, isCorrect: correct } });
+  };
+  const pos = (v) => { const lo = Math.log10(q.min), hi = Math.log10(q.max); const c = Math.min(Math.max(Math.log10(Math.max(v, q.min)), lo), hi); return ((c - lo) / (hi - lo)) * 100; };
+  return (
+    <div className="q-card">
+      <div className="q-type">{q.label} · Numeric estimate</div>
+      <div className="q-prompt">{q.prompt}</div>
+      <input type="number" value={r.value} placeholder={"Enter a number in " + q.unit}
+        disabled={r.submitted} onChange={(e) => setRec({ ...rec, [q.id]: { ...r, value: e.target.value } })} />
+      <div className="small">{q.tol.note}</div>
+      {!r.submitted ? (
+        <button className="primary" disabled={r.value === ""} onClick={submit}>Submit</button>
+      ) : (
+        <div className="explain">
+          <div className="numline">
+            <div className="track" />
+            <div className="mark user" style={{ left: pos(parseFloat(r.value)) + "%" }}><span className="lbl" style={{ color: COL.accent }}>you: {r.value}</span></div>
+            <div className="mark actual" style={{ left: pos(q.answer) + "%" }}><span className="lbl" style={{ color: COL.green, top: 24 }}>actual: {q.answer}{q.unitShort}</span></div>
+          </div>
+          <div className={"calib " + (r.isCorrect ? "good" : "bad")}>{r.isCorrect ? "Within tolerance — well estimated." : "Outside tolerance — the miss is usually one mis-sized factor in the decomposition below."}</div>
+          <div className="principle">Actual ≈ {q.answer}{q.unitShort}. <span dangerouslySetInnerHTML={{ __html: q.howto }} /></div>
+          <div className="generalizes">Where this generalizes: {q.generalizes}</div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Question({ q, rec, setRec }) {
+  return q.mode === "num" ? <NumericEstimate q={q} rec={rec} setRec={setRec} /> : <MultipleChoice q={q} rec={rec} setRec={setRec} />;
+}
+
+function Glossary({ items }) {
+  if (!items || !items.length) return null;
+  return (
+    <div className="glossary">
+      <div className="g-label">Glossary — new terms on this page</div>
+      <dl>{items.map((g, i) => (<React.Fragment key={i}><dt>{g.term}</dt><dd>{g.def}</dd></React.Fragment>))}</dl>
+    </div>
+  );
+}
+
+/* ---------------- Content ---------------- */
+// P = paragraph (jsx), CH = chart, Q = question
+
+const P = (jsx) => ({ t: "p", jsx });
+const CH = (chart) => ({ t: "chart", chart });
+const Q = (q) => ({ t: "q", q });
+
+const sections = [
+  /* 0: WARM-UP */
+  {
+    title: "Warm-Up: What Stuck?",
+    kicker: "Spaced retrieval · from earlier articles",
+    blocks: [
+      P(<p>Before today's topic, three questions that reuse principles from recent articles. Apply the idea to a <b>new</b> situation — this is retrieval practice, and it is scored.</p>),
+      Q({
+        id: "wu1", mode: "mc", type: "B", label: "Warm-Up 1 · Streaming article",
+        prompt: "A messaging app tells investors its monthly active users grew 40% while a rival's grew 12%. Using the streaming article's principle, why is that comparison not yet evidence the messaging app is the better business?",
+        options: [
+          "User count is a headline number; without revenue per user and the fixed-cost base it sits on, growth can be a vanity metric that scale alone does not convert to profit.",
+          "Faster user growth always means faster profit growth, so the comparison is decisive.",
+          "The rival is simply in a larger market, which fully explains the gap.",
+          "A 40% figure is too small a sample to be meaningful.",
+        ],
+        correct: 0,
+        principle: "Scale is necessary but not sufficient. Attention or users convert to profit only through a business model — revenue per user times base size against the shared fixed cost — so a user count without ARPU and the cost denominator does not settle which firm is better.",
+        distractors: {
+          1: "This assumes growth causes profit — the exact correlation-vs-causation leap the streaming article warned against.",
+          2: "Market size may matter, but it does not rescue a metric that omits revenue per user and cost.",
+          3: "Sample size is not the issue; the missing denominators are.",
+        },
+        generalizes: "Any 'growth' pitch — app installs, GPU shipments, AI pilots — where a volume number is quoted without the revenue and cost it must eventually cover.",
+      }),
+      Q({
+        id: "wu2", mode: "mc", type: "B", label: "Warm-Up 2 · Private-credit article",
+        prompt: "A property fund reports that its assets had only 4% volatility last year, far below listed real estate at 18%. From the private-credit article, what is the first thing to check before calling the fund genuinely safer?",
+        options: [
+          "Whether the fund's managers are more experienced than the listed market's.",
+          "Whether 4% and 18% were measured over the same number of days.",
+          "How 'volatility' was measured — appraisal-based marks are updated slowly and can smooth reported swings, so a low number may be a measurement artifact, not lower risk.",
+          "Whether the fund is larger than the listed market.",
+        ],
+        correct: 2,
+        principle: "A reported risk metric is a definition, not a fact of nature. Appraisal smoothing shrinks recorded volatility, so interrogate how the number was produced before treating a low figure as low risk.",
+        distractors: {
+          0: "Manager skill does not change how the volatility statistic itself was constructed.",
+          1: "Window length matters a little, but the core issue is appraisal vs market marking.",
+          3: "Size does not determine whether the volatility measure is smoothed.",
+        },
+        generalizes: "Any 'low-risk' or 'low-default' claim — including how AI firms book asset lives — where the metric's definition, not the world, may be doing the work.",
+      }),
+      Q({
+        id: "wu3", mode: "mc", type: "B", label: "Warm-Up 3 · GLP-1 drug article",
+        prompt: "A city says home solar 'pays for itself' per household, then a utility says rooftop solar is 'unaffordable' for the grid. Using the GLP-1 article's principle, how can both be right?",
+        options: [
+          "One of the two must be lying about the numbers.",
+          "Per-household value is a ratio; grid-wide budget impact is a total equal to cost per home times the number of adopting homes — different questions with different answers.",
+          "Solar is cost-effective only if subsidies are removed.",
+          "The utility is using nominal dollars and the city is using real dollars.",
+        ],
+        correct: 1,
+        principle: "Per-unit value (a ratio) and aggregate budget impact (a total) are different verdicts. Aggregate cost = volume × price × duration, so something can be cheap per unit yet enormous in total once the eligible population is large.",
+        distractors: {
+          0: "No dishonesty is needed; the two claims answer different questions.",
+          2: "Subsidy design is a side issue, not the ratio-vs-total distinction.",
+          3: "Real vs nominal is a different trap and is not what reconciles these two claims.",
+        },
+        generalizes: "Today's article: an AI chip can be a good deal per unit of compute while the aggregate build-out still needs a revenue total that may not exist yet.",
+      }),
+      { t: "glossary", items: [
+        { term: "ARPU (Average Revenue Per User)", def: "The revenue a business earns divided by its number of users." },
+        { term: "Appraisal-based mark", def: "Valuing an asset by periodic estimate rather than by a live market price, which can make reported values move more smoothly." },
+        { term: "Ratio vs total", def: "A per-unit ratio (value per person) answers a different question than an aggregate total (cost across everyone)." },
+      ] },
+    ],
+    reqIds: ["wu1", "wu2", "wu3"],
+  },
+
+  /* 1: INTRODUCTION */
+  {
+    title: "Introduction — The Widest Gap in Tech",
+    kicker: "AI's Capex Question",
+    blocks: [
+      P(<p>The five largest US cloud companies are on track to spend about <b>$770 billion</b> on capital projects in 2026 — most of it AI data centers — after their combined capital spending roughly <b>quadrupled since early 2023</b> (<Prov tier="FACT" />Epoch AI, 2026). Yet the money the AI industry actually collects from customers is a small fraction of that: the revenue gap a Sequoia partner called AI's "$200 billion question" in 2023 had grown into the "<b>$600 billion question</b>" by 2024 (Cahn, Sequoia, 2024).</p>),
+      P(<p>To see the scale, compare the two sides. In 2025 the combined build-out neared <b>half a trillion dollars</b> (Epoch AI, 2026). Against that, the single clearest AI-native revenue line — OpenAI — reached about <b>$13 billion</b> of annualized revenue by August 2025 (reported figure, 2025). Capital spending, in other words, is running more than an order of magnitude ahead of the ecosystem's marquee revenue.</p>),
+      P(<p>This breaks the usual pattern. In most technology waves, spending and revenue climb together, and the market rewards proof of demand. Here, chief executives have told investors they will spend on chips "whether you like it or not" (Cahn, Sequoia, 2024), while enterprise results lag: a 2025 study of corporate projects found <b>95% of generative-AI pilots produced no measurable financial return</b> (MIT NANDA, 2025). "Capex" is short for capital expenditure — money spent on long-lived assets like buildings and chips. "Generative AI" means software that produces new text, code, or images.</p>),
+      P(<p>This note asks three questions. First, how large is the gap between AI infrastructure spending and AI revenue, and is it widening or closing? Second, are today's reported AI-era profits real, or partly a product of how the chips are depreciated on the books? Third, why has the spending not yet turned into enterprise value — is the problem weak demand, or weak adoption?</p>),
+      { t: "glossary", items: [
+        { term: "Capex (capital expenditure)", def: "Money a company spends on long-lived assets such as data centers, buildings, and chips." },
+        { term: "Hyperscaler", def: "A very large cloud company that runs massive data centers — here Alphabet, Amazon, Meta, Microsoft, and Oracle." },
+        { term: "Generative AI", def: "Software that creates new content — text, code, images — in response to a prompt." },
+        { term: "Annualized revenue / run-rate", def: "The most recent period's revenue scaled up to a full-year figure." },
+      ] },
+    ],
+    reqIds: [],
+  },
+
+  /* 2: BACKGROUND */
+  {
+    title: "Background — How the Build-Out Got This Big",
+    kicker: "Trajectory & structure",
+    blocks: [
+      P(<p>The spending curve bent upward right after ChatGPT's launch in late 2022 and the GPT-4 release in early 2023. Epoch AI, using figures pulled straight from company filings with the securities regulator, finds that combined capital spending at Alphabet, Amazon, Meta, Microsoft, and Oracle has grown about <b>72% a year</b> since mid-2023 (Epoch AI, 2026). A "GPU" is a graphics processing unit — the specialized chip that trains and runs AI models. "SEC filings" are the financial reports US public companies must file with the Securities and Exchange Commission.</p>),
+      P(<p>Two features make this build-out unusual. First, it is front-loaded: the buildings, power, and chips are paid for now, years before the revenue they are meant to earn. Second, it is concentrated — a handful of firms are each spending at national-infrastructure scale, and much of the money flows to a single supplier. Nvidia's data-center division alone booked <b>$115.2 billion</b> in revenue in its fiscal 2025, up <b>142%</b> in a year (<Prov tier="FACT" />Nvidia, FY2025). When a build-out is this front-loaded, the case for it rests entirely on demand that has not yet arrived.</p>),
+      CH({
+        id: "capex", tier: "ESTIMATE",
+        title: "Combined hyperscaler capex, 2022–2026",
+        source: "Anchors: Epoch AI (2026) — ~$490B in 2025, ~$770B projected 2026. 2022–24 reconstructed from Epoch's 72%/yr fit.",
+        note: "2025 near-final and the 2026 point (marked *) is a projection at the stated growth rate; 2022–2024 are reconstructed estimates, not filed totals.",
+        prompts: [
+          { kind: "Quantitative reasoning · predict first", requireMagnitude: true, text: "Before reading on: from 2023 to 2026, by roughly what multiple does combined capex grow? State the multiple, then what it implies about how much future revenue must appear to justify it.",
+            authored: "About 4.7× ($165B → $770B). Because the assets are paid for up front, this multiple is also the multiple by which annual AI revenue must eventually grow just to keep pace — the spending has pre-committed a revenue target that does not yet exist." },
+          { kind: "So-what / decision", text: "In one sentence: what should a long-term investor watch most closely given this curve?",
+            authored: "Watch whether revenue growth is accelerating toward the capex curve or falling behind it — a front-loaded build-out is only rational if demand is compounding at least as fast, so the revenue slope, not the capex slope, is the signal that matters." },
+        ],
+      }),
+      P(<p>The bull case is that this is like laying railroad track or building the early internet's fiber: expensive up front, transformative later. The bear case, argued by Sequoia's David Cahn, is that GPUs are not track. Track between two cities has some monopoly value; GPU compute is closer to a commodity sold by the hour, with new suppliers flooding in, so prices tend to fall toward cost (Cahn, Sequoia, 2024). That difference is the crux of whether the spending pays off.</p>),
+      Q({
+        id: "b1", mode: "mc", type: "B", label: "Q · Trend reasoning",
+        prompt: "Capex and Nvidia's data-center revenue both surged together after early 2023. Which is the strongest reason NOT to conclude that rising end-customer AI demand caused the capex surge?",
+        options: [
+          "Nvidia's revenue is measured in dollars, which are nominal and not inflation-adjusted.",
+          "Correlation over only two years is always meaningless.",
+          "Nvidia is a supplier, so its revenue cannot be related to its customers' spending.",
+          "Much of the capex is hyperscalers buying and stockpiling chips ahead of demand, so the two series can move together because spending itself drives Nvidia's revenue — the demand is assumed, not proven.",
+        ],
+        correct: 3,
+        principle: "Co-movement of a buyer's spending and a supplier's revenue is nearly mechanical — the spending IS the supplier's revenue. That says nothing about whether end customers want the output. Separating the two requires evidence of downstream demand, not just the paired lines.",
+        distractors: {
+          0: "Nominal vs real is a real trap but not why this correlation fails to prove demand.",
+          1: "Short windows are weaker, but the specific flaw here is that the two series are two sides of the same transaction.",
+          2: "Supplier and customer revenue are obviously related; that relation is exactly why the correlation cannot prove independent demand.",
+        },
+        generalizes: "Any vendor-and-buyer pair — cloud spend and chipmaker sales, ad budgets and platform revenue — where one party's cost is the other's revenue by construction.",
+      }),
+      Q({
+        id: "b2", mode: "num", type: "D", label: "Q · Estimation (extrapolate)",
+        prompt: "Combined 2025 capex was about $490B and the series has grown roughly 72% a year. If that pace simply continued, what would 2026 combined capex be? Enter $ billions — then notice, after reveal, whether firms are guiding faster or slower than this.",
+        unit: "$ billions", unitShort: "B", answer: 770, min: 200, max: 2000,
+        tol: { type: "tight", band: 0.2, note: "±20% band — extrapolation with a known growth rate, but guidance can bend the line, so not a razor-tight target." },
+        howto: "Decomposition: naive extrapolation is <b>$490B × 1.72 ≈ $843B</b>. Epoch AI's trend-continuation figure is about <b>$770B</b> (2026), and firms' own guidance is 'slightly slower' than naive extrapolation — a reminder that a fitted growth rate is a projection, not a promise. Bounds: guidance-based sums cluster $700–800B; pure 72% carry-forward gives ~$843B.",
+        principle: "Extrapolation discipline: a growth rate applied forward is a hypothesis; always cross-check it against the actors' own stated intentions before treating the number as fact.",
+        generalizes: "Any 'if current trends continue' forecast — subscriber growth, emissions, deficits — where naive carry-forward overshoots because decision-makers adjust.",
+      }),
+      { t: "glossary", items: [
+        { term: "GPU (graphics processing unit)", def: "A specialized chip, originally for graphics, now the workhorse for training and running AI models." },
+        { term: "SEC filings", def: "Financial reports that US public companies must file with the Securities and Exchange Commission; a primary, audited data source." },
+        { term: "Commodity", def: "A good with little differentiation, so competition pushes its price down toward the cost of producing it." },
+      ] },
+    ],
+    reqIds: ["b1", "b2"],
+  },
+
+  /* 3: RQ1 */
+  {
+    title: "Question One — How Big Is the Revenue Gap?",
+    kicker: "Research question 1",
+    blocks: [
+      P(<p>Cahn's method is simple arithmetic, and worth doing yourself. Start with Nvidia's data-center revenue, because that is the clearest measure of how much AI hardware is being installed. Double it, because the chips are only about half the cost of a working data center — the rest is power, buildings, and cooling (Nvidia's own analyst-day math agrees, per Cahn). Then double it again, because whoever rents that compute needs to sell it on at roughly a 50% gross margin to run a business. The result is the annual end-customer revenue the build-out implicitly promises.</p>),
+      CH({
+        id: "waterfall", tier: "ESTIMATE",
+        title: "The '$600B question,' rebuilt with FY2025 numbers",
+        source: "Method: Cahn (Sequoia, 2024). Input: Nvidia data-center revenue $115.2B (FACT, Nvidia FY2025). ×2 total cost of ownership, ×2 for 50% end-user margin.",
+        note: "Modeled reconstruction of a published method, not a reported statistic. Only the $115.2B input is a measured FACT; the ×2 factors are stated assumptions.",
+        prompts: [
+          { kind: "Quantitative reasoning", text: "The bar chain ends near $460B of required annual AI revenue. Against roughly $13B of clear AI-native revenue (OpenAI, 2025), estimate the size of the 'hole' and say what a factor that large implies.",
+            authored: "The hole is roughly $430–450B a year — the required figure is about 35× the clearest AI revenue line. A gap of that order cannot be closed by one more good quarter; it implies either years of compounding demand, a large write-down of the assets, or both." },
+          { kind: "Qualitative / mechanism", text: "Why does doubling twice (total cost, then margin) make sense as a way to turn chip sales into a required revenue number?",
+            authored: "The first double converts chip spend into the full installed cost of running it; the second converts a cost into the revenue a rational operator must charge to earn a normal margin on that cost. Each factor moves one step down the value chain from 'hardware bought' to 'revenue that must be collected.'" },
+        ],
+      }),
+      P(<p>Two forces make the gap sticky rather than temporary. First, a lack of pricing power: because compute is sold by the hour and rivals keep adding capacity, prices get competed down, so more spending does not buy proportionally more revenue (Cahn, Sequoia, 2024). Second, the revenue is highly concentrated. Outside a few leaders, most AI products earn very little, so the ecosystem cannot yet spread the cost across many paying uses. This is the streaming lesson in a new suit: scale of spending is necessary but not sufficient; it pays off only if revenue per unit of compute, times the volume of paid use, clears the fixed cost.</p>),
+      Q({
+        id: "q1a", mode: "num", type: "D", label: "Q · Estimation (scaffolded)",
+        prompt: "Use the chart's method. If Nvidia's data-center revenue were $115B, and you apply ×2 for total cost of ownership and ×2 for a 50% end-user margin, what annual AI end-customer revenue does the build-out imply? Enter in $ billions.",
+        unit: "$ billions", unitShort: "B", answer: 460, min: 50, max: 2000,
+        tol: { type: "tight", band: 0.1, note: "Tight ±10% band — this is a definitional arithmetic calculation, not a Fermi guess." },
+        howto: "Decomposition: <b>$115B × 2 × 2 = $460B</b>. The two factors are (a) chips ≈ half of total data-center cost, and (b) a 50% gross margin means revenue must be twice cost. Upper/lower bounds move with the margin assumption: a 40% margin gives ×1.67 on the second step (≈ $385B), a 60% margin gives ×2.5 (≈ $575B).",
+        principle: "Closed-form estimation: when every factor is given, compute exactly rather than guessing, and report only the precision the inputs support.",
+        generalizes: "Any 'implied revenue' or break-even calculation — solar payback, toll-road traffic needed — where a cost is walked forward to the revenue it requires.",
+      }),
+      CH({
+        id: "indexed", tier: "ESTIMATE",
+        title: "Capex vs AI revenue, both indexed to 2023 = 100",
+        source: "OpenAI revenue rebased from reported figures (FACT: ~$1.6B→$4B→$13B). Capex rebased from the reconstructed series in the prior chart (ESTIMATE).",
+        note: "Indexing to 100 shows growth rates, not dollar sizes. The revenue line (green) climbs higher in index terms while the dollar gap still widens — that tension is the teaching point.",
+        prompts: [
+          { kind: "Quantitative reasoning · predict", requireMagnitude: true, text: "By 2025, which line sits higher on this index, and by roughly how much? Then say why 'higher on the index' does not mean 'bigger in dollars.'",
+            authored: "Revenue reaches about 813 vs capex about 297 — revenue's index is roughly 2.7× higher. But indexing hides the base: revenue grew from ~$1.6B to ~$13B (about +$11B) while capex grew from ~$165B to ~$490B (about +$325B). A higher index on a tiny base is still a smaller dollar number." },
+          { kind: "Causal / comparative", text: "The revenue line is above the capex line, yet the article says the dollar gap widened. Explain how both statements are true.",
+            authored: "They measure different things. The index measures speed (percentage growth from a shared start); the gap measures distance in dollars. Revenue can grow faster in percent and still fall further behind in dollars because it started roughly 100× smaller — the rate outran the level without closing it." },
+        ],
+      }),
+      Q({
+        id: "q1b", mode: "mc", type: "A", label: "Q · Percent vs level trap",
+        prompt: "Between 2023 and 2025, OpenAI's revenue grew far faster in percentage terms than hyperscaler capex did. Which conclusion is correct?",
+        options: [
+          "Because revenue grew faster in percent, the dollar gap between spending and revenue must be shrinking.",
+          "The dollar gap can still widen: a large percentage rise on a small base ($1.6B→$13B) adds far fewer dollars than a smaller percentage rise on a huge base ($165B→$490B).",
+          "Percentage growth and dollar growth always move in the same direction, so the two measures agree.",
+          "Revenue growing faster in percent proves the build-out is already profitable.",
+        ],
+        correct: 1,
+        principle: "Rates versus levels: a percentage change on a tiny base can dwarf the same or larger percentage on a huge base in raw dollars. Judging a gap requires the dollar level, not just the growth rate.",
+        distractors: {
+          0: "This confuses a faster rate with a closing dollar gap — the base sizes are wildly different.",
+          2: "They need not agree in magnitude; that is the whole trap.",
+          3: "Fast revenue growth does not by itself cover a fixed cost paid up front.",
+        },
+        generalizes: "Startup 'growth rate' pitches, emerging-market GDP comparisons, any place a shiny percentage hides a small absolute base.",
+      }),
+      { t: "glossary", items: [
+        { term: "Total cost of ownership (TCO)", def: "The full cost of running an asset, not just its purchase price — here, chips plus power, buildings, and cooling." },
+        { term: "Gross margin", def: "The share of revenue left after the direct cost of delivering a product; a 50% margin means revenue is twice that cost." },
+        { term: "Pricing power", def: "The ability to raise prices without losing customers; weak when rivals can easily add the same capacity." },
+      ] },
+    ],
+    reqIds: ["q1a", "q1b"],
+  },
+
+  /* 4: RQ2 */
+  {
+    title: "Question Two — Are the Profits Real?",
+    kicker: "Research question 2",
+    blocks: [
+      P(<p>Even if revenue eventually arrives, there is a second question about today's reported profits. When a company buys a chip, it does not subtract the whole cost at once. It spreads the cost over the asset's "useful life" through depreciation — a yearly charge against profit. "Depreciation" is that spreading-out of an asset's cost over the years it is expected to work. The longer the assumed life, the smaller each year's charge, and the larger reported profit looks today.</p>),
+      P(<p>In late 2025 the investor Michael Burry argued this is where the boom flatters itself. He claimed hyperscalers depreciate AI servers over five or six years even though Nvidia's fast chip cycle means the real economic life is closer to two or three years, and estimated this understated depreciation by about <b>$176 billion</b> across the industry between 2026 and 2028 (Burry, 2025). Notably, Amazon itself shortened its server life assumption in early 2025, citing the fast pace of AI (reported, 2025) — a hint the critics have a point.</p>),
+      CH({
+        id: "slope", tier: "ILLUSTRATION",
+        title: "Assumed 'book' life vs claimed economic life of AI servers",
+        source: "Illustrative useful-life assumptions. Book lives ~5–6 yrs (company disclosures); economic life ~2–3 yrs per Burry (2025). Per-firm points are illustrative, not filed figures.",
+        note: "Illustrative teaching values, not reported statistics. The pattern — a multi-year gap between book life and claimed economic life — is the point, not any single firm's exact number.",
+        prompts: [
+          { kind: "Quantitative reasoning", text: "If a $60B fleet of chips is written off over 6 years instead of 3, estimate how much lower this year's depreciation charge is — and therefore how much higher reported profit looks.",
+            authored: "Straight-line, 6 years is $10B/yr versus $20B/yr over 3 years — about $10B less depreciation, so roughly $10B more pre-tax profit this year on that fleet alone. Stretching the life does not change cash spent; it only moves where the cost lands on the income statement." },
+          { kind: "Causal / comparative", text: "Why would the same reported profit be judged 'lower quality' if the shorter economic life is correct?",
+            authored: "Because the profit would then be partly an accounting choice, not economic earnings: the true cost of using up the chips is higher than booked, so today's profit borrows from tomorrow's write-downs. Same number, weaker mechanism — the private-credit lesson that a metric is a definition, not a fact of nature." },
+        ],
+      }),
+      P(<p>There is a genuine counter-argument. Chips do not stop working after three years; older GPUs are often shifted to lighter tasks (inference, or serving cheaper models) and keep earning. So the honest economic life may sit between the two-year and six-year poles. The point is not that fraud is proven — it is that a slice of reported AI-era profit depends on an assumption reasonable people dispute, and that assumption is load-bearing for the bull case.</p>),
+      Q({
+        id: "q2a", mode: "mc", type: "C", label: "Case · CFO decision",
+        prompt: "You advise the CFO of a cloud firm whose reported margins beat rivals'. A board member asks whether the beat is 'real.' Which assumption is most load-bearing for the reported margin, and where is the article's evidence thinnest in supporting it?",
+        options: [
+          "That the assumed multi-year useful life of AI chips is correct; the evidence is thin because even Amazon shortened its estimate, and the true economic life is disputed, not measured.",
+          "That customer demand will keep growing — the article proves demand with the MIT pilot data.",
+          "That Nvidia will keep shipping chips — the article shows supply is the binding constraint.",
+          "That inflation stays low so nominal revenue holds — the article deflates all figures.",
+        ],
+        correct: 0,
+        principle: "Find the load-bearing assumption: the reported margin leans on the depreciation-life choice, and that choice is contested rather than established. A recommendation is only as strong as its weakest, least-evidenced premise.",
+        distractors: {
+          1: "The MIT data undercut demand rather than proving it; this option inverts the evidence.",
+          2: "Supply is described as no longer the binding constraint, so this is not the load-bearing margin assumption.",
+          3: "The article does not hinge margins on deflation, and does not claim to deflate every figure.",
+        },
+        generalizes: "Any 'quality of earnings' review — reserve levels, revenue recognition, asset lives — where one accounting assumption quietly carries the headline number.",
+      }),
+      Q({
+        id: "q2b", mode: "num", type: "D", label: "Q · Estimation (name the path first)",
+        prompt: "Open-ended: estimate the extra annual pre-tax profit, across all five hyperscalers combined, that comes purely from depreciating 2025's roughly $490B of capex over 5 years instead of 3. Before entering a number, decompose: (annual charge at 3 yrs) minus (annual charge at 5 yrs). Enter $ billions per year.",
+        unit: "$ billions per year", unitShort: "B", answer: 65, min: 5, max: 400,
+        tol: { type: "log", factor: 2, note: "Order-of-magnitude band (within ~2×) — this is a genuine Fermi estimate with rough inputs, scored on how close your reasoning path lands." },
+        howto: "Decomposition path: assume the ~$490B is depreciable. At 3 years the charge ≈ $490B/3 ≈ $163B/yr; at 5 years ≈ $490B/5 ≈ $98B/yr. Difference ≈ <b>$65B/yr</b> of extra reported pre-tax profit from the longer life. Bounds: not all capex is chips (land and buildings genuinely last longer), so the true chip-only effect is smaller — a lower bound near $30B; treating all capex as 3-vs-5-year gives the ~$65B upper-middle estimate. This is the same mechanism Burry aggregates to ~$176B over 2026–28.",
+        principle: "Fermi discipline: name the decomposition before the number, then sanity-check against an independent estimate (Burry's multi-year total) to see if your annual figure is the right order of magnitude.",
+        generalizes: "Sizing any accounting-choice effect — lease terms, pension discount rates, reserve ratios — where a per-year delta compounds into a large multi-year number.",
+      }),
+      { t: "glossary", items: [
+        { term: "Depreciation", def: "Spreading the cost of a long-lived asset across the years it is expected to be useful, as a yearly charge against profit." },
+        { term: "Useful life (book life)", def: "The number of years a company assumes an asset will work; a longer assumption means smaller yearly depreciation and higher reported profit now." },
+        { term: "Inference (AI)", def: "Running a trained AI model to answer requests, as opposed to the heavier one-time job of training it; older chips are often moved to this lighter work." },
+        { term: "Quality of earnings", def: "How much of reported profit reflects real economic performance versus favorable accounting choices." },
+      ] },
+    ],
+    reqIds: ["q2a", "q2b"],
+  },
+
+  /* 5: RQ3 */
+  {
+    title: "Question Three — Why Hasn't It Paid Off Yet?",
+    kicker: "Research question 3",
+    blocks: [
+      P(<p>If the models are so capable, why is the revenue thin? A 2025 study by MIT's Project NANDA, drawing on more than 300 enterprise deployments, 52 case studies, and 153 leadership surveys, found that despite <b>$30–40 billion</b> of enterprise spending on generative AI, about <b>95% of organizations saw no measurable financial return</b>; only 5% were capturing real value (MIT NANDA, 2025). The study's own conclusion is pointed: the failures come mostly from how firms adopt AI, not from weak models.</p>),
+      P(<p>The same study found a sharp split by approach: buying tools from specialized vendors and partnering succeeded about <b>67%</b> of the time, while building AI in-house succeeded only about a third as often (MIT NANDA, 2025). That pattern says the bottleneck is workflow integration — wiring AI into how work actually gets done — rather than raw capability. It echoes an earlier lesson from this workspace's AI-product-manager article: value is captured at the workflow level, not from the model's raw power.</p>),
+      CH({
+        id: "divide", tier: "FACT",
+        title: "The 'GenAI divide': share reaching measurable value",
+        source: "MIT NANDA, 'The GenAI Divide: State of AI in Business 2025.' Sample: 300+ deployments, 52 case studies, 153 surveys.",
+        note: "Reported study findings (FACT). 'Built in-house' ≈ one-third the success rate of 'bought from vendor,' shown here as ~22%.",
+        prompts: [
+          { kind: "So-what / decision", text: "In one sentence, what should a CIO with a fixed AI budget do differently after seeing the buy-vs-build split?",
+            authored: "Default to buying and integrating proven vendor tools rather than building bespoke systems, and spend the saved effort on workflow redesign — the data say integration, not in-house cleverness, is what converts spend into measurable value." },
+          { kind: "Causal / comparative", text: "The 95% failure rate sits next to record model capability. Does that prove the models are overrated? Explain the correlation-vs-causation issue.",
+            authored: "No. Failure correlates with the adoption phase, not model quality — the study attributes it to integration and workflow, and shows a 3× success gap between buy and build using the same models. The models being capable and the pilots failing can both be true; the causal driver is deployment, not capability." },
+        ],
+      }),
+      P(<p>This reframes the whole paradox. The build-out may be technically sound and still economically premature, because the binding constraint is on the demand side: organizations cannot absorb AI fast enough to generate the revenue the spending assumes. That is fixable — but on the timescale of business-process change, which is measured in years, not quarters. The load-bearing assumption of the entire bull case is that this adoption gap closes before the assets have to be written down.</p>),
+      Q({
+        id: "q3a", mode: "mc", type: "C", label: "Case · Enterprise strategy",
+        prompt: "A retailer's CEO says: 'The MIT data prove AI doesn't work — cancel our program.' Using at least two facts from this section, what is the strongest correction, including the main risk of the CEO's move?",
+        options: [
+          "Agree and cancel — a 95% failure rate is decisive evidence the technology is broken.",
+          "Double the budget and build a large in-house model, since internal builds are shown to work best.",
+          "The 95% no-return finding reflects adoption failure, not model weakness — vendor-bought, workflow-integrated tools succeeded ~67% of the time — so the risk is that cancelling forfeits the 5–67% path competitors are taking to real value.",
+          "Wait five years for the models to improve, since capability is the binding constraint.",
+        ],
+        correct: 2,
+        principle: "Read a base rate with its mechanism: the 95% is a statement about how firms deploy, not whether the tool can work. The decision-relevant fact is the far higher success rate of integrated, bought solutions — cancelling ignores the winning path.",
+        distractors: {
+          0: "This treats an aggregate failure rate as a property of the technology, ignoring the 67% success subgroup — base-rate neglect.",
+          1: "In-house builds were the weaker approach (~one-third the success), so this inverts the evidence.",
+          3: "The section attributes failure to adoption, not capability, so waiting for better models misdiagnoses the constraint.",
+        },
+        generalizes: "Any 'it doesn't work' verdict from an average outcome — new hires, marketing channels, drug protocols — where a high failure rate hides a repeatable success subgroup.",
+      }),
+      { t: "glossary", items: [
+        { term: "Enterprise deployment", def: "Putting a technology into real use inside a company's operations, beyond a small trial." },
+        { term: "Pilot", def: "A small, time-limited test of a technology before committing to full roll-out." },
+        { term: "Workflow integration", def: "Wiring a tool into the actual steps of how work gets done, so it changes output rather than sitting on the side." },
+        { term: "Base rate", def: "The underlying frequency of an outcome across all cases — here, the overall share of pilots that fail." },
+      ] },
+    ],
+    reqIds: ["q3a"],
+  },
+
+  /* 6: LEARNING SUMMARY (freely navigable section — no gating) */
+  {
+    title: "Learning Summary",
+    kicker: "Reflect",
+    summary: true,
+    blocks: [],
+    reqIds: [],
+  },
+
+  /* 7: CONCLUSION */
+  {
+    title: "Conclusion — A Bet on Time",
+    kicker: "Synthesis",
+    blocks: [
+      P(<p>The central challenge is a race between two clocks: how fast AI revenue and adoption can compound, versus how fast the front-loaded assets lose value and demand payback. Under partial success — real but gradual adoption — the most likely path is not a clean vindication or a crash, but a long, uneven grind in which a few firms earn the returns and many investors do not, exactly as past infrastructure booms played out (Cahn, Sequoia, 2024).</p>),
+      P(<p>For investors, the implication is to separate the technology bet from the equity bet. AI can be transformative and still destroy capital for those who financed the excess capacity, because commoditized compute competes prices toward cost. The durable surplus will accrue to whoever owns something scarce — proprietary demand, distribution, or data — not to whoever pours the most concrete.</p>),
+      P(<p>For the broader economy, the risk is concentration: a handful of firms and one chip supplier now carry a spending load large enough that a demand disappointment would ripple through equity markets, power grids, and construction. The reported-profit question compounds this — if depreciation assumptions prove too generous, earnings could reset downward across the sector at once.</p>),
+      P(<p>The most important unresolved question is one of timing: will enterprise adoption close the revenue gap before the accounting and the market force a reckoning? The answer will decide whether 2025–26 is remembered as the early fiber of a new era or the canals of this technology wave.</p>),
+      Q({
+        id: "e1", mode: "mc", type: "E", label: "Q · Implication bridge (with falsification)",
+        prompt: "Given the whole article, which real-world decision is best supported — and which single observation would most falsify the bearish 'revenue gap' thesis?",
+        options: [
+          "Buy hyperscaler equities aggressively; the thesis is falsified only if capex stops rising.",
+          "Short all AI companies; the thesis is falsified if any single firm reports a profit.",
+          "Avoid the sector entirely; nothing could falsify the thesis.",
+          "Favor owners of scarce, hard-to-copy demand (data, distribution) over pure capacity builders; the thesis would be most falsified if AI end-customer revenue began compounding fast enough to close the dollar gap within a few years while compute kept its pricing power.",
+        ],
+        correct: 3,
+        principle: "A strong thesis names what would break it. The revenue-gap thesis rests on two load-bearing assumptions — thin end-customer revenue and weak pricing power — so the cleanest falsification is fast-compounding revenue plus durable prices. The supported decision follows the scarcity, not the spending.",
+        distractors: {
+          0: "Rising capex is the concern, not a refutation; this misreads what would falsify the thesis.",
+          1: "A single firm's profit is consistent with the thesis (a few winners); it does not falsify a claim about the aggregate gap.",
+          2: "A thesis that nothing could falsify is not an analytical claim; the article names concrete falsifiers.",
+        },
+        generalizes: "Any capacity-glut call — telecom fiber, shale, solar manufacturing — where the falsification test is 'does demand and pricing power arrive before the write-downs.'",
+      }),
+      { t: "glossary", items: [
+        { term: "Commoditized compute", def: "Computing power sold in an undifferentiated way, so competition drives its price down toward cost." },
+        { term: "Falsification", def: "The specific observation that, if seen, would show a claim to be wrong; a hallmark of a testable thesis." },
+        { term: "Write-down", def: "Cutting the recorded value of an asset when it is worth less than its books say, which reduces reported profit." },
+      ] },
+    ],
+    reqIds: ["e1"],
+  },
+];
+
+/* ---------------- Sources ---------------- */
+const SOURCES = [
+  ["Epoch AI — Hyperscaler capex has quadrupled since GPT-4's release (2026)", "https://epoch.ai/data-insights/hyperscaler-capex-trend"],
+  ["David Cahn, Sequoia Capital — AI's $600B Question (2024)", "https://sequoiacap.com/article/ais-600b-question/"],
+  ["Nvidia — Q4 & FY2025 results (data-center revenue $115.2B)", "https://www.sec.gov/Archives/edgar/data/1045810/000104581025000021/q4fy25pr.htm"],
+  ["MIT NANDA — The GenAI Divide: State of AI in Business 2025 (via Fortune)", "https://fortune.com/2025/08/18/mit-report-95-percent-generative-ai-pilots-at-companies-failing-cfo/"],
+  ["CNBC — GPU depreciation debate; Michael Burry (Nov 2025)", "https://www.cnbc.com/2025/11/14/ai-gpu-depreciation-coreweave-nvidia-michael-burry.html"],
+  ["Visual Capitalist — Big Tech AI spending over time (2022–2025)", "https://www.visualcapitalist.com/visualized-big-tech-ai-spending/"],
+];
+
+/* ---------------- App shell (free navigation, PM/TPI-style) ----------------
+   All sections render on one scrollable page and are always accessible.
+   A left section navbar scroll-spies the active section and click-jumps.
+   No gating, no padlocks, no disabled Next. */
+
+function App() {
+  const [rec, setRec] = useState({});
+  const [chartState, setChartState] = useState({});
+  const [active, setActive] = useState(0);
+  const [wide, setWide] = useState(typeof window !== "undefined" ? window.innerWidth >= 1160 : true);
+
+  const allQs = useMemo(() => {
+    const arr = [];
+    sections.forEach((s, si) => (s.blocks || []).forEach((b) => { if (b.t === "q") arr.push({ ...b.q, si }); }));
+    return arr;
+  }, []);
+  const score = allQs.reduce((n, q) => n + (rec[q.id] && rec[q.id].submitted && rec[q.id].isCorrect ? 1 : 0), 0);
+  const totalQ = allQs.length;
+
+  React.useEffect(() => {
+    const onResize = () => setWide(window.innerWidth >= 1160);
+    const onScroll = () => {
+      let cur = 0;
+      for (let i = 0; i < sections.length; i++) {
+        const el = document.getElementById("sec-" + i);
+        if (el && el.getBoundingClientRect().top <= 130) cur = i;
+      }
+      setActive(cur);
+    };
+    window.addEventListener("resize", onResize);
+    window.addEventListener("scroll", onScroll, { passive: true });
+    onScroll();
+    return () => { window.removeEventListener("resize", onResize); window.removeEventListener("scroll", onScroll); };
+  }, []);
+
+  const jump = (i) => { const el = document.getElementById("sec-" + i); if (el) el.scrollIntoView({ behavior: "smooth", block: "start" }); };
+  const progress = Math.round(((active + 1) / sections.length) * 100);
+
+  return (
+    <div>
+      <div id="progress-bar-track"><div id="progress-bar-fill" style={{ width: progress + "%" }} /></div>
+      <div className="topbar">
+        <span>AI's Capex Question · freely navigable</span>
+        <span className="score-badge">Score {score} / {totalQ}</span>
+      </div>
+
+      {wide && (
+        <nav className="section-nav" aria-label="Sections">
+          <div className="nav-title">Sections</div>
+          {sections.map((s, i) => (
+            <a key={i} className={"nav-item" + (active === i ? " on" : "")} onClick={() => jump(i)}>{s.title}</a>
+          ))}
+        </nav>
+      )}
+
+      <div className="wrap">
+        {sections.map((s, i) => (
+          <section id={"sec-" + i} key={i} className="article-section">
+            <div className="kicker">{s.kicker}</div>
+            <h2 style={{ marginTop: 4 }}>{s.title}</h2>
+            {i === 1 && <div className="byline">A research-style learning article · plain-language, source-checked · freely navigable, no gating · {new Date().getFullYear()}</div>}
+            {s.summary
+              ? <LearningSummaryBody allQs={allQs} rec={rec} />
+              : (s.blocks || []).map((b, j) => {
+                  if (b.t === "p") return <React.Fragment key={j}>{b.jsx}</React.Fragment>;
+                  if (b.t === "chart") return <ChartBlock key={j} chart={b.chart} state={chartState} setState={setChartState} />;
+                  if (b.t === "q") return <Question key={j} q={b.q} rec={rec} setRec={setRec} />;
+                  if (b.t === "glossary") return <Glossary key={j} items={b.items} />;
+                  return null;
+                })}
+            {i === sections.length - 1 && <SourceList />}
+            <div className="navrow">
+              <button className="ghost" onClick={() => jump(Math.max(i - 1, 0))} disabled={i === 0}>← Previous</button>
+              <button className="ghost" onClick={() => jump(Math.min(i + 1, sections.length - 1))} disabled={i === sections.length - 1}>Next →</button>
+            </div>
+          </section>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function SourceList() {
+  return (
+    <div className="summary-card src-list">
+      <div className="g-label" style={{ fontWeight: 700, textTransform: "uppercase", color: "#6b7280", fontSize: 12 }}>Sources</div>
+      <ul>{SOURCES.map((s, i) => <li key={i}><a href={s[1]} target="_blank" rel="noopener noreferrer">{s[0]}</a></li>)}</ul>
+      <div className="small">Provenance tiers used throughout: <Prov tier="FACT" /> measured & cited · <Prov tier="ESTIMATE" /> derived by stated arithmetic · <Prov tier="ILLUSTRATION" /> disclosed teaching values.</div>
+    </div>
+  );
+}
+
+/* ---------------- Learning Summary ---------------- */
+
+function LearningSummaryBody({ allQs, rec }) {
+  const [governing, setGoverning] = useState("");
+  const [revealInsights, setRevealInsights] = useState(false);
+  const [applyA, setApplyA] = useState({ thesis: "", assumption: "", disconfirm: "", premortem: "" });
+  const [applyB, setApplyB] = useState("");
+  const [evalOut, setEvalOut] = useState(null);
+
+  const byType = {};
+  allQs.forEach((q) => {
+    const t = q.type;
+    byType[t] = byType[t] || { n: 0, correct: 0 };
+    byType[t].n++;
+    if (rec[q.id] && rec[q.id].isCorrect) byType[t].correct++;
+  });
+
+  // numeric bias
+  const numQs = allQs.filter((q) => q.mode === "num");
+  let biasNote = "";
+  const signed = numQs.map((q) => { const r = rec[q.id]; if (!r || r.value === "") return null; return (parseFloat(r.value) - q.answer) / q.answer; }).filter((x) => x != null);
+  if (signed.length) {
+    const avg = signed.reduce((a, b) => a + b, 0) / signed.length;
+    biasNote = avg < -0.1 ? `On numeric questions you under-estimated magnitudes by about ${Math.round(-avg * 100)}% on average.`
+      : avg > 0.1 ? `On numeric questions you over-estimated magnitudes by about ${Math.round(avg * 100)}% on average.`
+      : "Your numeric estimates were roughly unbiased on average.";
+  }
+
+  const missed = allQs.filter((q) => rec[q.id] && rec[q.id].submitted && !rec[q.id].isCorrect);
+
+  const authoredInsights = [
+    "The gap is a levels problem, not a rates problem: AI revenue can grow fast in percent and still leave a widening dollar hole, because the capex base is an order of magnitude larger. Judge the build-out on the dollar gap and its slope, not the growth rate.",
+    "A share of reported AI-era profit is an accounting choice: stretching chip useful lives from ~3 to ~5–6 years lifts profit today without changing cash out the door. A metric is a definition — interrogate the depreciation assumption before trusting the margin.",
+    "The binding constraint is adoption, not capability: 95% of pilots show no return because of workflow integration, not weak models, and bought-and-integrated tools win. Value is captured at the workflow level, so the revenue clock runs on business-process time, not model releases.",
+  ];
+
+  // Local, evidence-based Apply-It evaluator (no external API). Checks the four parts are present & non-trivial.
+  const evaluate = () => {
+    const parts = [
+      ["one-sentence so-what thesis", applyA.thesis],
+      ["load-bearing assumption", applyA.assumption],
+      ["disconfirming evidence", applyA.disconfirm],
+      ["one-line pre-mortem", applyA.premortem],
+    ];
+    const gaps = parts.filter(([, v]) => (v || "").trim().length < 12).map(([k]) => k);
+    const crossOk = applyB.trim().length >= 12;
+    const climbs = (applyA.thesis || "").match(/\d|%|\$|because|so that|therefore|implies/i);
+    let verdict;
+    if (gaps.length || !crossOk) {
+      verdict = { ok: false, msg: "Not complete yet — address every part for a full evaluation.", gaps: [...gaps, ...(crossOk ? [] : ["cross-link to a prior article"])] };
+    } else if (!climbs) {
+      verdict = { ok: false, msg: "All four parts are present, but your thesis reads as an observation. Push it to a quantified, decision-relevant implication (add a magnitude or a 'so that…').", gaps: ["thesis stops at observation — add a number or decision consequence"] };
+    } else {
+      const weakest = parts.map(([k, v]) => [k, (v || "").trim().length]).sort((a, b) => a[1] - b[1])[0][0];
+      verdict = { ok: true, msg: "Complete and reasoned. Your thesis climbs to an implication, and all four parts plus the cross-link are present.", gaps: [], weakest };
+    }
+    setEvalOut(verdict);
+  };
+
+  return (
+    <React.Fragment>
+      <p className="small">Nothing here is gated — you can jump back to any section from the left nav at any time. Each production step below sharpens the takeaways.</p>
+
+        <div className="summary-card">
+          <h3 style={{ marginTop: 0 }}>Score by question type</h3>
+          <div className="stat-grid">
+            {Object.keys(byType).map((t) => (
+              <div className="cell" key={t}><div className="num">{byType[t].correct}/{byType[t].n}</div><div className="lab">Type {t}</div></div>
+            ))}
+          </div>
+          {biasNote && <div className="small" style={{ marginTop: 10 }}>{biasNote}</div>}
+          <div className="small" style={{ marginTop: 6 }}>Missed answers are listed by the principle they tested under "Principles to revisit" below.</div>
+        </div>
+
+        <div className="summary-card">
+          <h3 style={{ marginTop: 0 }}>Your governing insight</h3>
+          <p className="small">You saw five charts and answered across the evidence sections. Before the authored takeaways appear, commit yours.</p>
+          <p style={{ fontWeight: 500 }}>Write the single most non-obvious insight you would defend to a skeptical executive:</p>
+          <textarea rows={3} value={governing} onChange={(e) => setGoverning(e.target.value)} placeholder="One or two sentences…" />
+          <button className="primary" style={{ marginTop: 8 }} disabled={governing.trim().length < 20} onClick={() => setRevealInsights(true)}>
+            Lock my insight & compare
+          </button>
+          {revealInsights && (
+            <div style={{ marginTop: 14 }}>
+              <div className="small"><b>You wrote:</b> {governing}</div>
+              <p style={{ fontWeight: 600, marginTop: 10 }}>How your insight compares to the article's three:</p>
+              {authoredInsights.map((t, i) => <div className="insight-card" key={i}>{t}</div>)}
+            </div>
+          )}
+        </div>
+
+        {revealInsights && (
+          <div className="summary-card">
+            <h3 style={{ marginTop: 0 }}>Apply It</h3>
+            <p style={{ fontWeight: 500 }}>(a) Transfer to a new domain. Pick a build-out you know — an EV-charging network, a warehouse-robotics roll-out, or data from your own work — and complete four parts:</p>
+            <label className="small">1 · One-sentence so-what thesis (aim for a number or a "so that…")</label>
+            <textarea rows={2} value={applyA.thesis} onChange={(e) => setApplyA({ ...applyA, thesis: e.target.value })} />
+            <label className="small">2 · The single load-bearing assumption that must hold</label>
+            <textarea rows={2} value={applyA.assumption} onChange={(e) => setApplyA({ ...applyA, assumption: e.target.value })} />
+            <label className="small">3 · The evidence that would most undermine your thesis (disconfirming evidence)</label>
+            <textarea rows={2} value={applyA.disconfirm} onChange={(e) => setApplyA({ ...applyA, disconfirm: e.target.value })} />
+            <label className="small">4 · One-line pre-mortem: "If this fails in 12 months, the most likely reason is ___."</label>
+            <textarea rows={2} value={applyA.premortem} onChange={(e) => setApplyA({ ...applyA, premortem: e.target.value })} />
+            <p style={{ fontWeight: 500, marginTop: 12 }}>(b) Cross-link: name one prior article's principle (streaming, private credit, GLP-1, disinflation, FIFA…) that reinforces or conflicts with today's, and say how.</p>
+            <textarea rows={2} value={applyB} onChange={(e) => setApplyB(e.target.value)} />
+            <button className="primary" style={{ marginTop: 10 }} onClick={evaluate}>Evaluate my reasoning</button>
+
+            {evalOut && (
+              <div className="explain" style={{ marginTop: 12 }}>
+                <div className={"calib " + (evalOut.ok ? "good" : "bad")}>{evalOut.msg}</div>
+                {evalOut.gaps && evalOut.gaps.length > 0 && (
+                  <div className="gap-list" style={{ marginTop: 8 }}>
+                    <b>Address these:</b>
+                    <ul>{evalOut.gaps.map((g, i) => <li key={i}>{g}</li>)}</ul>
+                  </div>
+                )}
+                {evalOut.ok && <div className="small" style={{ marginTop: 6 }}>Weakest (thinnest) part to strengthen next time: <b>{evalOut.weakest}</b>. Evaluation checks that all four parts plus the cross-link are present and that the thesis climbs to an implication — not which keywords you used.</div>}
+              </div>
+            )}
+          </div>
+        )}
+
+        <div className="summary-card">
+          <h3 style={{ marginTop: 0 }}>Principles to revisit</h3>
+          {missed.length === 0 ? <p className="small">No missed questions — strong run. Still, re-read any answer whose reasoning felt shaky.</p> : (
+            missed.map((q) => <div className="principle-item" key={q.id}>{q.label}: {q.principle}</div>)
+          )}
+        </div>
+    </React.Fragment>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+
+</script>
+</body>
+</html>

@@ -1,0 +1,79 @@
+{
+  "articles": [
+    {
+      "slug": "ai-product-lifecycle-spine",
+      "title": "Phase 0 — AI Product Lifecycle Spine: How Shopify Built Sidekick Across All Seven Phases",
+      "type": "AI Product Lifecycle Spine (Phase 0)",
+      "lifecyclePhases": ["Feasibility", "Design", "Build", "Evaluate", "Deploy", "Scale", "Govern"],
+      "governingPrinciple": "Decisions made in Feasibility determine what is possible at Scale, and the feedback loop from Govern back to Design can take years; the most expensive AI product mistakes are made early and discovered late.",
+      "sectionPrinciples": [
+        "Early ML infrastructure investment (shared embedding pipelines, modular platforms) becomes a force multiplier for every downstream AI feature — the team that builds shared primitives ships faster than the one that rebuilds them per feature.",
+        "Evaluation infrastructure is not optional overhead — it is the mechanism that determines whether you can trust an AI system enough to ship it; a judge correlating 0.61 with humans is useful, one at 0.02 is noise.",
+        "When your reward signal has a gap, your model will exploit it — every RL-trained production system must treat the reward function as an adversarial surface to harden."
+      ],
+      "completedAt": "2026-06-23"
+    },
+    {
+      "slug": "when-not-to-use-ai",
+      "title": "When Not to Use AI: Google's Feasibility Gates, and the Failure That Skipped Them",
+      "type": "AI Feasibility & Technical Scoping (Type 1)",
+      "lifecyclePhases": ["Feasibility"],
+      "governingPrinciple": "The right feasibility question is never 'can we use AI for this?' but 'what would have to be true about our data, our error costs, and the stability of the world for AI to beat a simple heuristic?' — feasibility is a data-readiness and error-cost audit, not a verdict on capability. Google made 'Don't be afraid to launch without machine learning' the first rule of its own ML playbook, and still shipped Google Flu Trends, which overestimated flu for 100 of 108 weeks because the data-stability gate was never checked.",
+      "sectionPrinciples": [
+        "Feasibility is not 'can AI do this?' but 'does AI beat a transparent heuristic once the cost of a wrong answer is priced in?' — start with the simplest thing that could work and make AI earn the incremental value.",
+        "An AI feature is only as feasible as its data is representative, fresh, and stable — data readiness is both a precondition and a continuous property, and degradation is usually silent.",
+        "Specify a v1 AI feature as a reward function and an error-cost operating point (precision vs recall) with monitored thresholds — not as a deterministic feature spec."
+      ],
+      "completedAt": "2026-06-23"
+    },
+    {
+      "slug": "stripe-data-readiness-before-model-selection",
+      "title": "Data Readiness Before Model Selection: How Stripe Earned the Right to Build a Payments Foundation Model",
+      "type": "AI Feasibility & Technical Scoping (Type 1)",
+      "lifecyclePhases": ["Feasibility"],
+      "governingPrinciple": "Model selection is the last decision in an AI feature, not the first: feasibility is gated by whether the product's own data-generating process yields fresh, representative ground-truth labels as a byproduct, and whether the error is tunable to each user's economics. Stripe could build a payments foundation model (card-testing detection 59% to 97% overnight) only because a decade in the payment flow had already made its data ready — dispute and card-network labels arrive for free, 90% of cards are seen across merchants, and the problem was always framed as a precision/recall operating point, not a yes/no verdict.",
+      "sectionPrinciples": [
+        "The binding feasibility constraint for an AI feature is the data-generating process, not the model: AI is feasible where the product itself produces fresh, representative ground-truth labels as a byproduct — and that position, not the architecture, is the moat a competitor cannot copy.",
+        "Data readiness is continuous, not a launch-day checkbox — labels drift, distributions shift per segment, and the act of acting on the model can censor the very labels you need to keep measuring it; budget for freshness and counterfactual evaluation at scoping time.",
+        "Scope a v1 AI feature as a reward function and a precision/recall operating point chosen by each user's error economics — and treat model selection (heuristic to ensemble to foundation model) as the last step, unlocked by data readiness, not the first."
+      ],
+      "completedAt": "2026-06-24"
+    },
+    {
+      "slug": "PR-05-airbnb-model-vs-heuristic",
+      "title": "When a Problem Warrants a Model, Not a Heuristic: Airbnb's Climb from Rules to Reinforcement Learning",
+      "type": "AI Feasibility & Technical Scoping (Type 1)",
+      "lifecyclePhases": ["Feasibility"],
+      "governingPrinciple": "Sophistication is not feasibility: the right question before building a model is not 'can a model do this?' but 'does the data let a model generalize and differentiate in ways a heuristic cannot — and does that advantage survive contact with the business metric, not just the offline score?' Airbnb's location-retrieval climb proves it via the rung that failed: a statistics method that fit past bookings better than any rule (+1.05% offline recall) produced no statistically significant change in uncancelled bookers, while the ML model moved bookers +1.8% and the full journey reached +2.66% cumulatively.",
+      "sectionPrinciples": [
+        "A model is warranted only where the problem has context a rule cannot use AND the data to learn that context exists; otherwise the transparent heuristic is the correct, cheaper answer — and an offline-metric win is only a hypothesis until a business-metric A/B confirms it.",
+        "Specify a v1 AI feature as a reward plus an explicit cost term (an operating point, e.g. recall AND box-size), and confirm the product itself generates fresh, honestly-attributed labels for that reward as a byproduct of normal use.",
+        "A deployed model censors its own future training data, so scope exploration and counterfactual data collection into v1 — retraining on self-selected data cannot escape a blind spot (Airbnb: fresh vs 8-month-stale retraining showed no difference; exploration moved bookers +0.51%)."
+      ],
+      "warmUpQuestions": [
+        {"prompt": "A team wants to auto-triage support tickets and is choosing between a keyword rule set and a fine-tuned classifier. Before comparing model accuracy, what is the first question they should answer, and why?", "sourceArticle": "When Not to Use AI: Google's Feasibility Gates", "principle": "Feasibility is whether a model beats a transparent heuristic once error cost is priced in; make the model earn incremental value."},
+        {"prompt": "A logistics startup wants a delivery-ETA feature. What property of its own data-generating process most determines feasibility, and what durable advantage could it create?", "sourceArticle": "Data Readiness Before Model Selection: Stripe", "principle": "AI is feasible where the product produces fresh, representative ground-truth labels as a byproduct; that data position is the moat."},
+        {"prompt": "A new AI feature's offline evaluation looks excellent. Which lifecycle risk does that NOT rule out, and which earlier-phase decision most constrains what you can safely do at scale?", "sourceArticle": "Phase 0 — AI Product Lifecycle Spine", "principle": "Feasibility-phase decisions on data readiness and evaluation set the ceiling on what is trustworthy at scale; a strong offline score does not guarantee online value."}
+      ],
+      "completedAt": "2026-07-06"
+    },
+    {
+      "slug": "PR-06-cursor-architecture-teardown",
+      "title": "How Cursor Actually Works: The Architecture Is the Product",
+      "type": "AI Product Teardown (Type 2)",
+      "lifecyclePhases": ["Build", "Scale"],
+      "governingPrinciple": "In an AI product, the architecture is the product: the constraints a user never sees — a sub-second latency budget, a promise never to store code, the price of one embedding — decide which features can ship. Cursor looks like a code editor with smart autocomplete but is a latency-partitioned, multi-model retrieval system, and nearly every visible product choice traces to an unseen architectural constraint.",
+      "sectionPrinciples": [
+        "Partition an AI product by latency budget first, then choose models and retrieval per lane — the deadline, not the model's intelligence, decides how much context and machinery each feature can afford (Cursor: <1s Tab lane on an in-house model vs a seconds-OK agent lane with semantic search + frontier-model routing).",
+        "Turn your hardest constraint into the promise: when a non-negotiable (privacy, latency, cost) forces specific machinery, make that machinery the differentiator you sell — and verify the assumption it rests on (Cursor's 'no code at rest' forced the Merkle-tree design and became the enterprise wedge; it rests on embeddings being irreversible, which is only hedged).",
+        "At scale, cut redundant work before shopping for a cheaper model: cache what rarely changes and reuse what is near-identical across users — elimination breaks the coupling between cost and data size that a faster model cannot (Cursor: content-keyed embedding cache + 92%-similar teammate-index reuse cut p99 time-to-first-query from 4.03h to 21s)."
+      ],
+      "warmUpQuestions": [
+        {"prompt": "A note-taking app wants both an inline 'finish my sentence' suggestion and a 'summarize everything I wrote this month' command. How should the team split the architecture, and what decides that split?", "sourceArticle": "How Cursor Actually Works: The Architecture Is the Product", "principle": "Partition by latency budget first: a sub-second inline lane (small context, fast cheap model) vs a slower retrieval-heavy lane (search over history, frontier model)."},
+        {"prompt": "A startup pitches 'we never store your data, only embeddings.' What single assumption must you verify before that becomes a compliance claim, and why?", "sourceArticle": "How Cursor Actually Works: The Architecture Is the Product", "principle": "A privacy-as-promise architecture is only as strong as the irreversibility of what it stores; verify embeddings/transforms cannot reconstruct the protected data before marketing the promise."},
+        {"prompt": "A service is slow to onboard new enterprise customers with huge datasets. Before buying faster hardware, what cheaper structural move should the team consider first, and what pattern makes it work?", "sourceArticle": "How Cursor Actually Works: The Architecture Is the Product", "principle": "Eliminate duplicated work (cache + cross-user reuse of near-identical data) before buying speed — elimination breaks the link between cost and data size that faster hardware cannot."}
+      ],
+      "completedAt": "2026-07-13"
+    }
+  ]
+}
