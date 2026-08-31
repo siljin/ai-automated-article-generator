@@ -1,0 +1,1121 @@
+/* ============================================================================
+   The Currency Airlines Print: Inside the Frequent-Flyer Banking Paradox
+   Domain: Business & strategy
+   ============================================================================ */
+
+const { useState, useEffect, useMemo } = React;
+const {
+  LineChart, Line, BarChart, Bar, ComposedChart, ScatterChart, Scatter,
+  XAxis, YAxis, ZAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
+  ReferenceLine, Cell, LabelList,
+} = Recharts;
+
+/* ----------------------------------------------------------------------------
+   SOURCES
+---------------------------------------------------------------------------- */
+const SOURCES = [
+  { id: "forbes2020", label: "Forbes, “AAdvantage Miles Will Soon Be Government Collateral,” May 20, 2020", url: "https://www.forbes.com/sites/willhorton1/2020/05/20/aadvantage-miles-will-soon-be-government-collateral-as-american-airlines-pledges-frequent-flyer-program-for-coronavirus-loan/" },
+  { id: "fool2020", label: "The Motley Fool, “Is American Airlines' Loyalty Program Really Worth $31.5B?,” Jun. 17, 2020", url: "https://www.fool.com/investing/2020/06/17/is-american-airlines-loyalty-program-really-worth.aspx" },
+  { id: "skift2020", label: "Skift via Yahoo Finance, “How Is United Airlines' Loyalty Program Worth $22 Billion?,” Jun. 15, 2020", url: "https://finance.yahoo.com/news/united-airlines-loyalty-program-worth-203057453.html" },
+  { id: "cnbc2020", label: "CNBC, “Delta will use frequent-flyer program to back $6.5 billion in debt,” Sep. 14, 2020", url: "https://www.cnbc.com/2020/09/14/delta-launches-6point5-billion-debt-deal-backed-by-its-frequent-flyer-program.html" },
+  { id: "hustle2024", label: "The Hustle, “Are airline loyalty programs worth more than the actual airlines?,” republished Oct. 2024 (citing Financial Times analysis, 2020)", url: "https://thehustle.co/10052020-airline-loyalty-programs" },
+  { id: "fortune2026", label: "Fortune, “How Delta CEO Ed Bastian built a massive partnership with American Express,” Apr. 3, 2026", url: "https://fortune.com/2026/04/03/how-did-delta-ceo-ed-bastian-build-partnership-with-american-express-10-percent-airlines-revenue/" },
+  { id: "reuters2026", label: "Reuters (via Investing.com/US News), “Credit-card cash reshapes US airline loyalty — and profit,” Mar. 13, 2026", url: "https://www.investing.com/news/stock-market-news/creditcard-cash-reshapes-us-airline-loyalty--and-profit-4559355" },
+  { id: "delta10k2026", label: "Delta Air Lines, “Delta Air Lines Announces December Quarter and Full Year 2025 Financial Results,” Jan. 13, 2026", url: "https://ir.delta.com/news/news-details/2026/Delta-Air-Lines-Announces-December-Quarter-and-Full-Year-2025-Financial-Results/default.aspx" },
+  { id: "aa2026", label: "American Airlines Newsroom, “American Airlines reports fourth-quarter and full-year 2025 financial results,” Jan. 2026", url: "https://news.aa.com/news/news-details/2026/American-Airlines-reports-fourth-quarter-and-full-year-2025-financial-results-CORP-FI-01/default.aspx" },
+  { id: "united2026", label: "Aerotime/PRNewswire, United Airlines full-year 2025 results, Jan. 2026", url: "https://www.aerotime.aero/articles/united-2025-earnings-record-revenue-2026-outlook" },
+  { id: "alaska2026", label: "Alaska Air Group, “Alaska Air Group reports fourth quarter and full year 2025 results,” Jan. 22, 2026", url: "https://www.prnewswire.com/news-releases/alaska-air-group-reports-fourth-quarter-and-full-year-2025-results-302668606.html" },
+  { id: "simpleflying", label: "Simple Flying / American Airlines Newsroom, AAdvantage history (launched May 1, 1981; 115M+ members Apr. 2021)", url: "https://simpleflying.com/american-airlines-aadvantage-origin-story/" },
+  { id: "aa10k", label: "American Airlines Group, Form 10-K filings (FY2018, FY2019, FY2024), SEC EDGAR", url: "https://www.sec.gov/Archives/edgar/data/6201/000000620125000010/aal-20241231.htm" },
+  { id: "delta10k2023", label: "Delta Air Lines, Form 10-K filing (FY2023), SEC EDGAR", url: "https://www.sec.gov/Archives/edgar/data/27904/000002790424000003/dal-20231231.htm" },
+  { id: "dot2024", label: "U.S. Department of Transportation, inquiry into airline rewards programs (American, Delta, Southwest, United), Feb. 2024; cited via Moneywise/Yahoo Finance, 2026", url: "https://www.transportation.gov/briefing-room/usdot-seeks-protect-consumers-airline-rewards-probe-four-largest-us-airlines-rewards" },
+  { id: "milesmarket2025", label: "The Miles Market, “Airline Devaluation 2025: Sweet Spots Died — 2026 Playbook,” Dec. 24, 2025", url: "https://www.themilesmarket.com/post/airline-devaluation-2025-2026-playbook" },
+  { id: "aarevenue", label: "American Airlines Group full-year revenue, 2019 ($45.77B) and 2024 ($54.2B) — American Airlines Newsroom earnings releases, widely reported (e.g., StockTitan, “American Airlines Hits Record $54.2B Revenue,” Jan. 2025)", url: "https://news.aa.com/" },
+];
+
+const src = (id) => {
+  const s = SOURCES.find((x) => x.id === id);
+  return s ? s.label.split(",")[0].replace(/“.*/, "").trim() : id;
+};
+
+/* ----------------------------------------------------------------------------
+   GLOSSARY (per page)
+---------------------------------------------------------------------------- */
+const GLOSSARY = {
+  intro: [
+    { term: "Frequent-flyer mile (point)", def: "A unit of credit an airline gives a customer for flying or spending, redeemable later for a reward such as a free flight." },
+    { term: "Loyalty program liability (deferred revenue)", def: "The dollar value, on an airline's own balance sheet, of miles it has already sold or awarded but that customers have not yet redeemed." },
+    { term: "Co-brand credit card", def: "A credit card jointly branded by a bank and an airline (or hotel, etc.) that earns the airline's miles on every purchase." },
+  ],
+  background: [
+    { term: "EBITDA", def: "Earnings before interest, taxes, depreciation, and amortization — a common measure of a business's cash profit before certain non-cash and financing costs." },
+    { term: "Collateral", def: "An asset a borrower pledges to a lender, which the lender can claim if the loan isn't repaid." },
+  ],
+  rq1: [
+    { term: "Redemption", def: "Using saved-up miles to claim a reward, such as a free flight." },
+  ],
+  rq2: [
+    { term: "Arm's-length transaction", def: "A deal between two independent parties, each acting in their own interest, with no special relationship influencing the price." },
+    { term: "Spinoff", def: "When a company separates part of its business into a new, independently owned company." },
+  ],
+  rq3: [
+    { term: "Dynamic pricing (award redemption)", def: "A system where the number of miles required for a reward changes with demand, ticket price, or timing, instead of following a fixed, published chart." },
+  ],
+};
+
+/* ----------------------------------------------------------------------------
+   SMALL SHARED UI PIECES
+---------------------------------------------------------------------------- */
+function FactTag({ tier }) {
+  const cls = tier === "FACT" ? "tag tag-fact" : tier === "ESTIMATE" ? "tag tag-estimate" : "tag tag-illustration";
+  return <span className={cls}>{tier}</span>;
+}
+
+function ChartNote({ children }) {
+  return <p className="chart-note">{children}</p>;
+}
+
+function GlossaryPanel({ pageKey }) {
+  const items = GLOSSARY[pageKey];
+  if (!items || items.length === 0) return null;
+  return (
+    <div className="glossary-panel">
+      <div className="glossary-label">Glossary</div>
+      {items.map((g, i) => (
+        <p key={i} className="glossary-item"><strong>{g.term}</strong> — {g.def}</p>
+      ))}
+    </div>
+  );
+}
+
+/* Chart interpretation: two gated free-text prompts beneath a chart */
+function ChartInterpretation({ chartId, prompts, state, onSubmit }) {
+  return (
+    <div className="interp-block">
+      {prompts.map((p, idx) => {
+        const key = `${chartId}-ip${idx}`;
+        const st = state[key] || { submitted: false, text: "" };
+        return (
+          <div className="interp-row" key={key}>
+            <div className="interp-kind">{p.kind}</div>
+            <p className="interp-prompt">{p.prompt}</p>
+            {!st.submitted && (
+              <InterpForm onSubmit={(text) => onSubmit(key, text)} />
+            )}
+            {st.submitted && (
+              <div className="interp-answer-box">
+                <p className="interp-yours"><strong>Your answer:</strong> {st.text}</p>
+                <div className="authored-answer">
+                  <div className="authored-label">Compare your answer to the authored one</div>
+                  <p>{p.authored}</p>
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function InterpForm({ onSubmit }) {
+  const [text, setText] = useState("");
+  const tooShort = text.trim().length < 15;
+  return (
+    <div className="interp-form">
+      <textarea
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        placeholder="Write at least 15 characters before the authored answer unlocks…"
+        rows={2}
+      />
+      <button className="btn-secondary" disabled={tooShort} onClick={() => onSubmit(text)}>
+        Submit answer
+      </button>
+    </div>
+  );
+}
+
+/* Multiple choice question (Types A/B/C/E and warm-up) */
+function MCQuestion({ q, state, onAnswer, consulting }) {
+  const st = state[q.id] || { selected: null, submitted: false };
+  const letters = ["A", "B", "C", "D"];
+  return (
+    <div className={consulting ? "question-card consulting-case" : "question-card"}>
+      {consulting && <div className="case-label">Case Prompt</div>}
+      <div className="q-type-tag">{q.typeLabel}</div>
+      <p className="q-prompt">{q.prompt}</p>
+      <div className="options">
+        {q.options.map((opt, i) => {
+          let cls = "option";
+          if (st.submitted) {
+            if (i === q.correct) cls += " option-correct";
+            else if (i === st.selected) cls += " option-wrong";
+          } else if (st.selected === i) {
+            cls += " option-selected";
+          }
+          return (
+            <div key={i} className={cls} onClick={() => !st.submitted && onAnswer(q.id, "select", i)}>
+              <span className="option-letter">{letters[i]}</span>
+              <span>{opt}</span>
+            </div>
+          );
+        })}
+      </div>
+      {!st.submitted && (
+        <button
+          className="btn-primary"
+          disabled={st.selected === null || st.selected === undefined}
+          onClick={() => onAnswer(q.id, "submit")}
+        >
+          Submit
+        </button>
+      )}
+      {st.submitted && (
+        <div className="explanation">
+          <p className={st.selected === q.correct ? "calib-correct" : "calib-wrong"}>
+            {st.selected === q.correct
+              ? "Correct — this confirms the transferable pattern below."
+              : `Incorrect — ${q.misconceptions[st.selected]}`}
+          </p>
+          <p className="explanation-body">{q.explanation}</p>
+          <p className="principle-tag">Principle: {q.principle}</p>
+          <p className="generalizes-tag">Where this generalizes: {q.generalizes}</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* Numeric (Type D) estimation question — optionally requires a one-line method statement first */
+function NumericQuestion({ q, state, onAnswer }) {
+  const st = state[q.id] || { value: "", submitted: false };
+  const [val, setVal] = useState(st.value || "");
+  const [method, setMethod] = useState(st.method || "");
+  const isCorrect = (v) => {
+    const n = parseFloat(v);
+    if (isNaN(n)) return false;
+    if (q.toleranceType === "band") return n >= q.low && n <= q.high;
+    return false;
+  };
+  const methodOk = !q.requireMethod || method.trim().length >= 10;
+  return (
+    <div className="question-card numeric-card">
+      <div className="q-type-tag">Type D — Quantitative Estimation {q.openEnded ? "(open-ended)" : ""}</div>
+      <p className="q-prompt">{q.prompt}</p>
+      <p className="tolerance-note">{q.toleranceNote}</p>
+      {!st.submitted && (
+        <React.Fragment>
+          {q.requireMethod && (
+            <div className="method-row">
+              <label className="method-label">Your method, in one line:</label>
+              <input
+                type="text"
+                className="method-input"
+                value={method}
+                onChange={(e) => setMethod(e.target.value)}
+                placeholder={q.methodPlaceholder}
+              />
+            </div>
+          )}
+          <div className="numeric-input-row">
+            <input type="number" value={val} onChange={(e) => setVal(e.target.value)} placeholder={q.placeholder} />
+            <span className="numeric-unit">{q.unit}</span>
+            <button
+              className="btn-primary"
+              disabled={val === "" || !methodOk}
+              onClick={() => onAnswer(q.id, parseFloat(val), isCorrect(val), method)}
+            >
+              Submit
+            </button>
+          </div>
+        </React.Fragment>
+      )}
+      {st.submitted && (
+        <div className="explanation">
+          {q.requireMethod && (
+            <p className="interp-yours"><strong>Your stated method:</strong> {st.method}</p>
+          )}
+          <p className={st.correct ? "calib-correct" : "calib-wrong"}>
+            Your estimate: {st.value} {q.unit}. Actual: {q.actualLabel}.{" "}
+            {st.correct ? "Within tolerance — correct." : "Outside tolerance — see the decomposition below."}
+          </p>
+          <div className="how-to-estimate">
+            <div className="hte-label">How to estimate this</div>
+            <p>{q.howTo}</p>
+          </div>
+          {q.principle && <p className="principle-tag">Principle: {q.principle}</p>}
+          {q.generalizes && <p className="generalizes-tag">Where this generalizes: {q.generalizes}</p>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ----------------------------------------------------------------------------
+   CHARTS
+---------------------------------------------------------------------------- */
+
+function Chart1_LiabilityLine() {
+  const data = [
+    { year: "2018", american: 8539, delta: null },
+    { year: "2019", american: 8615, delta: null },
+    { year: "2022", american: null, delta: 7882 },
+    { year: "2023", american: null, delta: 8420 },
+    { year: "2024", american: 10054, delta: null },
+  ];
+  return (
+    <div className="chart-wrap">
+      <div className="chart-title">The Currency in Circulation: Loyalty Program Liability, 2018–2024 <FactTag tier="FACT" /></div>
+      <ResponsiveContainer width="100%" height={320}>
+        <LineChart data={data} margin={{ top: 20, right: 40, left: 10, bottom: 10 }}>
+          <CartesianGrid strokeDasharray="3 3" stroke="#eee" />
+          <XAxis dataKey="year" />
+          <YAxis label={{ value: "$ millions", angle: -90, position: "insideLeft" }} domain={[0, 12000]} />
+          <Tooltip formatter={(v) => (v == null ? "n/a" : `$${v}M`)} />
+          <Legend />
+          <Line type="monotone" dataKey="american" name="American — AAdvantage liability" stroke="#1d4ed8" strokeWidth={3} dot={{ r: 5 }} connectNulls={false}>
+            <LabelList dataKey="american" position="top" formatter={(v) => (v ? `$${v}M` : "")} />
+          </Line>
+          <Line type="monotone" dataKey="delta" name="Delta — SkyMiles deferred revenue" stroke="#dc2626" strokeWidth={3} dot={{ r: 5 }} connectNulls={false}>
+            <LabelList dataKey="delta" position="bottom" formatter={(v) => (v ? `$${v}M` : "")} />
+          </Line>
+        </LineChart>
+      </ResponsiveContainer>
+      <ChartNote>
+        Only fiscal years with confirmed 10-K figures are plotted (American: 2018, 2019, 2024; Delta: 2022, 2023); intervening years were not independently verified for this article and are not shown or interpolated. Source: American Airlines Group and Delta Air Lines 10-K filings ({src("aa10k")}, {src("delta10k2023")}).
+      </ChartNote>
+    </div>
+  );
+}
+
+function Chart2_Dumbbell() {
+  const rows = [
+    { name: "American", cap: 6.6, value: 24, ownDisclosure: "own disclosed appraisal range: $19.5B–$31.5B" },
+    { name: "United", cap: 10.5, value: 20, ownDisclosure: "own 12×-EBITDA figure: $21.9B" },
+    { name: "Delta", cap: 20, value: 26, ownDisclosure: "own loan size: $6.5B, upsized to $9B (no standalone multiple disclosed)" },
+  ];
+  return (
+    <div className="chart-wrap">
+      <div className="chart-title">Mind the Gap: 2020 Loyalty-Program Value vs. Airline Market Capitalization <FactTag tier="FACT" /></div>
+      <ResponsiveContainer width="100%" height={280}>
+        <ComposedChart layout="vertical" data={rows} margin={{ top: 10, right: 40, left: 10, bottom: 10 }}>
+          <CartesianGrid strokeDasharray="3 3" stroke="#eee" />
+          <XAxis type="number" domain={[0, 30]} unit="B" tickFormatter={(v) => `$${v}`} />
+          <YAxis type="category" dataKey="name" width={80} />
+          <Tooltip formatter={(v) => `$${v}B`} />
+          {rows.map((r, i) => (
+            <ReferenceLine key={i} segment={[{ x: r.cap, y: r.name }, { x: r.value, y: r.name }]} stroke="#999" />
+          ))}
+          <Scatter dataKey="cap" fill="#6b7280" name="Market capitalization">
+            <LabelList dataKey="cap" position="left" formatter={(v) => `$${v}B`} />
+          </Scatter>
+          <Scatter dataKey="value" fill="#1d4ed8" name="Loyalty-program value (FT analysis)">
+            <LabelList dataKey="value" position="right" formatter={(v) => `$${v}B`} />
+          </Scatter>
+        </ComposedChart>
+      </ResponsiveContainer>
+      <div className="dumbbell-legend">
+        <span><span className="dot" style={{ background: "#6b7280" }} /> Market capitalization, 2020</span>
+        <span><span className="dot dot-blue" /> Loyalty-program value (Financial Times analysis)</span>
+      </div>
+      <ChartNote>
+        Program-value figures are a Financial Times analysis (via The Hustle, 2020/2024, {src("hustle2024")}), shown for cross-airline comparability on one consistent basis. Each airline's own primary disclosure, noted for cross-validation and broadly consistent with the FT figures: American's {rows[0].ownDisclosure} ({src("fool2020")}); United's {rows[1].ownDisclosure} ({src("skift2020")}); Delta's {rows[2].ownDisclosure} ({src("cnbc2020")}).
+      </ChartNote>
+    </div>
+  );
+}
+
+function Chart3_Waterfall() {
+  const rows = [
+    { name: "Third-party mile sales", base: 0, value: 3.8, kind: "up" },
+    { name: "United's own mile purchases", base: 3.8, value: 1.5, kind: "up" },
+    { name: "Total miles sold, 2019", base: 0, value: 5.3, kind: "total" },
+    { name: "Cost to run & fulfill program", base: 1.8, value: 3.5, kind: "down" },
+    { name: "Program EBITDA, 2019", base: 0, value: 1.8, kind: "total" },
+  ];
+  const colors = { up: "#93c5fd", down: "#f87171", total: "#1d4ed8" };
+  return (
+    <div className="chart-wrap">
+      <div className="chart-title">From Miles Sold to Program Profit: United MileagePlus, 2019 <FactTag tier="FACT" /><FactTag tier="ESTIMATE" /></div>
+      <ResponsiveContainer width="100%" height={360}>
+        <BarChart data={rows} margin={{ top: 20, right: 30, left: 10, bottom: 50 }}>
+          <CartesianGrid strokeDasharray="3 3" stroke="#eee" />
+          <XAxis dataKey="name" interval={0} tick={{ fontSize: 10.5 }} height={70} angle={-12} textAnchor="end" />
+          <YAxis label={{ value: "$ billions", angle: -90, position: "insideLeft" }} domain={[0, 6]} />
+          <Tooltip formatter={(v) => `$${v}B`} />
+          <Bar dataKey="base" stackId="a" fill="transparent" />
+          <Bar dataKey="value" stackId="a">
+            {rows.map((r, i) => <Cell key={i} fill={colors[r.kind]} />)}
+            <LabelList dataKey="value" position="top" formatter={(v) => `$${v}B`} />
+          </Bar>
+        </BarChart>
+      </ResponsiveContainer>
+      <ChartNote>
+        Two build-up bars and the final EBITDA bar are FACT, from United's 2020 MileagePlus investor presentation ({src("skift2020")}). The “cost to run and fulfill the program” bar is an ESTIMATE, computed as a residual (total miles-sold revenue minus disclosed program EBITDA); United does not disclose this cost line item directly.
+      </ChartNote>
+    </div>
+  );
+}
+
+function Chart4_DotPlot() {
+  const rows = [
+    { carrier: "Alaska Air Group", share: 16.0 },
+    { carrier: "Delta Air Lines", share: 12.9 },
+    { carrier: "American Airlines", share: 11.4 },
+    { carrier: "United Airlines", share: 5.4 },
+  ];
+  return (
+    <div className="chart-wrap">
+      <div className="chart-title">How Big Is the Miles Economy, by Carrier? Loyalty/Co-Brand Revenue as a Share of Total Revenue, 2025 <FactTag tier="FACT" /><FactTag tier="ESTIMATE" /></div>
+      <ResponsiveContainer width="100%" height={280}>
+        <ComposedChart layout="vertical" data={rows} margin={{ top: 10, right: 50, left: 10, bottom: 10 }}>
+          <CartesianGrid strokeDasharray="3 3" stroke="#eee" />
+          <XAxis type="number" domain={[0, 20]} unit="%" />
+          <YAxis type="category" dataKey="carrier" width={140} tick={{ fontSize: 12.5 }} />
+          <Tooltip formatter={(v) => `${v}%`} />
+          <Bar dataKey="share" fill="#cbd5e1" barSize={5} />
+          <Scatter dataKey="share" fill="#1d4ed8">
+            <LabelList dataKey="share" position="right" formatter={(v) => `${v}%`} />
+          </Scatter>
+        </ComposedChart>
+      </ResponsiveContainer>
+      <ChartNote>
+        Percentages for Delta, American, and United are derived by this article by dividing each carrier's disclosed co-brand/loyalty dollar figure by its disclosed total revenue ({src("delta10k2026")}, {src("aa2026")}, {src("reuters2026")}, {src("united2026")}); Alaska's 16.0% is as directly reported ({src("reuters2026")}, {src("fortune2026")}). Carriers do not all define “loyalty/co-brand revenue” identically (see the interpretation questions below), so these percentages are informative but not perfectly apples-to-apples.
+      </ChartNote>
+    </div>
+  );
+}
+
+function Chart5_Bubble() {
+  const data = [
+    { name: "Delta", x: 63.4, y: 12.9, z: 8.2 },
+    { name: "American", x: 54.6, y: 11.4, z: 6.2 },
+    { name: "United", x: 59.1, y: 5.4, z: 3.2 },
+    { name: "Alaska", x: 14.2, y: 16.0, z: 2.27 },
+  ];
+  return (
+    <div className="chart-wrap">
+      <div className="chart-title">Relative Dependence vs. Absolute Scale: Loyalty Revenue by Carrier, 2025 <FactTag tier="FACT" /><FactTag tier="ESTIMATE" /></div>
+      <ResponsiveContainer width="100%" height={340}>
+        <ScatterChart margin={{ top: 20, right: 40, left: 10, bottom: 20 }}>
+          <CartesianGrid strokeDasharray="3 3" stroke="#eee" />
+          <XAxis type="number" dataKey="x" name="Total operating revenue" unit="B" domain={[0, 72]} label={{ value: "Total operating revenue ($B)", position: "insideBottom", offset: -12 }} />
+          <YAxis type="number" dataKey="y" name="Loyalty revenue share" unit="%" domain={[0, 20]} label={{ value: "Loyalty/co-brand share of revenue (%)", angle: -90, position: "insideLeft" }} />
+          <ZAxis type="number" dataKey="z" range={[300, 2200]} name="Loyalty dollar amount" unit="B" />
+          <Tooltip cursor={{ strokeDasharray: "3 3" }} formatter={(v, n) => (n && n.indexOf("share") >= 0 ? `${v}%` : `$${v}B`)} />
+          <Scatter data={data} fill="#1d4ed8">
+            <LabelList dataKey="name" position="top" />
+          </Scatter>
+        </ScatterChart>
+      </ResponsiveContainer>
+      <ChartNote>
+        Bubble size = absolute loyalty/co-brand dollar amount. Same comparability caveat as the chart above; Alaska's dollar figure (~$2.27B) is derived (ESTIMATE: 16% × $14.2B); the other three carriers combine FACT dollar inputs with an ESTIMATE share ({src("delta10k2026")}, {src("aa2026")}, {src("united2026")}, {src("alaska2026")}, {src("reuters2026")}, {src("fortune2026")}).
+      </ChartNote>
+    </div>
+  );
+}
+
+function Chart6_IndexedLine() {
+  const data = [
+    { year: "2019", loyaltyIndex: 100, revenueIndex: 100 },
+    { year: "2024", loyaltyIndex: 116.7, revenueIndex: 118.4 },
+  ];
+  return (
+    <div className="chart-wrap">
+      <div className="chart-title">The Currency vs. the Business: American Airlines, Loyalty Liability and Total Revenue, Indexed to 100 in 2019 <FactTag tier="FACT" /><FactTag tier="ESTIMATE" /></div>
+      <ResponsiveContainer width="100%" height={300}>
+        <LineChart data={data} margin={{ top: 20, right: 40, left: 10, bottom: 10 }}>
+          <CartesianGrid strokeDasharray="3 3" stroke="#eee" />
+          <XAxis dataKey="year" />
+          <YAxis domain={[90, 125]} label={{ value: "Index (2019 = 100)", angle: -90, position: "insideLeft" }} />
+          <Tooltip formatter={(v) => v.toFixed(1)} />
+          <Legend />
+          <ReferenceLine y={100} stroke="#999" strokeDasharray="4 4" />
+          <Line type="monotone" dataKey="loyaltyIndex" name="Loyalty program liability (index)" stroke="#dc2626" strokeWidth={3} dot={{ r: 5 }}>
+            <LabelList dataKey="loyaltyIndex" position="top" formatter={(v) => v.toFixed(1)} />
+          </Line>
+          <Line type="monotone" dataKey="revenueIndex" name="Total operating revenue (index)" stroke="#1d4ed8" strokeWidth={3} dot={{ r: 5 }}>
+            <LabelList dataKey="revenueIndex" position="bottom" formatter={(v) => v.toFixed(1)} />
+          </Line>
+        </LineChart>
+      </ResponsiveContainer>
+      <ChartNote>
+        Raw dollar figures are FACT, from American Airlines Group's own 10-K and earnings disclosures ({src("aa10k")}, {src("aarevenue")}): loyalty liability $8,615M (2019) → $10,054M (2024); total revenue $45.77B (2019) → $54.2B (2024). Index values (rebased to 100 at 2019) are computed by this article for comparability, since the two series are on very different dollar scales.
+      </ChartNote>
+    </div>
+  );
+}
+
+/* ----------------------------------------------------------------------------
+   QUESTION DATA
+---------------------------------------------------------------------------- */
+
+const WARMUP_QUESTIONS = [
+  {
+    id: "w1",
+    typeLabel: "Warm-Up — Type B (transfer)",
+    principle: "A performance gap between a 'treated' and 'untreated' group is not proof of causal value unless you know how the groups were assigned — the same gap is equally consistent with the treatment causing the outcome or with selection onto already-better cases.",
+    prompt: "A B2B software company reports that customer accounts touched by its Customer Success (CS) team expand their contracts at a 35% annual rate, versus 8% for accounts with no CS touch. The CFO wants to double the CS team's budget on the strength of this gap. Before approving, what is the single most important thing to check?",
+    options: [
+      "Whether CS-touched accounts were assigned at random, or whether CS self-selected onto accounts that were already growing — the true driver of the 35% could be pre-existing account health, not the CS team's work.",
+      "Whether the 35% figure is stated as a percentage or a percentage-point figure.",
+      "Whether the CFO has budget available this quarter to fund the expansion.",
+      "Whether competitor companies report similar CS attach rates.",
+    ],
+    correct: 0,
+    misconceptions: [
+      null,
+      "checking whether 35% is a percentage or a percentage-point figure is a real distinction in general, but here both numbers are already stated as annual rates, so it doesn't address whether the gap is caused by CS or by selection.",
+      "whether the CFO has budget available is a real operational question, but it has nothing to do with whether the 35% gap actually reflects the CS team's causal impact.",
+      "comparing against competitors' CS attach rates might be useful context elsewhere, but it does not resolve whether THIS company's 35%-vs-8% gap is caused by CS work or by which accounts CS happened to be assigned to.",
+    ],
+    explanation: "A performance gap between a 'treated' and 'untreated' group is not proof of causal value unless you know how the groups were assigned; a raw gap is equally consistent with CS causing growth or with CS being assigned to accounts that were already going to grow (selection). Diagnosis: (B) is a real distinction in general, but not the issue here, since both figures are already annual rates; (C) is an irrelevant budgeting question that doesn't test the causal claim; (D) benchmarking against others doesn't resolve whether THIS company's number is causal.",
+    generalizes: "the same test as retail media's 'ROAS looks great, but is the credited sale actually incremental, or would it have happened anyway' — a self-reported or non-randomized performance metric always needs this check before you resource against it.",
+  },
+  {
+    id: "w2",
+    typeLabel: "Warm-Up — Type B (transfer)",
+    principle: "A change in an aggregate number never tells you the contribution of one piece within it; you must isolate the subgroup to know whether a program helped, hurt, or was irrelevant.",
+    prompt: "A national retail chain's company-wide shrink (theft and inventory loss) rate fell from 1.8% to 1.6% of sales last year. A regional manager argues this proves a new anti-theft tagging system — installed in only 30% of stores — isn't worth expanding, since 'shrink is already falling company-wide.' What is the flaw in that argument?",
+    options: [
+      "Shrink rates are always seasonal, so year-over-year comparisons are meaningless.",
+      "A falling company-wide average doesn't reveal the contribution of the tagged subgroup — the tagged stores could be improving faster or slower than the untagged stores, and the aggregate number alone can't tell you which.",
+      "The manager should have waited until 100% of stores were tagged before measuring anything.",
+      "A 0.2 percentage point drop is too small to be meaningful either way.",
+    ],
+    correct: 1,
+    misconceptions: [
+      "seasonality is a real caution in general, but it doesn't address the specific reasoning error in the manager's argument, which is about aggregation, not timing.",
+      null,
+      "waiting for 100% coverage begs the question — it avoids diagnosing what's actually wrong with the manager's argument as stated.",
+      "objecting to the size of the 0.2-point drop is a magnitude complaint, not the actual logical flaw in the manager's reasoning.",
+    ],
+    explanation: "A change in an aggregate number never tells you the contribution of one piece within it; you must isolate the subgroup (tagged vs. untagged stores) to know whether the tagging program helped, hurt, or was irrelevant. Diagnosis: (A) is a real caution generally, but doesn't address the specific reasoning error in the prompt; (C) begs the question rather than diagnosing the stated argument; (D) is a magnitude objection, not the actual logical flaw.",
+    generalizes: "identical to the tariff case, where a falling AGGREGATE inflation rate did not disprove a rising CONTRIBUTION from tariffs specifically — the aggregate nets out many forces, and one component can be moving opposite the total.",
+  },
+  {
+    id: "w3",
+    typeLabel: "Warm-Up — Type B (transfer)",
+    principle: "'Right mechanism' and 'sufficient scale or funding' are two separate conditions for a policy to work; satisfying one without the other still produces failure in practice.",
+    prompt: "A city launches a rent-subsidy voucher program explicitly designed to close the gap between low-income renters' budgets and market rents — the textbook right mechanism for that problem. Two years later, the voucher waitlist is 8 years long. Was the program well designed?",
+    options: [
+      "No — a waitlist this long proves the mechanism itself was wrong and a different policy should replace it entirely.",
+      "Yes — the mere existence of a voucher program is evidence the city solved the affordability problem.",
+      "The mechanism can be exactly right and still fail in practice if it isn't funded and scaled to match the actual size of the gap it targets.",
+      "The waitlist length is irrelevant, since vouchers are a demand-side tool, not a supply-side one.",
+    ],
+    correct: 2,
+    misconceptions: [
+      "this confuses a funding/scale problem with a mechanism problem — a long waitlist shows the program wasn't funded to match the size of the gap, not that the underlying design is wrong.",
+      "this is an existence-proves-success fallacy — having a program at all says nothing about whether it closed the actual gap.",
+      null,
+      "whether vouchers are demand-side or supply-side is a real distinction elsewhere, but it is irrelevant misdirection here — the waitlist length is exactly the evidence of a scale-vs-funding shortfall.",
+    ],
+    explanation: "'Right mechanism' and 'sufficient scale or funding' are two separate conditions for a policy to work; satisfying one without the other still produces failure in practice. Diagnosis: (A) is a mechanism-vs-scale confusion — the failure is a funding/scale problem, not proof the mechanism is wrong; (B) is an existence-proves-success fallacy; (D) is irrelevant misdirection about which side of the market vouchers target.",
+    generalizes: "identical to the antibiotic delinked-payment case, where subscription-style payment models fixed the right incentive problem but remained unproven at the funding scale the underlying R&D cost actually required.",
+  },
+];
+
+const BG_QUESTIONS = {
+  mc: {
+    id: "bg-b1",
+    typeLabel: "Type B — Trend Reasoning",
+    principle: "Bundled vs. standalone valuation — a valuation performed for one purpose (pledging collateral under duress, or an internal accounting multiple) is not the same as the price an arm's-length buyer would pay once the asset is actually separated from the parent company.",
+    prompt: "Does the valuation gap in the chart above prove that a loyalty program, sold on its own to an independent buyer, would actually fetch $20–26 billion? What is the strongest reason to doubt that conclusion?",
+    options: [
+      "No — because loyalty-program valuations are always inflated by a fixed industry-standard multiple.",
+      "Yes — since professional third-party appraisers produced these figures, they must reflect real standalone market value.",
+      "Yes — because United's own 12-times-EBITDA calculation is a rigorous multiple, so it must transfer directly to what an arm's-length buyer would pay.",
+      "No — Air Canada actually ran this experiment. It spun off its Aeroplan program into a separate company, Aimia, before the 2008 recession. Once separated from the airline's network and customer relationship, the program's standalone value did not hold up, and Air Canada eventually bought Aeroplan back from Aimia for about C$450 million (about US$345 million) in 2018 — a small fraction of the multi-billion-dollar figures used to value the US programs.",
+    ],
+    correct: 3,
+    misconceptions: [
+      "this invents a nonexistent industry rule — there is no fixed, universal multiple that automatically inflates every loyalty-program appraisal.",
+      "this is an appeal to authority that ignores the bundling mechanism — a professional appraiser's number, produced for a specific purpose (collateral), doesn't automatically equal a tested market price.",
+      "this confuses an internal accounting multiple, chosen partly to maximize what could be borrowed in a crisis, with a market-tested sale price nobody has actually paid.",
+      null,
+    ],
+    explanation: "A valuation performed for one purpose (pledging collateral under financial duress, or an internal accounting multiple) is not the same as the price a truly independent, arm's-length buyer would pay once the asset is separated from the parent company. The Air Canada/Aimia case is a real natural experiment showing that once unbundled, the 'asset' was worth far less to an outside owner than the bundled appraisal implied, because most of its value came from the airline's network and captive customer relationship, not from the miles ledger itself.",
+    generalizes: "any 'sum-of-the-parts' argument for why a company should spin off a subsidiary should be checked against a track record of that TYPE of asset actually being separated and sold — a valuation nobody has ever tested with a real transaction should be trusted less than one that has.",
+  },
+  numeric: {
+    id: "bg-d1",
+    prompt: "AAdvantage had more than 115 million members as of April 2021 (FACT). The US adult population (18+) was about 258 million around that time (reference figure). Estimate: what percentage of US adults were AAdvantage members? Enter your estimate as a percentage.",
+    toleranceNote: "Tolerance: tight, ±10% relative (accept roughly 40%–49%) — this is simple division (members ÷ adult population), not a genuine Fermi guess.",
+    unit: "% of US adults",
+    placeholder: "e.g., 45",
+    low: 40,
+    high: 49,
+    toleranceType: "band",
+    actual: 44.6,
+    actualLabel: "≈44.6% (115M ÷ 258M)",
+    howTo: "Decomposition: members ÷ adult population = 115M ÷ 258M ≈ 44.6%. Anchor facts: both figures are given directly in the prompt. Bounds: since 115M is 'more than,' the true share is at least about 44.6% and could be a bit higher. This is a startlingly high penetration number for a single company's loyalty program — but note the important caveat: enrollment is not the same as active engagement; a member who signed up once and never flies again still counts in the 115 million. Never read a raw membership total as impressive on its own; always divide by a relevant population to judge real reach, and remember that 'enrolled' and 'engaged' are different things.",
+    principle: "Denominator discipline — always divide a raw enrollment or membership count by a relevant population before judging how big it really is, and remember 'enrolled' is not the same as 'engaged.'",
+    generalizes: "any headline membership or user count, from loyalty programs to app downloads to gym memberships — divide by a relevant population before deciding the number is impressive.",
+  },
+};
+
+const RQ1_QUESTIONS = {
+  mc: {
+    id: "rq1-a1",
+    typeLabel: "Type A — Chart Reading and Implication",
+    principle: "Backing out an implied total from a disclosed share — when a company states a dollar figure as 'X% of revenue' without stating revenue itself, divide the dollar figure by the percentage to find the implied total.",
+    prompt: "United disclosed that MileagePlus sold $5.3 billion in miles in 2019, representing 12% of United's total revenue that year. Using only these two figures, what was United's approximate total 2019 operating revenue, and what does that reveal?",
+    options: [
+      "About $44 billion (5.3 ÷ 0.12). Mile sales already represented a meaningful, double-digit share of total revenue in a routine, pre-pandemic year — before even counting the miles United buys for its own reward program — showing the 'miles economy' was a material part of the business, not a rounding error.",
+      "About $63.6 billion (5.3 × 12) — this multiplies instead of dividing.",
+      "About $5.3 billion — since that is the disclosed miles-sold figure directly, mistaking the part for the whole.",
+      "It cannot be estimated from these two figures alone.",
+    ],
+    correct: 0,
+    misconceptions: [
+      null,
+      "this is an inverse-operation arithmetic error — multiplying instead of dividing when backing out a total from a stated share.",
+      "this confuses a part (miles sold) with the whole it's supposedly a share of (total revenue).",
+      "this is incorrect — the two figures given ARE sufficient; a dollar amount stated as 'X% of revenue' is a directly invertible relationship.",
+    ],
+    explanation: "Whenever a company discloses a dollar figure as 'X% of revenue' without stating revenue directly, you can back out the implied total by dividing the dollar figure by the percentage: $5.3B ÷ 0.12 ≈ $44B.",
+    generalizes: "the same technique works any time a company says a metric was 'X% of revenue' without stating revenue outright — always check whether you can back out the missing number instead of treating the problem as unsolvable.",
+  },
+  numeric: {
+    id: "rq1-d2",
+    prompt: "United's MileagePlus generated $1.8 billion of program EBITDA in 2019 on $5.3 billion of miles sold (a 34% margin). Suppose you assume, as a rough scaffold, that the combined 'big four' US carriers (American, Delta, United, Southwest) generate loyalty-program EBITDA roughly in proportion to their overall size, and that United represents somewhere between one-quarter and one-third of the big four's combined scale. Using that assumption, give your best order-of-magnitude estimate (in billions of dollars) of the big four's COMBINED 2019 loyalty-program EBITDA.",
+    toleranceNote: "Tolerance: WIDE — order-of-magnitude band (roughly $5–8 billion) — this is a genuine Fermi extrapolation resting on a stated, deliberately rough assumption, not a fact anyone has published.",
+    unit: "$B combined 2019 loyalty EBITDA",
+    placeholder: "e.g., 6",
+    low: 5,
+    high: 8,
+    toleranceType: "band",
+    actual: 6.5,
+    openEnded: true,
+    actualLabel: "an order-of-magnitude band of roughly $5–8 billion (ILLUSTRATION — no real published figure exists)",
+    howTo: "Anchor fact: United's own $1.8 billion program EBITDA (FACT). Decomposition path: pick a scaling factor based on relative size (United ≈ 1/4 to 1/3 of the big four's combined scale, as stated), then multiply: $1.8B × 3 ≈ $5.4B; $1.8B × 4 ≈ $7.2B — call it roughly $5–8 billion as an order-of-magnitude band. This is explicitly an ILLUSTRATION built for teaching Fermi reasoning: no airline publishes a combined 'big four loyalty EBITDA' figure, so there is no real external number to check this against. The value of the exercise is the reasoning chain — one disclosed data point times a stated, explicit scaling assumption equals an order-of-magnitude estimate for an otherwise-invisible aggregate — not a claimed fact about the industry. A wide tolerance is used because the real uncertainty lives in the scaling assumption itself, so scoring rewards the right order of magnitude, not the exact dollar.",
+    principle: "Fermi scaling from one data point — extrapolate an otherwise-invisible aggregate from one disclosed anchor and a stated, explicit scaling assumption, and treat the result as an order of magnitude, not a fact.",
+    generalizes: "any 'how big is the whole industry' question when only one company's figure is disclosed — from loyalty EBITDA to R&D budgets to market sizing.",
+  },
+};
+
+const RQ2_QUESTIONS = {
+  mc1: {
+    id: "rq2-b1",
+    typeLabel: "Type B — Trend Reasoning (statistical trap: normalization)",
+    principle: "Definitional comparability across firms — percentages built from differently defined line items are not directly comparable even when each one is a real, disclosed figure.",
+    prompt: "United's 5.4% looks far below Alaska's 16.0%. Before concluding United's loyalty program is a much smaller part of its business, what should you check first about how each percentage was calculated?",
+    options: [
+      "Whether United's fleet is smaller than Alaska's.",
+      "Whether each airline defines 'loyalty/co-brand revenue' the same way — some carriers report a narrower line such as 'cash payments from the co-brand bank partner,' while others report a broader 'loyalty revenue' category that captures more of the program's activity, so the percentages may not be measuring the same thing.",
+      "Whether the reader made an arithmetic mistake computing the shares.",
+      "Whether United's total revenue figure includes cargo revenue while Alaska's does not.",
+    ],
+    correct: 1,
+    misconceptions: [
+      "fleet size is irrelevant to whether a revenue-share metric is defined the same way across companies.",
+      null,
+      "this is a hedge that avoids engaging with the actual methodological issue — the question isn't about arithmetic, it's about definitions.",
+      "this is a plausible-sounding but unverified and untested claim, offered here as a decoy rather than the actual documented issue.",
+    ],
+    explanation: "Percentages computed from differently defined numerators (or line items) are not directly comparable even when each one is a real, disclosed figure; always check the definition behind a metric before ranking companies by it.",
+    generalizes: "the identical trap shows up whenever companies are compared on 'operating margin,' 'same-store sales,' or any self-defined metric — check the definition before trusting the ranking.",
+  },
+  numeric: {
+    id: "rq2-d3",
+    prompt: "Alaska Air Group's 2025 total operating revenue was about $14.2 billion (FACT), and Alaska has said loyalty revenue is about 16% of its total revenue (FACT). First, in one line, state how you would compute Alaska's 2025 loyalty revenue in dollars. Then enter your numeric estimate.",
+    toleranceNote: "Tolerance: tight, ±10% relative (accept roughly $2.0B–$2.5B) — this is simple multiplication (total revenue × share), not a Fermi guess.",
+    unit: "$B Alaska 2025 loyalty revenue",
+    placeholder: "e.g., 2.3",
+    low: 2.0,
+    high: 2.5,
+    toleranceType: "band",
+    actual: 2.27,
+    actualLabel: "≈$2.27 billion (14.2 × 0.16)",
+    requireMethod: true,
+    methodPlaceholder: "e.g., multiply total revenue by the percentage share",
+    howTo: "Decomposition: total revenue × share = $14.2B × 0.16 ≈ $2.27B. Compare to Delta's $8.2 billion: Delta's absolute dollar figure is roughly 3.6 times larger than Alaska's, even though Alaska's PERCENTAGE share (16.0%) is higher than Delta's (12.9%). This is the clearest illustration in the article that 'most dependent' (by share) and 'most exposed' (by dollars) are different questions with different answers.",
+    principle: "Relative share vs. absolute scale — the carrier most 'dependent' by percentage share and the carrier most 'exposed' by dollar amount can be different carriers entirely.",
+    generalizes: "any 'which business unit matters most' question — a segment can be the largest share of a small company or a small share of a large one, and the two rankings answer different questions.",
+  },
+};
+
+const RQ3_QUESTIONS = {
+  mc1: {
+    id: "rq3-b1",
+    typeLabel: "Type B — Trend Reasoning (statistical trap: percent vs. percentage points)",
+    principle: "Percent vs. percentage points — the gap between two growth rates is always properly expressed in percentage points, not restated as another percentage.",
+    prompt: "A headline reads: 'American's loyalty liability grew 16.7% while revenue grew 18.4% — the gap barely narrowed.' Is it correct to describe the 1.7-point difference between these two growth rates as 'the gap narrowed by 1.7%'?",
+    options: [
+      "Yes — since both figures are already percentages, subtracting one from the other always yields a valid percentage.",
+      "No — you should never subtract two growth rates that describe different underlying metrics.",
+      "No — 16.7% and 18.4% are themselves already growth rates; the difference between them (1.7) should be expressed in PERCENTAGE POINTS, not restated as another percentage, because percentage points and percent changes are different units.",
+      "It depends on whether the two years being compared cover the same number of months.",
+    ],
+    correct: 2,
+    misconceptions: [
+      "this is the exact confusion the question tests — treating a subtraction of two percentages as if the result were itself a valid new percent change.",
+      "this over-corrects — subtracting the two rates IS a valid, meaningful operation; it just must be labeled correctly, as percentage points, not percent.",
+      null,
+      "the number of months compared is irrelevant misdirection; the actual issue is a unit-labeling error, not a time-period mismatch.",
+    ],
+    explanation: "Percent-vs-percentage-point conflation is one of the most common financial-reporting errors; the gap between two percentages is always properly expressed in percentage points.",
+    generalizes: "identical to a central bank 'raising rates by 1.7%' versus '1.7 percentage points' — the wording changes what the number actually means, and financial media conflates the two constantly.",
+  },
+  case: {
+    id: "rq3-c1",
+    typeLabel: "Type C — Consulting Case",
+    principle: "Naming the weakest load-bearing assumption — trace a recommendation's causal chain from the action to the intended benefit and find the assumption with the thinnest supporting evidence.",
+    prompt: "A regional bank's card division is pitching Meridian Air — a mid-size airline not currently in a large co-brand deal — on launching a new co-branded credit card. The pitch promises $150 million in year-one payments, rising with card spend, in exchange for a 10-year exclusivity term and dynamic-pricing rights on award redemption. Which of the following is the weakest link in recommending Meridian Air sign this deal, and where is the thinnest supporting evidence for it in this article?",
+    options: [
+      "The assumption that $150 million is a realistic number a bank would actually offer.",
+      "The assumption that a 10-year exclusivity term is unusually long for this industry — but Delta's own Amex relationship was just renewed for 11 years, so this term length is actually typical, not risky.",
+      "The assumption that dynamic-pricing rights are automatically bad for Meridian Air — but the article's own evidence shows dynamic pricing mainly benefits whoever controls it, which in this deal is still the airline, so assuming this is bad reverses the article's own point.",
+      "The assumption that the bank's payments will keep flowing in even as Meridian Air's own redemption costs rise — the article's own evidence on how the money flows shows this balance depends entirely on the airline continuing to have spare seat capacity to fulfill awards cheaply, and that assumption was never tested against a scenario where load factors tighten or the airline's network shrinks.",
+    ],
+    correct: 3,
+    misconceptions: [
+      "this is a hedge that doesn't engage with which SPECIFIC assumption is load-bearing for the recommendation.",
+      "this misreads a specific article fact — the Delta-Amex term length was cited as reassuring evidence of typicality, not as a source of risk.",
+      "this reverses the article's own argument about who benefits from dynamic pricing — the article shows the party that CONTROLS the repricing lever benefits, which is the airline in this deal, not that dynamic pricing is automatically bad for the airline.",
+      null,
+    ],
+    explanation: "The weakest link in any recommendation is the assumption whose supporting evidence in the available material is thinnest and most contingent on operating conditions that could plausibly change. Implementation risk: a load-factor shock (a fleet grounding, a demand collapse, aggressive capacity growth by a rival) could break the fulfillment-cost assumption underneath the whole deal.",
+    generalizes: "before recommending any deal built on a disclosed headline number, ask which assumption underneath it has never actually been tested by an adverse scenario.",
+  },
+};
+
+const CONCLUSION_QUESTION = {
+  id: "concl-e1",
+  typeLabel: "Type E — Implication Bridge (with falsification)",
+  principle: "Separate which risk a body of evidence actually supports from adjacent risks that sound similar, and treat an open, non-binding regulatory inquiry as evidence a question is unresolved — not as evidence it has already been settled in either direction.",
+  prompt: "Given everything in this article — the 2020 collateral appraisals that exceeded each airline's market value, Air Canada's real-world Aeroplan spinoff-and-buyback, American's loyalty liability growing slightly slower than its revenue through 2024, and the wave of 2025 redemption devaluations happening alongside a still-open 2024 DOT inquiry — which real-world decision is most directly supported by this evidence, and what single observation over the next 12–24 months would most undermine it?",
+  options: [
+    "Decision: Airlines should immediately spin off their loyalty programs into independently traded companies, since 2020 appraisals already prove these programs are worth tens of billions of dollars on their own. This would be undermined only if a spun-off program's standalone stock price theoretically fell to zero, which is exceedingly unlikely.",
+    "Decision: A bank or investor underwriting a co-brand credit-card partnership should treat the airline's unilateral power to reprice redemption value as the central risk to watch, not the risk that the aggregate loyalty liability spirals out of control relative to revenue. This would be most undermined by a regulator such as the DOT actually adopting a binding rule that requires airlines to fix, cap, or pre-announce redemption-price changes, which would transfer the exchange-rate lever away from the airline's sole control.",
+    "Decision: Since the 2024 DOT inquiry into airline rewards programs is already open, regulators have effectively already solved the redemption-repricing risk, and banks and flyers can now treat airline loyalty currencies as no less protected than a regulated financial product. This would be undermined if the DOT ever closed its inquiry.",
+    "Decision: Because American's loyalty liability grew slightly slower than its revenue from 2019 to 2024, airlines are demonstrably not exploiting their miles-issuing power in any way, and no further regulatory scrutiny is warranted. This would be undermined only if a specific airline's liability someday grew faster than its revenue in a single year.",
+  ],
+  correct: 1,
+  misconceptions: [
+    "this ignores the article's own natural experiment — Air Canada's Aeroplan spinoff and buyback — which is direct evidence that a bundled appraisal does not survive being tested against an actual standalone sale, and it proposes a falsification condition that could not realistically be observed, so it doesn't function as a real test of the claim.",
+    null,
+    "this treats an open, unresolved inquiry as if it already functions as a binding consumer protection, which is the opposite of what 'still-open' means — the inquiry's very existence is evidence that regulators view this as unsettled, not settled.",
+    "this conflates two separately measured things: aggregate balance-sheet discipline (which has held, so far, in dollar terms) and per-mile redemption-value protection (which the same evidence explicitly cannot speak to), and it proposes a falsification test aimed at the wrong variable.",
+  ],
+  explanation: "The strongest-supported decision is narrower than either extreme: the real, demonstrated risk in this evidence is the airline's unchecked, unilateral power to reprice the redemption exchange rate — not currency worthlessness, and not runaway balance-sheet liability growth, since American's own numbers show liability growth has not outpaced revenue growth. This claim would be falsified by an observable, binding rule (for example, an outcome of the 2024 DOT inquiry) that actually removes the airline's unilateral control of the redemption exchange rate; short of that, the risk remains live and unchecked.",
+  generalizes: "any situation where one company or platform controls both the issuance and the exchange rate of an internal currency or credits system — the real risk to underwrite is usually the unilateral repricing power, not insolvency of the currency itself, and an open regulatory inquiry should be read as 'unresolved,' not as an implicit guarantee either way.",
+};
+
+/* ----------------------------------------------------------------------------
+   SECTION METADATA
+---------------------------------------------------------------------------- */
+const NAV_SECTIONS = [
+  { id: "sec-warmup", label: "Warm-Up" },
+  { id: "sec-intro", label: "Introduction" },
+  { id: "sec-background", label: "Background" },
+  { id: "sec-rq1", label: "RQ1: Miles Into Cash" },
+  { id: "sec-rq2", label: "RQ2: Worth More Than the Airline?" },
+  { id: "sec-rq3", label: "RQ3: Who Bears the Risk?" },
+  { id: "sec-summary", label: "Learning Summary" },
+  { id: "sec-conclusion", label: "Conclusion" },
+];
+
+/* ----------------------------------------------------------------------------
+   MAIN APP
+---------------------------------------------------------------------------- */
+function App() {
+  const [activeSection, setActiveSection] = useState("sec-warmup");
+  const [questionState, setQuestionState] = useState({});
+  const [interpState, setInterpState] = useState({});
+  const [navVisible, setNavVisible] = useState(window.innerWidth >= 1160);
+  const [governingInsight, setGoverningInsight] = useState("");
+  const [governingRevealed, setGoverningRevealed] = useState(false);
+  const [applyA, setApplyA] = useState("");
+  const [applyB, setApplyB] = useState("");
+  const [applyEvaluated, setApplyEvaluated] = useState(false);
+  const [applyGaps, setApplyGaps] = useState([]);
+
+  useEffect(() => {
+    const onResize = () => setNavVisible(window.innerWidth >= 1160);
+    window.addEventListener("resize", onResize);
+    const onScroll = () => {
+      let current = NAV_SECTIONS[0].id;
+      for (const s of NAV_SECTIONS) {
+        const el = document.getElementById(s.id);
+        if (el && el.getBoundingClientRect().top - 120 <= 0) current = s.id;
+      }
+      setActiveSection(current);
+    };
+    window.addEventListener("scroll", onScroll);
+    onScroll();
+    return () => {
+      window.removeEventListener("resize", onResize);
+      window.removeEventListener("scroll", onScroll);
+    };
+  }, []);
+
+  const scrollTo = (id) => {
+    const el = document.getElementById(id);
+    if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+
+  const activeIdx = NAV_SECTIONS.findIndex((s) => s.id === activeSection);
+  const prevSection = NAV_SECTIONS[(activeIdx - 1 + NAV_SECTIONS.length) % NAV_SECTIONS.length];
+  const nextSection = NAV_SECTIONS[(activeIdx + 1) % NAV_SECTIONS.length];
+
+  const handleAnswer = (id, action, value) => {
+    setQuestionState((prev) => {
+      const cur = prev[id] || { selected: null, submitted: false };
+      if (action === "select") return { ...prev, [id]: { ...cur, selected: value } };
+      if (action === "submit") return { ...prev, [id]: { ...cur, submitted: true } };
+      return prev;
+    });
+  };
+
+  const handleNumeric = (id, value, correct, method) => {
+    setQuestionState((prev) => ({ ...prev, [id]: { value, correct, submitted: true, method } }));
+  };
+
+  const handleInterp = (key, text) => {
+    setInterpState((prev) => ({ ...prev, [key]: { submitted: true, text } }));
+  };
+
+  const allMC = [
+    ...WARMUP_QUESTIONS,
+    BG_QUESTIONS.mc,
+    RQ1_QUESTIONS.mc,
+    RQ2_QUESTIONS.mc1,
+    RQ3_QUESTIONS.mc1,
+    RQ3_QUESTIONS.case,
+    CONCLUSION_QUESTION,
+  ];
+  const allNumeric = [BG_QUESTIONS.numeric, RQ1_QUESTIONS.numeric, RQ2_QUESTIONS.numeric];
+
+  const mcAnswered = allMC.filter((q) => questionState[q.id]?.submitted);
+  const mcCorrect = mcAnswered.filter((q) => questionState[q.id].selected === q.correct);
+  const numAnswered = allNumeric.filter((q) => questionState[q.id]?.submitted);
+  const numCorrect = numAnswered.filter((q) => questionState[q.id].correct);
+  const totalScore = mcCorrect.length + numCorrect.length;
+  const totalAnswered = mcAnswered.length + numAnswered.length;
+
+  const scoreByType = useMemo(() => {
+    const groups = {};
+    allMC.forEach((q) => {
+      const t = q.typeLabel.split(" — ")[0];
+      if (!groups[t]) groups[t] = { correct: 0, total: 0 };
+      if (questionState[q.id]?.submitted) {
+        groups[t].total += 1;
+        if (questionState[q.id].selected === q.correct) groups[t].correct += 1;
+      }
+    });
+    return groups;
+  }, [questionState]);
+
+  const missedPrinciples = useMemo(() => {
+    const mc = allMC
+      .filter((q) => questionState[q.id]?.submitted && questionState[q.id].selected !== q.correct)
+      .map((q) => q.principle);
+    const num = allNumeric
+      .filter((q) => questionState[q.id]?.submitted && !questionState[q.id].correct)
+      .map((q) => q.principle);
+    return [...mc, ...num];
+  }, [questionState]);
+
+  const numericBias = useMemo(() => {
+    const done = allNumeric.filter((q) => questionState[q.id]?.submitted && typeof q.actual === "number");
+    if (done.length === 0) return null;
+    const pctErrors = done.map((q) => {
+      const yourVal = questionState[q.id].value;
+      return ((yourVal - q.actual) / q.actual) * 100;
+    });
+    const avg = pctErrors.reduce((a, b) => a + b, 0) / pctErrors.length;
+    return { avg, n: pctErrors.length };
+  }, [questionState]);
+
+  // ------------------------------------------------------------------------
+  // Apply-It evaluator: a LOCAL, RULE-BASED heuristic placeholder only.
+  // This is not a language model. It exists so the artifact works fully
+  // offline/self-contained. A future version should replace this function
+  // with a single call to a secure, server-side LLM evaluation endpoint
+  // (never call a third-party API key directly from this static, client-only
+  // artifact). Keep the interface the same: take the reader's free text,
+  // return a gap list naming which of the four required parts is weakest
+  // or missing, never a bare pass/fail score and never keyword-only matching.
+  // ------------------------------------------------------------------------
+  const evaluateApplyIt = () => {
+    const text = applyA;
+    const gaps = [];
+    if (text.trim().length < 40) gaps.push("The response overall is too short to contain four substantive parts.");
+    if (!/1[\).:]|thesis|so-what/i.test(text)) gaps.push("No clearly labeled so-what thesis found (part 1).");
+    if (!/2[\).:]|assum/i.test(text)) gaps.push("No clearly labeled load-bearing assumption found (part 2).");
+    if (!/3[\).:]|disconfirm|undermine|against/i.test(text)) gaps.push("No clearly labeled disconfirming evidence found (part 3).");
+    if (!/4[\).:]|pre-mortem|fails|fail in/i.test(text)) gaps.push("No clearly labeled pre-mortem found (part 4).");
+    if (!/\bso\b.*(should|must|would)|decision|recommend/i.test(text)) {
+      gaps.push("Your thesis reads more like an observation ('X happens') than an implication ('X happens, so a decision-maker should do Y') — try climbing one level higher.");
+    }
+    if (gaps.length === 0) gaps.push("All four parts appear present — check that each climbs from observation to a quantified, decision-relevant implication, not just a labeled restatement.");
+    setApplyEvaluated(true);
+    return gaps;
+  };
+
+  return (
+    <div className="app-root">
+      <div className="progress-bar" style={{ width: `${Math.min(100, (NAV_SECTIONS.findIndex((s) => s.id === activeSection) + 1) / NAV_SECTIONS.length * 100)}%` }} />
+      <div className="score-badge">Score: {totalScore} / {totalAnswered || "–"} answered</div>
+
+      <div className="back-next-bar">
+        <button className="btn-navctrl" onClick={() => scrollTo(prevSection.id)}>← Back</button>
+        <span className="back-next-label">{NAV_SECTIONS[activeIdx] ? NAV_SECTIONS[activeIdx].label : ""}</span>
+        <button className="btn-navctrl" onClick={() => scrollTo(nextSection.id)}>Next →</button>
+      </div>
+
+      {navVisible && (
+        <nav className="left-nav">
+          {NAV_SECTIONS.map((s) => (
+            <div key={s.id} className={"nav-item" + (activeSection === s.id ? " nav-active" : "")} onClick={() => scrollTo(s.id)}>
+              {s.label}
+            </div>
+          ))}
+        </nav>
+      )}
+
+      <main className="prose-column">
+        {/* ============================= WARM-UP ============================= */}
+        <section id="sec-warmup" className="page-section">
+          <h1>Warm-Up: What Stuck?</h1>
+          <p className="lede">Before today's case: three quick questions pulled from the last few notes. None of them are about airlines — the point is to test whether the underlying reasoning transfers to a new setting, not to recall the original topic.</p>
+          {WARMUP_QUESTIONS.map((q) => (
+            <MCQuestion key={q.id} q={q} state={questionState} onAnswer={handleAnswer} />
+          ))}
+        </section>
+
+        {/* ============================= INTRODUCTION ============================= */}
+        <section id="sec-intro" className="page-section">
+          <h1>The Currency Airlines Print: Inside the Frequent-Flyer Banking Paradox</h1>
+          <p className="lede">American, Delta, and United fly planes for a living. Yet in 2020, all three pledged their frequent-flyer loyalty programs — not their planes, gates, or brand — as collateral for new loans, and the disclosed or appraised value of those programs came in above each airline's entire public stock-market value at the time.</p>
+          <p>American's AAdvantage program had more than 115 million members as of April 2021 (<FactTag tier="FACT" /> {src("simpleflying")}). United's MileagePlus had more than 100 million members as of mid-2020 (<FactTag tier="FACT" /> {src("skift2020")}). By 2024–2025, the money owed to those members for miles they have not yet redeemed — an accounting line called a loyalty program liability, or loyalty program deferred revenue — had grown past $10 billion at American alone (<FactTag tier="FACT" /> American Airlines Group 10-K, FY2024: $10,054 million, {src("aa10k")}) and past $8.4 billion at Delta (<FactTag tier="FACT" /> Delta Air Lines 10-K, FY2023: $8,420 million, {src("delta10k2023")}). That is larger than the annual government budget of many small countries, and it exists purely because two airlines have promised their own customers a large stock of not-yet-used travel rewards.</p>
+          <p>The textbook story about airlines is a hard one: thin margins, brutal fuel and labor cost swings, fierce fare competition, and heavy fixed costs from planes and gates. That story predicts a capital-intensive, cyclical, modestly profitable business. It does not predict that an airline's most valuable asset, in a crisis, would turn out to be a rewards program that costs almost nothing to create another unit of — an airline can "print" another mile at near-zero marginal cost — and that gets sold, in bulk, to a small number of banks eager to reach premium credit-card customers. That is a business model that looks much more like a financial platform than an airline.</p>
+          <p>This note addresses three questions. First, how do frequent-flyer miles actually turn into cash, and why is that pipeline more profitable than flying passengers? Second, does the 2020 claim that a loyalty program is worth more than the airline that owns it hold up to scrutiny, and which carriers are most financially dependent on this model today? Third, if an airline effectively controls the money supply and the exchange rate of its own currency, what risks does that create for flyers, banks, and airlines' own balance sheets, and how are regulators responding?</p>
+          <GlossaryPanel pageKey="intro" />
+        </section>
+
+        {/* ============================= BACKGROUND ============================= */}
+        <section id="sec-background" className="page-section">
+          <h1>Background: Trajectory and Structural Context</h1>
+          <h2>Trajectory and baseline conditions</h2>
+          <p>American Airlines launched AAdvantage on May 1, 1981 (<FactTag tier="FACT" /> {src("simpleflying")}), the second modern frequent-flyer program in the world after Texas International Airlines' 1979 program (<FactTag tier="FACT" /> {src("simpleflying")}). United Airlines launched its own MileagePlus program days later (<FactTag tier="FACT" /> {src("simpleflying")}). Both began as marketing tools: a way to reward repeat flyers with free upgrades and tickets, funded out of marketing budgets, not run as standalone profit centers.</p>
+          <p>Four decades later, AAdvantage counts more than 115 million members (<FactTag tier="FACT" /> {src("simpleflying")}) and MileagePlus more than 100 million (<FactTag tier="FACT" /> {src("skift2020")}). Somewhere along the way, banks such as American Express, Chase, and Citi began paying airlines billions of dollars a year for the right to hand these same miles to their own credit-card customers — a business relationship that did not exist in any material way when these programs launched in 1981.</p>
+          <p>The tailwind behind the miles business was the premiumization of the credit-card industry: banks discovered that travel-rewards cards attract high-spending, loyal, profitable customers, and were willing to pay airlines handsomely for a steady supply of miles to hand out. The headwind was that flying itself stayed a hard business: American Airlines Group's own total operating revenue fell from $45.77 billion in 2019 to just $17.34 billion in 2020 (<FactTag tier="FACT" /> {src("aarevenue")}) as the Covid-19 pandemic emptied planes overnight — a reminder of how exposed the core flying business remains to shocks that a miles-selling business, tied to steadier credit-card spending, is much less exposed to.</p>
+          <p>The chart below tracks what happened next using each airline's own annual filings: loyalty program liability kept growing at American and Delta straight through the pandemic years — the "currency in circulation" kept expanding even while flying itself collapsed.</p>
+          <Chart1_LiabilityLine />
+          <ChartInterpretation
+            chartId="chart1"
+            state={interpState}
+            onSubmit={handleInterp}
+            prompts={[
+              { kind: "Quantitative reasoning", prompt: "American's loyalty liability grew from $8,615M (2019) to $10,054M (2024). Over the same five years, American's total operating revenue grew from $45.77B to $54.2B. Compute each growth rate. Which grew faster, and by roughly how much?", authored: "Loyalty liability grew about 16.7% (2019→2024); total revenue grew about 18.4% over the same span. Revenue grew faster, by roughly 1.7 percentage points. This complicates the simple 'airlines are recklessly printing currency' story: in aggregate dollars, the miles owed to flyers did not outrun the business funding them — it grew slightly slower. It does not, however, tell us anything about what is happening to the value of an individual mile (see the indexed chart in the third section for why the aggregate view and the per-mile view can diverge)." },
+              { kind: "Qualitative / mechanism", prompt: "Why would this liability keep growing almost every year, even in years when an airline is actively trying to control costs?", authored: "The liability is simply the accounting value of miles already sold or awarded that haven't been redeemed yet. As long as issuance (driven mostly by ever-growing credit-card spending) runs ahead of redemption (capped by how many free seats flyers actually claim), the balance grows by default — no one has to decide to grow it. It shrinks only if the airline deliberately makes redemption easier, issuance smaller, or unredeemed miles expire." },
+            ]}
+          />
+
+          <h2>Structural transformation</h2>
+          <p>A mile is created when a credit-card holder swipes an Amex, Chase, or Citi co-brand card, when a flyer buys a ticket, or through retail partners — the airline "prints" a mile at near-zero marginal cost each time. A mile is destroyed when a flyer redeems it for a seat, or it expires. Critically, the airline alone sets both sides of this trade: the wholesale price it charges banks for miles, and the exchange rate — how many miles a seat costs to redeem.</p>
+          <p>Historically, a loyalty program was a cost center: an airline spent money on rewards to keep customers coming back, the way a coffee shop's punch card does. Today, in mechanism, the largest programs behave more like a two-sided financial platform: the airline is the "central bank" that issues the currency, and card issuers are wholesale buyers who then distribute it to millions of their own cardholders.</p>
+          <p>In 2020, this mechanism was tested directly. Needing emergency cash, American, Delta, and United each raised billions of dollars in new debt secured not by planes, but by their loyalty programs. American pledged AAdvantage as collateral; third-party appraisals valued the program between $19.5 billion and $31.5 billion (<FactTag tier="FACT" /> {src("fool2020")}), while American's own market capitalization was under $10 billion at the same time (<FactTag tier="FACT" /> {src("fool2020")}). United raised $6.8 billion — a $3.8 billion secured-notes issue plus a $3.0 billion term loan — against MileagePlus Holdings; United's own investor presentation valued MileagePlus at $21.9 billion, or 12 times the program's 2019 EBITDA of $1.8 billion (<FactTag tier="FACT" /> {src("skift2020")}). Delta Air Lines raised $6.5 billion, later upsized to $9 billion, in secured notes and a term loan backed by SkyMiles (<FactTag tier="FACT" /> {src("cnbc2020")}). A separate Financial Times analysis, reported via The Hustle, put each program's value against its airline's market cap as shown below (<FactTag tier="FACT" /> {src("hustle2024")}) — broadly consistent with each airline's own primary disclosure, cross-validating the comparison.</p>
+          <p>This is the structural gap at the heart of the paradox: appraisers and the airlines' own bankers treated the "currency" as worth more, in every case, than the whole company that includes the planes generating that currency's usefulness in the first place.</p>
+          <Chart2_Dumbbell />
+          <ChartInterpretation
+            chartId="chart2"
+            state={interpState}
+            onSubmit={handleInterp}
+            prompts={[
+              { kind: "Quantitative reasoning", prompt: "Compute the ratio of loyalty-program value to market capitalization for each airline using the chart. Which airline shows the largest gap, and by roughly what multiple?", authored: "American ≈ 24/6.6 ≈ 3.6x; Delta ≈ 26/20 ≈ 1.3x; United ≈ 20/10.5 ≈ 1.9x. American shows the largest gap, at roughly 3.6 times. In effect, the stock market was pricing the ENTIRE airline — planes, gates, brand, and loyalty program together — at barely a quarter of what analysts said the loyalty program alone was worth; taken literally, that implies the market was assigning a deeply negative value to everything else American owns. The likelier explanation is 2020 distress pricing: Covid-19 crushed airline equity prices while the loyalty program's steadier cash flows barely dipped, so its appraised value held up while the stock did not." },
+              { kind: "So-what / decision implication", prompt: "A bondholder is deciding whether to buy the debt secured by one of these loyalty programs. What should they conclude about how much of the airline's overall risk this collateral actually offsets?", authored: "The collateral is real and has genuine cash-generating power, but its value is not fully independent of the airline surviving and continuing to fly a broad network — a bondholder is still exposed to the airline's fortunes, just with a stronger claim than an unsecured lender would have. The collateral reduces, but does not eliminate, the bondholder's exposure to the airline's overall health." },
+            ]}
+          />
+          <MCQuestion q={BG_QUESTIONS.mc} state={questionState} onAnswer={handleAnswer} />
+          <NumericQuestion q={BG_QUESTIONS.numeric} state={questionState} onAnswer={handleNumeric} />
+          <GlossaryPanel pageKey="background" />
+        </section>
+
+        {/* ============================= RQ1 ============================= */}
+        <section id="sec-rq1" className="page-section">
+          <h1>RQ1: How Do Miles Actually Turn Into Cash?</h1>
+          <p>If airlines were simply running an internal rewards currency for their own flyers, this would be a closed-loop marketing expense, not a profit center. The thesis under test here: the profit comes almost entirely from selling miles to a small number of banks at a price far above what it costs the airline to fulfill the resulting free flights.</p>
+          <p>The obstacle to seeing this clearly is that airlines normally blend flying revenue and mile-selling revenue together in their public reporting. The clearest picture the public has ever gotten came from United's forced 2020 financing disclosure, when raising debt against MileagePlus required the airline to show its work.</p>
+          <p>United disclosed that MileagePlus sold about $5.3 billion in miles in 2019 — 12% of United's total revenue that year (<FactTag tier="FACT" /> {src("skift2020")}). About 71% of that came from third parties, mostly credit-card issuers like Chase, who paid up to 2 cents per mile (<FactTag tier="FACT" /> {src("skift2020")}). United itself "bought" the remaining 29% — about $1.5 billion worth — from MileagePlus at roughly half that unit price, to fund the miles it hands out to flyers directly (<FactTag tier="FACT" /> {src("skift2020")}). The program's overall margin was 34%, producing $1.8 billion of EBITDA (<FactTag tier="FACT" /> {src("skift2020")}).</p>
+          <p>That high margin partly reflects an internal transfer price, not a fully external market test. MileagePlus can buy back an award seat for about 1 cent per mile — far below what a paying customer would pay for that same seat (<FactTag tier="FACT" /> {src("skift2020")}) — because it is largely filling seats that would otherwise fly empty. If MileagePlus had to buy those seats at what a paying customer pays, the reported margin would look very different. It's also worth noting that 97% of redemptions are travel-specific and 80% stay on United's own flights (<FactTag tier="FACT" /> {src("skift2020")}) — so almost all of the "spending" of miles shows up as United's own opportunity cost of an empty seat, not an external cash outlay.</p>
+          <p>No regulator requires airlines to disclose this pipeline in a normal year. The only reason the public ever saw United's numbers in this detail was the extraordinary 2020 financing disclosure. That ordinary-year opacity is itself part of why banks, not the flying public, have historically driven the negotiating table on how miles get priced and structured.</p>
+          <p>The waterfall below turns United's 2019 numbers into a single bridge, from miles sold to program profit.</p>
+          <Chart3_Waterfall />
+          <ChartInterpretation
+            chartId="chart3"
+            state={interpState}
+            onSubmit={handleInterp}
+            prompts={[
+              { kind: "Quantitative reasoning (predict first)", prompt: "Third parties paid United up to 2 cents per mile; United's own presentation said it could buy back an award seat for around 1 cent per mile. Before reading further, estimate the implied gross spread United can capture per mile sold to a third party and later redeemed on its own flights, and say what that implies about who really sets the terms of the loyalty conversation.", authored: "Roughly a 50%+ gross spread per mile (2 cents received vs. about 1 cent internal fulfillment cost), before accounting for any other costs. And because the flyer who eventually redeems that mile pays nothing in cash for it, both the volume and the price of this market are negotiated with a handful of banks, not with the flying public. Flyers are closer to being the commodity being resold than the customer setting the terms." },
+              { kind: "So-what / decision implication", prompt: "A bank renegotiating its co-brand card contract wants to know if this margin structure is durable. What should its due-diligence team check before assuming the roughly 34% margin will persist?", authored: "The margin depends on United continuing to have spare seats it can hand out for less than a paying customer would pay — which depends on the airline's own load factors and network breadth staying favorable. It also depends on the redemption 'price' (how many miles a seat costs) being something the airline alone can raise whenever margins are squeezed. The bank's real risk isn't that United refuses to honor miles — it's that United can quietly make the miles the bank is buying worth less to the bank's own cardholders by repricing redemptions, eroding the bank's product without ever touching United's own reported margin." },
+            ]}
+          />
+          <MCQuestion q={RQ1_QUESTIONS.mc} state={questionState} onAnswer={handleAnswer} />
+          <NumericQuestion q={RQ1_QUESTIONS.numeric} state={questionState} onAnswer={handleNumeric} />
+          <p>The miles pipeline is profitable mainly because the airline controls both ends of the trade: the wholesale price it charges outside buyers, and the internal price it charges itself to fulfill redemptions. And because almost all the "spending" that empties the liability lands on the airline's own unsold seats rather than external cash costs, this is a real and durable structural advantage over ordinary retailing — one the airline alone controls. That sets up the next question: if this lever is worth more than the airline itself, does that claim survive scrutiny, and who is most exposed to it today?</p>
+          <GlossaryPanel pageKey="rq1" />
+        </section>
+
+        {/* ============================= RQ2 ============================= */}
+        <section id="sec-rq2" className="page-section">
+          <h1>RQ2: Does "Worth More Than the Airline" Hold Up?</h1>
+          <p>The clearest evidence FOR the "loyalty program is worth more than the airline" claim is the 2020 collateral event itself. The open question is whether that appraisal-driven number would survive an actual arm's-length sale, and which airlines, if any, are running their business today as though the loyalty program were the core asset.</p>
+          <p>No US airline has ever fully sold its loyalty program to an outside buyer at arm's length, so every "worth more" claim rests on appraisals commissioned by the airline itself under financial duress in 2020, or on analyst models — not a completed transaction.</p>
+          <p>Real, external, arm's-length money does back these programs at scale. Delta's American Express partnership — a co-branded card relationship since 1996 — generated $8.2 billion in "remuneration" to Delta in 2025, up 11% year-over-year (<FactTag tier="FACT" /> {src("delta10k2026")}), and the two companies renewed their partnership through 2029 (<FactTag tier="FACT" /> {src("fortune2026")}). That is a genuine, durable, multi-billion-dollar commitment from an outside financial institution — a real market test of value, just not a "buy the whole program" test.</p>
+          <p>Air Canada ran the actual experiment. It spun off its Aeroplan loyalty program into a separate, independently traded company, Aimia, before the 2008–09 recession. Aimia's contract with Air Canada ran through 2020. The relationship soured, and roughly three years before that contract's expiry, Air Canada said it would launch its own in-house replacement program (<FactTag tier="FACT" /> {src("fool2020")}). Air Canada ultimately bought Aeroplan back from Aimia in 2018 for about C$450 million, roughly US$345 million (<FactTag tier="FACT" /> {src("fool2020")}) — a small fraction of the multi-billion-dollar figures used to appraise the US programs in 2020. Once truly separated from the airline's network and its captive customer relationship, the "asset" was worth far less to an outside owner than the bundled 2020-style appraisals implied.</p>
+          <p>This is likely exactly why American, Delta, and United structured their 2020 financings as loans secured BY a subsidiary holding the loyalty program, rather than as an outright sale of the program. Bankers and lawyers agreed the asset was valuable enough to borrow against — but nobody has tested whether it is sellable at that price.</p>
+          <p>The dot plot below sizes how big the "miles economy" is, relative to total revenue, at four carriers in 2025.</p>
+          <Chart4_DotPlot />
+          <ChartInterpretation
+            chartId="chart4"
+            state={interpState}
+            onSubmit={handleInterp}
+            prompts={[
+              { kind: "Quantitative reasoning", prompt: "Rank the four carriers from highest to lowest loyalty-revenue share. Which two are closest together, and by roughly how many percentage points?", authored: "Alaska (16.0%) > Delta (12.9%) > American (11.4%) > United (5.4%). Delta and American are closest together, about 1.5 percentage points apart. United is a clear outlier on the low side." },
+              { kind: "So-what / decision implication", prompt: "If dynamic repricing lets airlines change redemption prices at will, what would you expect a carrier with the SMALLEST loyalty-revenue share (United) to do differently from the carrier with the LARGEST share (Alaska) if travel demand suddenly weakened?", authored: "A carrier more dependent on loyalty cash flow (Alaska) has a stronger incentive to protect or maximize that revenue stream aggressively, since it makes up a larger share of total results. A carrier less dependent on it by this measure (United) has more room to compete on generosity if it chooses to, since a weak quarter in loyalty moves its total results less." },
+            ]}
+          />
+          <MCQuestion q={RQ2_QUESTIONS.mc1} state={questionState} onAnswer={handleAnswer} />
+          <p>The bubble chart below adds a second dimension: how big each carrier's loyalty business is in absolute dollars, not just as a share of its own revenue.</p>
+          <Chart5_Bubble />
+          <ChartInterpretation
+            chartId="chart5"
+            state={interpState}
+            onSubmit={handleInterp}
+            prompts={[
+              { kind: "Quantitative reasoning", prompt: "Rank the four carriers by loyalty-revenue SHARE (%) and separately by loyalty-revenue DOLLAR amount. Which carrier's rank changes the most between the two rankings, and by how many positions?", authored: "By share: Alaska (1st) > Delta (2nd) > American (3rd) > United (4th). By dollar amount: Delta (1st, $8.2B) > American (2nd, $6.2B) > United (3rd, $3.2B) > Alaska (4th, ~$2.27B). Alaska swings from 1st to last — a 3-position change, the largest of the four. Alaska looks like the carrier most 'financially married' to its loyalty program in relative terms, but is the least exposed of the four in absolute dollars." },
+              { kind: "So-what / decision implication", prompt: "If you were a card-issuing bank deciding which airline partnership to protect most aggressively in a renegotiation, would you prioritize by percentage share or by dollar amount — and why might a bank's answer differ from an airline's own answer?", authored: "A bank optimizing its own card-portfolio profit should care most about absolute dollars flowing through the partnership (Delta's $8.2B matters most to Amex in raw terms). An airline's own management and investors should care more about the percentage of total revenue, since that measures how much the WHOLE company's results would wobble if the deal were disrupted (Alaska's leadership has the most at stake relative to its own size, even though Amex has more absolute dollars riding on Delta). The same numbers legitimately deserve different weight depending on whose exposure you're measuring." },
+            ]}
+          />
+          <NumericQuestion q={RQ2_QUESTIONS.numeric} state={questionState} onAnswer={handleNumeric} />
+          <p>The "loyalty program is worth more than the airline" claim is real as a description of relative cash-flow durability in a crisis — loyalty cash flows barely dipped in 2020 while ticket revenue crashed more than 90% at some carriers — but it overstates what the program would fetch as a truly standalone business. And on the 2025 numbers, it is Alaska, not the carrier with the largest absolute dollars, that is running closest to the edge relative to this specific engine today.</p>
+          <GlossaryPanel pageKey="rq2" />
+        </section>
+
+        {/* ============================= RQ3 ============================= */}
+        <section id="sec-rq3" className="page-section">
+          <h1>RQ3: What Risks Does This Create, and How Are Regulators Responding?</h1>
+          <p>If an airline can both create its own currency — mile issuance is uncapped and controlled solely by the airline — and set its own exchange rate — how many miles a ticket costs — the natural worry is a private, unregulated monetary system riding on top of a public transportation network. The question is who bears the risk when the airline exercises that power.</p>
+          <p>The most direct "printing too much currency" story would show the dollar value of miles owed to flyers growing faster than the business that backs it. Measured in aggregate dollars, American's own data from 2019–2024 does not show that.</p>
+          <Chart6_IndexedLine />
+          <ChartInterpretation
+            chartId="chart6"
+            state={interpState}
+            onSubmit={handleInterp}
+            prompts={[
+              { kind: "Quantitative reasoning", prompt: "Compute each series' percentage growth from 2019 to 2024. Which grew faster, and by how many percentage points?", authored: "Loyalty liability grew about 16.7%; total revenue grew about 18.4%. Revenue grew faster, by about 1.7 percentage points — not '1.7%,' which would describe a different (and wrong) quantity. In aggregate dollar terms, the 'money supply' of miles owed did not outrun the business backing it over this five-year window." },
+              { kind: "Causal / mechanism", prompt: "Given that the aggregate liability hasn't outrun revenue, does that mean an individual flyer's miles are not losing value? What can this chart NOT tell you either way?", authored: "No, it doesn't mean that — this chart is an aggregate DOLLAR comparison (a stock-vs-stock view), and it cannot tell you what is happening to the PER-MILE redemption rate (how many miles one ticket actually costs). An airline could hold the aggregate liability roughly flat relative to revenue while still requiring flyers to redeem more miles per ticket — simply by issuing proportionally fewer bonus miles per dollar of spend at the same time it raises redemption prices. The two adjustments could offset in the aggregate view while the individual flyer's exchange rate still gets worse. A stable-looking total can hide a shifting distribution underneath it." },
+            ]}
+          />
+          <MCQuestion q={RQ3_QUESTIONS.mc1} state={questionState} onAnswer={handleAnswer} />
+          <p>Even though the aggregate liability looks disciplined, airlines and alliance partners spent 2025 visibly exercising the OTHER lever available to them — the exchange rate itself, adjusted with no advance notice to flyers and no bank or shareholder vote required. Lufthansa's Miles & More program dropped its fixed award chart for ticket-price-linked dynamic pricing, effective June 3, 2025 (<FactTag tier="FACT" /> {src("milesmarket2025")}). Singapore Airlines' KrisFlyer raised award prices on many premium-cabin routes, effective November 1, 2025 (<FactTag tier="FACT" /> {src("milesmarket2025")}). Emirates restricted its best award seats — First Class — to elite Skywards members only, effective May 12, 2025 (<FactTag tier="FACT" /> {src("milesmarket2025")}). Turkish Airlines raised partner-award prices on domestic and Hawaii routes by as much as 50% in late 2025 (<FactTag tier="FACT" /> {src("milesmarket2025")}).</p>
+          <p>Devaluation is a choice, not an inevitability. Alaska launched "Atmos Rewards," merging the Alaska and Hawaiian loyalty programs, on August 20, 2025, positioning it as a more flexible, member-choice program where members can choose to earn based on distance, price, or segments (<FactTag tier="FACT" /> {src("milesmarket2025")}) — a counter-example of a carrier competing on generosity and flexibility rather than squeezing redemption value, suggesting competitive pressure can push in the other direction for at least some carriers.</p>
+          <p>In February 2024, the US Department of Transportation opened an inquiry into the rewards programs of the four largest US airlines — American, Delta, Southwest, and United — citing concerns about dynamic pricing, devaluation, and fee transparency (<FactTag tier="FACT" /> {src("dot2024")}). As of this writing, that inquiry has not produced a binding rule — signaling regulators view the "airline sets its own exchange rate with no notice" structure as a live, unresolved consumer-protection question.</p>
+          <p>The mechanism from the second section also means a small number of banks — Amex for Delta, Citi and Barclays for American, Chase for United — have committed to multi-billion-dollar, multi-year contracts, with Delta's Amex relationship running through 2029, whose entire value depends on the airline continuing to honor a redemption rate the airline alone controls. That is real counterparty concentration, not risk diversified across many independent partners.</p>
+          <MCQuestion q={RQ3_QUESTIONS.case} state={questionState} onAnswer={handleAnswer} consulting />
+          <p>The aggregate-dollar evidence says airlines have not obviously been reckless with the "money supply" of miles relative to their own growth. The redemption-rate evidence says airlines retain — and are actively using — a private repricing power with no external check beyond a still-open regulatory inquiry and competitive pressure from a few rivals trying to look more generous. The risk is not that the currency is worthless; it demonstrably is not. The risk is that its exchange rate can move unilaterally, in the airline's favor, at a moment's notice.</p>
+          <GlossaryPanel pageKey="rq3" />
+        </section>
+
+        {/* ============================= LEARNING SUMMARY ============================= */}
+        <section id="sec-summary" className="page-section">
+          <h1>Learning Summary</h1>
+          <h2>Score breakdown</h2>
+          <div className="score-table">
+            {Object.entries(scoreByType).map(([type, v]) => (
+              <div key={type} className="score-row">
+                <span>{type}</span>
+                <span>{v.correct} / {v.total}</span>
+              </div>
+            ))}
+          </div>
+          <p className="numeric-bias-note">
+            Numeric (Type D) questions: {numAnswered.length} of 3 answered, {numCorrect.length} within declared tolerance.
+            {numericBias && (
+              <> On average, your estimates were {numericBias.avg >= 0 ? "above" : "below"} the actual value by about {Math.abs(numericBias.avg).toFixed(0)}%
+              {numericBias.avg >= 0 ? " (an over-estimation bias)" : " (an under-estimation bias)"} across {numericBias.n} numeric question{numericBias.n === 1 ? "" : "s"}.</>
+            )}
+            {numAnswered.length > 0 && " Review each question's “How to estimate this” box above if your estimate landed outside the band — it names the decomposition and bounds for a typical miss."}
+            {" "}No confidence rating was ever captured — this report is score and direction of bias only.
+          </p>
+
+          <h2>Your governing insight</h2>
+          <p>You saw six charts spanning a 1981 marketing perk, a 2020 collateral crisis, 2025 revenue splits, and a five-year balance-sheet trend. Write the single most non-obvious insight you would defend to a skeptical airline-industry executive.</p>
+          <textarea
+            className="governing-input"
+            rows={3}
+            value={governingInsight}
+            onChange={(e) => setGoverningInsight(e.target.value)}
+            placeholder="Your one-sentence governing insight…"
+          />
+          {!governingRevealed && (
+            <button className="btn-primary" disabled={governingInsight.trim().length < 15} onClick={() => setGoverningRevealed(true)}>
+              Reveal the article's three insights
+            </button>
+          )}
+          {governingRevealed && (
+            <div className="insight-cards">
+              <div className="insight-yours"><strong>Yours:</strong> {governingInsight}</div>
+              <div className="how-your-insight-label">How your insight compares to the article's three:</div>
+              <div className="insight-card">1. The 2020 collateral valuations were real evidence of durable, crisis-resistant cash flow — but Air Canada's actual spinoff-and-buyback of Aeroplan shows they were not evidence of a sellable, standalone price; bundled and unbundled value are different things.</div>
+              <div className="insight-card">2. The most profitable part of an airline is the part that behaves least like an airline: near-zero marginal cost to create, sold to a handful of financial partners, insulated from fuel and labor swings — and controlled entirely, on both the supply side and the price side, by one party.</div>
+              <div className="insight-card">3. Aggregate balance-sheet discipline (liability growing no faster than revenue) and individual redemption-value protection are two different measurements; a healthy-looking total can coexist with an eroding deal for any single flyer, and only an active regulatory inquiry — not any accounting rule — stands between the two.</div>
+            </div>
+          )}
+
+          <h2>Apply It</h2>
+          <div className="apply-it-block">
+            <p><strong>(a) Your context.</strong> Think of a token, credit, or points system in your own work or life where one party effectively controls both the supply and the internal exchange rate of the token — examples: corporate gift cards, telecom data-rollover minutes, SaaS "usage credits," gym class-pass bundles, or in-game currencies. Write four labeled parts: (1) a one-sentence so-what thesis about that system, (2) the single load-bearing assumption that must hold for your thesis to be true, (3) the evidence that would most undermine it (disconfirming evidence), (4) a one-line pre-mortem: "If this fails in 12 months, the most likely reason is ___."</p>
+            <textarea className="apply-input" rows={6} value={applyA} onChange={(e) => setApplyA(e.target.value)} placeholder={"1) Thesis: …\n2) Load-bearing assumption: …\n3) Disconfirming evidence: …\n4) Pre-mortem: …"} />
+            <p><strong>(b) Cross-link.</strong> Name one prior article's principle (from the Warm-Up or your own memory of past notes) that either reinforces or conflicts with today's principle about controlling both the supply and the exchange rate of a token. Explain the connection in 2–3 sentences.</p>
+            <textarea className="apply-input" rows={3} value={applyB} onChange={(e) => setApplyB(e.target.value)} placeholder="Your cross-link…" />
+            <button className="btn-primary" onClick={() => setApplyGaps(evaluateApplyIt())}>Check my response</button>
+            {applyEvaluated && (
+              <div className="apply-feedback">
+                <div className="apply-feedback-label">Structural check (not a keyword match — confirms all four labeled parts are present and substantive, then flags what's missing or weak):</div>
+                <ul>{applyGaps.map((g, i) => <li key={i}>{g}</li>)}</ul>
+                <p className="apply-note">Note: this is a local, evidence-based fallback check (no secure server-side model evaluation is wired into this static artifact — see the code comment above evaluateApplyIt). It verifies structure and length, not the quality of your reasoning — re-read your four parts against the article's evidence yourself: does each climb from observation to a quantified, decision-relevant implication?</p>
+              </div>
+            )}
+          </div>
+
+          <h2>Return to Section: Principles to Revisit</h2>
+          {missedPrinciples.length === 0 ? (
+            <p>No missed questions yet — or none answered. Answer questions throughout the article to populate this list.</p>
+          ) : (
+            <ul className="principles-list">
+              {missedPrinciples.map((p, i) => <li key={i}>{p}</li>)}
+            </ul>
+          )}
+        </section>
+
+        {/* ============================= CONCLUSION ============================= */}
+        <section id="sec-conclusion" className="page-section">
+          <h1>Conclusion</h1>
+          <p>The central challenge is that three major US airlines built a more profitable, more crisis-resilient business out of selling a currency they alone control than out of flying planes — and used that currency, not their physical assets, as their most valuable collateral in a crisis. The most likely path forward is not that this arrangement unwinds, but that it keeps generating real cash for airlines and banks while regulators and competitive pressure slowly, unevenly constrain how aggressively the exchange-rate lever can be used.</p>
+          <p>For banks, the lesson is that co-brand economics depend on an assumption — spare seat capacity, favorable load factors — that has never been tested by a genuine downturn in the loyalty-specific sense, even though the broader business has survived worse; a bank underwriting the next decade of one of these deals should price in the airline's own operating flexibility, not just its own card-portfolio math. For airline equity investors, the lesson is that a headline "worth more than the company" claim from 2020 was real evidence of relative cash-flow durability in a crisis, but is not a reliable guide to what the loyalty program would fetch in an actual sale, as the Air Canada/Aimia experiment shows.</p>
+          <p>For regulators, the still-open 2024 DOT inquiry into four major carriers' reward programs is the clearest sign that policymakers view unilateral, no-notice exchange-rate changes as a live consumer-protection gap, not a settled practice. And for flyers themselves, the practical implication is that a stable-looking aggregate liability on an airline's balance sheet is not evidence that an individual mile's redemption value is protected; those are two different measurements, and only one of them has an actual accounting requirement behind it.</p>
+          <MCQuestion q={CONCLUSION_QUESTION} state={questionState} onAnswer={handleAnswer} />
+          <p className="final-question">The most important unresolved question is whether the 2024 DOT inquiry, or something like it, will ever require airlines to fix or pre-announce their redemption exchange rates the way currencies and public utilities are required to disclose price changes — or whether the airline's unilateral repricing power will remain, by default, the actual source of the profit this entire model depends on.</p>
+
+          <h2>Sources</h2>
+          <ul className="sources-list">
+            {SOURCES.map((s) => (
+              <li key={s.id}>
+                <a href={s.url} target="_blank" rel="noopener noreferrer">{s.label}</a>
+              </li>
+            ))}
+          </ul>
+        </section>
+      </main>
+    </div>
+  );
+}
+
+const root = ReactDOM.createRoot(document.getElementById("root"));
+root.render(<App />);

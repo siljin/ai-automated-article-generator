@@ -25,6 +25,24 @@ Use:
 
 At least one of the two must be something other than a so-what. Pick the pair that best forces the reader to make sense of that specific chart — the questions exist to interpret the data, not to recall it. Write both authored answers before building. Each authored answer must be non-obvious, decision- or insight-relevant, and (where quantitative) carry the magnitude that makes it matter. Charts must display all data values — do not mask, blur, or hide Y-axis values, data labels, or tooltips. The reader needs full visibility to generate effective insights.
 
+**Insight budget — one distinct insight per question.** Every question tied to a section (both chart-interpretation prompts, plus that section's MCQ, Fermi, and consulting-case questions, plus the closing pattern-transfer prompt) must test a *different* facet of the governing principle — never the same one-line takeaway restated in new words. Before finalizing a section, write a one-clause "insight tag" for each of its questions (for example: "why position beats model quality," "how large the advantage is in numbers," "what to do without this position," "what would disprove this"). If two tags paraphrase each other, cut or redesign one question rather than shipping a near-duplicate. A section that asks five questions and gets one insight repeated five ways has failed this rule even if each question is individually well-formed. Default to spreading a section's questions across these four tags so they cover different ground by construction:
+
+- **Mechanism** — why the pattern exists (the causal chain or structural force behind it).
+- **Magnitude** — how big the effect is, in a number the reader derives, not one they read off the chart.
+- **Transfer without the advantage** — what a company or PM who lacks the same position, data, or scale should do instead.
+- **Falsification** — what evidence would weaken or overturn the principle.
+
+**Named framework menu for so-what prompts.** A so-what prompt is not "what should a PM do" in the abstract — it must point the reader toward applying one specific, nameable technique to this chart's specific data, and the technique used must vary across the section's charts so the reader practices more than one move. Rotate across this menu rather than defaulting to the same decision lens (e.g., "identify the moat") on every chart:
+
+- **Segmentation** — "How would you segment [the population in this chart] so that [a stated business consequence] is handled differently for each group?"
+- **Prioritization** — "Using RICE, ICE, MoSCoW, or a Now-Next-Later roadmap, how would you rank [the options implied by this chart], and what in the data supports that order?"
+- **Sizing** — "Using the values in this chart, size [a TAM/SAM/SOM or funnel-stage estimate], and state which input most changes the answer."
+- **Threshold / decision rule** — "At what point on this chart would you switch from [decision A] to [decision B], and what number marks that line?"
+- **Build/buy/partner or sacrifice ratio** — "Given the tradeoff this chart shows, would you build, buy, or partner — and what is the sacrifice ratio of choosing one path over another?"
+- **Kill-criteria / pre-mortem** — "What value in this chart, if it moved twice as far in the wrong direction, would be the signal to kill or pause this initiative?"
+
+A section where every so-what resolves to the identical framework has failed the insight-budget rule above, even if the wording differs.
+
 **Authored interpretation hiding rule.** Neither authored answer may appear in the DOM before the reader submits their own answer to that prompt. Use conditional rendering — the authored text must not exist in the page source at all until after submission. Do not use CSS (`display: none`, `hidden` class, `opacity: 0`) to hide it. This rule applies only to the authored interpretation text, NOT to chart data values — all chart values must be fully visible at all times.
 
 **Chart-before-question rule.** Every question about a chart must appear immediately below that chart in the rendered order. The chart, with all its values fully visible, must be on screen when the reader reads the question. Never place a question above its chart.
@@ -36,6 +54,16 @@ At least one of the two must be something other than a so-what. Pick the pair th
 Tag every chart's data with its provenance tier (see sourcing-and-citations.md). Any chart containing ESTIMATE or ILLUSTRATION values must render a visible source or method note directly beneath the chart in both the masked and revealed states. A reader must never mistake a modeled or illustrative series for a measured one.
 
 ILLUSTRATION is permitted in charts that teach a structural pattern (e.g., a generic agent topology that shows the archetype, not a specific company's implementation). It is never permitted in the answer key of a scored question.
+
+## Visual Variety Beyond Data Charts (use sparingly)
+
+Data charts (line, bar, scatter) and the mandatory architecture topology diagrams (Types 3, 4, 8) are not the only visual forms available. Where a concept is fundamentally a *process*, a *sequence over time*, or a *reinforcing loop* — not a measured quantity — a small conceptual SVG communicates it faster than a paragraph and should replace or accompany the prose. Use sparingly: one or two conceptual diagrams across the whole article, placed only where they replace prose that would otherwise struggle to convey the shape of the idea. This is not a per-section quota.
+
+- **Flowchart / decision-logic diagram (SVG):** A sequence of decisions or steps — for example, how a v1 scoping decision branches, or the order of gates a feature must clear before launch. Use when the article's prose would otherwise need several sentences of "first... then... if... else."
+- **Timeline (SVG or annotated chart):** A sequence of events, releases, or architecture eras — for example, when each capability became possible and what unlocked it. Use when the evidence is inherently sequential (an evolution across versions, a chain of incidents).
+- **Flywheel / reinforcing-loop diagram (SVG):** A compounding mechanism where each element feeds the next and the loop strengthens itself over time — for example, more users generate more signal, which improves the product, which attracts more users. Use only for a genuine reinforcing loop documented in the case, never a flywheel invented for visual appeal.
+
+Every conceptual diagram needs a caption stating what it shows, and the same provenance labeling as any other chart if it encodes specific numbers (FACT/ESTIMATE/ILLUSTRATION). A structural flywheel or flowchart with no specific numbers is ILLUSTRATION by default and must say so. Add a conceptual diagram only when it replaces or sharpens an explanation that is worse in prose alone — never to hit a visual quota.
 
 ## Question Types
 
@@ -117,6 +145,26 @@ Used in the conclusion and Apply It. Every T-E question has two variants that th
 
 The final T-E question must include a falsification clause: one option must name what evidence would most change the article's governing principle, and the explanation must state what observation would falsify the central claim.
 
+### Type T-G: True/False with Justification (new)
+
+Builds a fast, low-noise check that still forces reasoning rather than recall — useful for testing whether a subtle qualifier in the evidence ("necessary but not sufficient," "correlation, not causation," "an upper bound, not a floor") was actually absorbed, not just skimmed.
+
+Prompt pattern: `True or False: [a claim that sounds like the section's principle but flips one qualifier, scope word, or causal direction]. Justify your answer in one sentence naming the specific evidence that confirms or breaks the claim.`
+
+Requirements: The claim must never be verifiable by re-reading one stated sentence — it must require combining two facts, or noticing that a scope word ("always," "only," "every merchant," "any model") oversteps what the evidence actually supports. Score the True/False choice, but require the one-sentence justification before it counts as answered; a bare selection with no justification does not earn credit. At least one T-G question per article must be a claim that is subtly false because it over-generalizes a necessary condition into a sufficient one, or a correlation into a cause.
+
+### Type T-H: Critical Reasoning — Strengthen / Weaken / Assumption (new)
+
+Builds the argument-evaluation muscle used in case interviews and real investment or roadmap debates: given a conclusion and the evidence for it, which new piece of information would most change confidence in that conclusion, and what unstated assumption is the conclusion actually resting on.
+
+Use exactly four options in one of three sub-forms, rotated across the article:
+
+- **Strengthen:** `Which new piece of evidence, if true, would most strengthen the claim that [the section's principle] explains [the observed pattern]?`
+- **Weaken:** `Which new piece of evidence, if true, would most weaken the claim that [the section's principle] explains [the observed pattern]?`
+- **Assumption:** `The argument that [conclusion] depends on evidence that [stated facts]. Which assumption, if false, would break this argument even though the stated facts remain true?`
+
+Requirements: The correct option must identify information genuinely outside the article's stated evidence (a new fact, not a restatement) that would logically move confidence up or down, or an assumption that is truly load-bearing — removing it collapses the argument — rather than incidental. Distractors must be plausible-sounding but either (a) irrelevant to the specific causal claim, (b) already addressed by evidence already in the article, or (c) a restatement of the conclusion rather than a test of it. At least one T-H question per article; rotate which sub-form is used so the article does not repeat the same sub-form every time.
+
 ### Type T-F: Pattern Transfer (new — highest-order question)
 
 Pattern transfer is the test of whether the governing principle has been genuinely internalized, not just recognized in the article's case. It appears as the last question in every evidence section and as a required part of Apply It.
@@ -175,6 +223,8 @@ Distribute correct answers approximately evenly across A, B, C, and D. With 8 or
 
 Create an answer-key table before building. Every answer key entry notes: (1) the correct answer, (2) which reasoning error each distractor represents, and (3) the source and provenance tier of the factual basis.
 
+**Answer-length parity (no length tell).** The correct option's word count must fall within roughly 20% of the average word count across the four options. Never let the correct answer be identifiable simply because it is the longest, most hedged, or most detailed option — this is the single most common way a multiple-choice question becomes gameable without reasoning. If the true answer genuinely needs more words to state accurately, add equivalent qualifying detail, specific-sounding numbers, or named mechanisms to at least two distractors so length and apparent specificity stop being a usable shortcut. Word-count all four options before finalizing any MCQ and rebalance any outlier.
+
 ## Question Density
 
 Each evidence section requires at minimum:
@@ -184,6 +234,8 @@ Each evidence section requires at minimum:
 
 Across the whole article:
 - At least two T-D numeric estimation questions, at least one open-ended
+- At least one T-G true/false-with-justification question, positioned wherever it best fits the evidence
+- At least one T-H critical-reasoning (strengthen/weaken/assumption) question, with its sub-form stated
 - At least one failure case question in the What Broke section
 - At least one T-E with both present-day and 2027 variants in the conclusion
 - The final question in the artifact is always a T-F pattern transfer that transfers the governing principle to a domain or company type not covered in the article

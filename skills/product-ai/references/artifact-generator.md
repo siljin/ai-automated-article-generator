@@ -139,6 +139,7 @@ After the reader submits an answer, display the matching authored answer directl
 - Submit locks the selection and reveals explanation.
 - Correct answer highlighted green.
 - Selected wrong answer highlighted red, with correct answer also shown.
+- Word-count the four options before finalizing; rebalance so the correct option is not the outlier in length or specificity (see Answer-Length Parity in chart-and-question-design.md). A reader should not be able to guess correctness from how long or hedged an option reads.
 
 **Two-attempt scaffolding rule (Fix #6):** On a first wrong attempt, the standard explanation reveals. On a second wrong attempt (if the reader resets and tries again via the "Try again" button that appears after first wrong submission), a scaffolding paragraph and a targeted hint unlock before the reader submits again. The scaffolding paragraph specifically addresses the reasoning error the wrong option represents. The "Try again" button is always available — gating is not about locking the reader out, it is about making them engage before seeing the answer.
 
@@ -181,6 +182,19 @@ At the end of every evidence section (does not gate or lock navigation):
 - Explanation cites section data and names the implementation risk or failure mode.
 - Required: at least one T-C per article must include a "weakest link" variant: "Which assumption must hold for this PM decision to create value?"
 
+### True/False with Justification (T-G)
+
+- Two option cards, "True" and "False," displayed side by side (not stacked like the four-option Multiple Choice cards).
+- A required free-text justification field (minimum 15 characters) beneath the two options; Submit stays disabled until both a choice is made and the justification field meets the minimum length.
+- Submit reveals: whether the True/False choice was correct, the reader's justification alongside the authored justification, and — if wrong — the named reasoning error from the taxonomy.
+- Style identically to Multiple Choice cards (1px light gray border, 8–12px radius) but only two cards wide.
+
+### Critical Reasoning — Strengthen / Weaken / Assumption (T-H)
+
+- Four clickable option cards, same interaction model and styling as Multiple Choice (including the answer-length parity rule above).
+- A small header label states the sub-form in use: "Strengthen," "Weaken," or "Assumption."
+- Explanation states why the correct option is genuinely new information not already in the article, or a truly load-bearing assumption, and why each distractor is irrelevant, already addressed by the article, or a restatement of the conclusion rather than a test of it.
+
 ## Per-Page Glossary Component
 
 At the bottom of every page (section), below the prose and questions, render a **Glossary** panel listing the new terms, acronyms, and model names introduced on that page (see Per-Page Glossary in article-structure.md). Style it as a quiet reference block — a light neutral background, a "Glossary" label, and each entry as **term** — plain one-line definition (acronyms spelled out in full, e.g. "RAG — Retrieval-Augmented Generation: pulling relevant documents into the prompt so the model answers from them"). It is always visible; do not gate it. Only include terms new to this page; if the page introduced none, omit the panel entirely. Keep the data in a per-page array so the term and its definition travel together.
@@ -217,6 +231,7 @@ Default: local evidence-based fallback that checks for labeled elements and surf
 - Centered prose column, max width 720px, line-height 1.7, font-size 16px.
 - Charts full width within the column.
 - Architecture SVG diagrams: max width 680px, centered, with visible component labels.
+- Conceptual diagrams (flowchart, timeline, flywheel/loop): same max-width and centered treatment as architecture SVGs, with a caption stating what the diagram shows. Used sparingly — 1–2 per article, not per section — and only where they replace or sharpen a process, sequence, or reinforcing-loop explanation that reads poorly as prose alone.
 - Question cards: 1px light gray border, 8–12px radius, 16px padding, no drop shadows.
 - Consulting case cards: amber left border `#d97706`, light amber background.
 - What Broke section: light red-tinted background `#FEF2F2` with a subtle left border `#FCA5A5` to visually distinguish failure content from success content.

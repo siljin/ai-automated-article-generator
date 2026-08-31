@@ -1,0 +1,1419 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Harness Engineering: How OpenAI's Codex Team Shipped a Product With Zero Manually-Written Code</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #fff; }
+  a { color: #1D4ED8; }
+  input[type="range"] { accent-color: #111; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script crossorigin src="https://unpkg.com/react@18.3.1/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/prop-types@15.8.1/prop-types.min.js"></script>
+<script crossorigin src="https://unpkg.com/recharts@2.12.7/umd/Recharts.js"></script>
+<script src="https://unpkg.com/@babel/standalone@7.24.7/babel.min.js"></script>
+<script type="text/babel" data-presets="env,react">
+/* ============================================================================
+   Harness Engineering: How OpenAI's Codex Team Shipped a Product With Zero
+   Manually-Written Code
+   Agentic System Architecture (Type 3)
+   Single-file React app. Inlined into index.html via Babel standalone.
+   ============================================================================ */
+
+const { useState, useEffect, useRef, useCallback } = React;
+const {
+  ResponsiveContainer, BarChart, Bar, ComposedChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, LabelList
+} = Recharts;
+
+/* --------------------------------------------------------------------------
+   REASONING-ERROR TAXONOMY (shared calibration copy)
+   -------------------------------------------------------------------------- */
+const ERR = {
+  classical: "Applying classical software assumptions to AI: treating agent-written code or agent review as deterministic, or assuming one control implies another is unnecessary.",
+  metricCause: "Confusing a metric for its cause: assuming a proxy number improving means the underlying problem is solved.",
+  survivorship: "Survivorship bias: concluding a practice works because one successful deployment used it, ignoring how it would fare elsewhere.",
+  extrapolate: "Extrapolating a short trend: projecting a five-month result far beyond what it was actually measured over.",
+  baseRate: "Base-rate neglect: judging a single case without asking how often this failure mode occurs across similar systems.",
+  rateLevel: "Confusing rate and level: misreading a percentage or ratio change as a change in the underlying count, or vice versa.",
+  causation: "Misattributing causation: assuming two metrics that moved together must have caused one another.",
+  hindsight: "Hindsight bias in incident analysis: naming a root cause that looks obvious only after the failure happened.",
+  scopeCreep: "Scope creep misdiagnosis: blaming a nearby, familiar control instead of the specific mechanism that actually failed.",
+  singleCause: "Single-cause fallacy: treating one real contributing factor as the entire explanation for a systemic failure."
+};
+
+/* --------------------------------------------------------------------------
+   SOURCES
+   -------------------------------------------------------------------------- */
+const SOURCES = [
+  { name: "OpenAI Engineering Blog — “Harness Engineering” (Ryan Lopopolo, Member of Technical Staff)", year: "2026", url: "https://openai.com/index/harness-engineering", tier: "Tier 1 — Company engineering blog", use: "Primary source for this entire article: the five-month build, headcount and throughput figures, AGENTS.md redesign, layered architecture, runtime legibility stack, review loop, and the entropy / “AI slop” failure and fix." },
+  { name: "OpenAI Cookbook — “Using PLANS.md for multi-hour problem solving”", year: "2026", url: "https://cookbook.openai.com/articles/codex_exec_plans", tier: "Tier 1 — Company developer resource", use: "Cited by the primary source for the “execution plans” pattern (ephemeral lightweight plans vs. versioned execution plans with progress and decision logs)." },
+  { name: "Geoffrey Huntley — “The Ralph Wiggum as a ‘software engineering’ technique”", year: "2025", url: "https://ghuntley.com/loop/", tier: "Tier 3 — Independent practitioner writing, cited by the primary source", use: "Origin of the “Ralph Wiggum Loop” name OpenAI's post uses for its iterate-until-reviewers-are-satisfied pattern." },
+  { name: "Evidently AI — ML/LLM System Design case study on Cursor", year: "2025", url: "https://www.evidentlyai.com/ml-system-design", tier: "Tier 2 — Curated case study database", use: "Reused from this series' Cursor teardown: latency-partitioned Tab/agent lanes and the cache figures used as an adjacent-capability comparison in RQ1." },
+  { name: "GitHub Engineering Blog — Copilot context-assembly and suppression-metric coverage", year: "2026", url: "https://github.blog/engineering", tier: "Tier 1 — Company engineering blog", use: "Reused from this series' GitHub Copilot teardown: the “context window as scarce resource” and silent-suppression findings used as landscape context." },
+  { name: "Replit Blog — Replit Agent architecture and the July 2025 production-database incident", year: "2025", url: "https://blog.replit.com", tier: "Tier 1 — Company engineering blog", use: "Reused from this series' Replit Agent teardown: copy-on-write reversibility and the multi-agent harness, used as an adjacent-capability comparison in RQ2." },
+  { name: "Meta Engineering — “Capacity efficiency at Meta: how unified AI agents optimize performance at hyperscale”", year: "2026", url: "https://engineering.fb.com/2026/04/16/developer-tools/capacity-efficiency-at-meta-how-unified-ai-agents-optimize-performance-at-hyperscale", tier: "Tier 1 — Company engineering blog", use: "Reused from this series' Meta teardown: the stable Tools layer / swappable Skills layer pattern, used as landscape context on agent-fleet precedents." },
+  { name: "AWS — Cox Automotive case study (Amazon Bedrock AgentCore)", year: "2026", url: "https://aws.amazon.com/solutions/case-studies/cox-auto-case-study", tier: "Tier 5 — Cloud vendor case study, reused from this series", use: "Reused from this series' Cox Automotive teardown: 17 of 57 ideas to production in about a year, used as landscape context on agent-fleet precedents at a different task granularity." },
+  { name: "AWS Machine Learning Blog — “Evaluating AI agents: Real-world lessons from building agentic systems at Amazon”", year: "2026", url: "https://aws.amazon.com/blogs/machine-learning/evaluating-ai-agents-real-world-lessons-from-building-agentic-systems-at-amazon", tier: "Tier 1 — Company engineering blog", use: "Reused from this series' Amazon teardown: the separately-instrumented failure-mode evaluation layer, used as an adjacent-capability comparison in RQ3." }
+];
+
+/* --------------------------------------------------------------------------
+   CROSS-ARTIFACT WARM-UP (drawn from prior completed articles)
+   -------------------------------------------------------------------------- */
+const WARM_UPS = [
+  {
+    prompt: "A startup wants to let an AI coding agent merge changes to its production codebase with no human review gate at all, betting that agents are fast enough that any mistake gets caught and fixed before it matters. Using a prior article's principle about production-grade reliability needing engineering work done up front, what should this startup build first, before it removes the human gate — and what evidence from that prior article would make you skeptical this bet is safe on day one?",
+    source: "Shared Foundation, Not a Smarter Model: How Cox Automotive Took 17 AI Agents to Production in a Year",
+    lifecycle: "Build → Evaluate → Scale",
+    principle: "Reliability for an autonomous, customer-facing agent is a five-layer engineering discipline — hard guardrails, soft guardrails, scheduled red-teaming, automated evaluation, and hard circuit breakers — built before scale, not added right before launch; even a mature version of that stack does not guarantee every project succeeds on the first attempt."
+  },
+  {
+    prompt: "A software company wants to grade its fully autonomous coding-agent pipeline purely by whether each pull request eventually gets merged. Using a prior article's principle about grading agents on more than the final outcome, what specific failure modes would a “did it merge” metric hide, and why might a pipeline with a 100% eventual-merge rate still be quietly accumulating a hidden problem?",
+    source: "Grading the Task Isn't Enough: Amazon's Three-Layer Answer to Why Agents Fail",
+    lifecycle: "Build → Evaluate → Scale",
+    principle: "Production-grade reliability comes from separately instrumenting each way a system can fail, not from one blended success/fail score — a passing final outcome can hide an internal misstep, or a slow accumulation of low-quality patterns, that got through anyway."
+  },
+  {
+    prompt: "A company wants one AI-agent platform to power both its internal code-review agent and its internal documentation-writing agent. Using a prior article's principle about how one platform can serve structurally different jobs without duplicating engineering effort, what should stay identical between the two agents' setups, and what should be allowed to differ?",
+    source: "One Platform, Two Jobs: How Meta's Capacity Efficiency Agents Scale MW Savings Without Scaling Headcount",
+    lifecycle: "Build → Scale",
+    principle: "One platform can serve structurally different jobs without duplicated engineering effort when the expensive, reusable machinery (tool interfaces) stays stable and only the layer that encodes domain judgment (skills) changes per job."
+  }
+];
+
+/* --------------------------------------------------------------------------
+   SMALL UI PRIMITIVES
+   -------------------------------------------------------------------------- */
+function Callout({ kind, children }) {
+  const styles = {
+    note: { background: "#F8FAFC", border: "1px solid #E2E8F0" },
+    amber: { background: "#FFFBEB", borderLeft: "3px solid #d97706" },
+    fail: { background: "#FEF2F2", border: "1px solid #FCA5A5" }
+  };
+  return <div style={{ ...styles[kind], borderRadius: 8, padding: "14px 16px", margin: "16px 0", fontSize: 14.5, lineHeight: 1.6 }}>{children}</div>;
+}
+
+function ProvenanceNote({ children }) {
+  return <div style={{ fontSize: 12.5, color: "#64748B", marginTop: 8, fontStyle: "italic" }}>{children}</div>;
+}
+
+function SectionHeading({ children, id }) {
+  return <h2 id={id + "-heading"} style={{ fontSize: 24, marginTop: 40, marginBottom: 12, scrollMarginTop: 90 }}>{children}</h2>;
+}
+
+function Glossary({ items }) {
+  if (!items || items.length === 0) return null;
+  return (
+    <div style={{ background: "#F8FAFC", border: "1px solid #E2E8F0", borderRadius: 8, padding: "16px 18px", marginTop: 32 }}>
+      <div style={{ fontWeight: 700, fontSize: 13, letterSpacing: 0.4, color: "#475569", textTransform: "uppercase", marginBottom: 10 }}>Glossary</div>
+      {items.map((g, i) => (
+        <div key={i} style={{ fontSize: 14, lineHeight: 1.6, marginBottom: 6 }}>
+          <strong>{g.term}</strong> — {g.def}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function PrincipleGate({ sectionId, value, onChange }) {
+  const [submitted, setSubmitted] = useState(!!value && value.length >= 20);
+  return (
+    <Callout kind="note">
+      <div style={{ fontWeight: 600, marginBottom: 8 }}>Principle in one sentence</div>
+      <div style={{ marginBottom: 10 }}>State the transferable principle from this section — something a PM or CTO at a different company could apply tomorrow. (Min. 20 characters. Not scored; you may move to any section regardless.)</div>
+      <textarea
+        value={value}
+        onChange={e => onChange(e.target.value)}
+        rows={2}
+        style={{ width: "100%", borderRadius: 6, border: "1px solid #CBD5E1", padding: 8, fontSize: 14, fontFamily: "inherit" }}
+        placeholder="Type your one-sentence principle here..."
+      />
+      <div style={{ marginTop: 8 }}>
+        <button
+          disabled={!value || value.length < 20}
+          onClick={() => setSubmitted(true)}
+          style={btnStyle(!value || value.length < 20)}
+        >
+          {submitted ? "Submitted" : (value && value.length < 20 ? `Enter ${20 - value.length} more characters` : "Submit")}
+        </button>
+      </div>
+      {submitted && value.length >= 20 && (
+        <div style={{ marginTop: 10, padding: 10, background: "#fff", border: "1px solid #E2E8F0", borderRadius: 6 }}>
+          Your principle is saved to your Learning Summary for comparison against the authored version. This step never blocks navigation.
+        </div>
+      )}
+    </Callout>
+  );
+}
+
+function btnStyle(disabled) {
+  return {
+    background: disabled ? "#E2E8F0" : "#111",
+    color: disabled ? "#94A3B8" : "#fff",
+    border: "none",
+    borderRadius: 6,
+    padding: "8px 16px",
+    fontSize: 14,
+    cursor: disabled ? "not-allowed" : "pointer"
+  };
+}
+
+/* --------------------------------------------------------------------------
+   CHART INTERPRETATION WRAPPER (two independently-gated prompts)
+   -------------------------------------------------------------------------- */
+function ChartInterp({ chartId, prompts, state, setState }) {
+  const st = state[chartId] || [{ submitted: false, text: "" }, { submitted: false, text: "" }];
+  function update(i, patch) {
+    const next = st.map((p, idx) => idx === i ? { ...p, ...patch } : p);
+    setState(prev => ({ ...prev, [chartId]: next }));
+  }
+  return (
+    <div style={{ margin: "18px 0 28px" }}>
+      {prompts.map((p, i) => (
+        <div key={i} style={{ border: "1px solid #E2E8F0", borderRadius: 8, padding: "14px 16px", marginBottom: 12 }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: "#475569", textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 6 }}>
+            Interpretation prompt {i + 1} · {p.kind}
+          </div>
+          <div style={{ marginBottom: 10, fontSize: 15 }}>{p.text}</div>
+          {!st[i].submitted ? (
+            <>
+              <textarea
+                value={st[i].text}
+                onChange={e => update(i, { text: e.target.value })}
+                rows={2}
+                style={{ width: "100%", borderRadius: 6, border: "1px solid #CBD5E1", padding: 8, fontSize: 14, fontFamily: "inherit" }}
+                placeholder="Your answer (min. 15 characters)..."
+              />
+              <div style={{ marginTop: 8 }}>
+                <button
+                  disabled={st[i].text.length < 15}
+                  onClick={() => update(i, { submitted: true })}
+                  style={btnStyle(st[i].text.length < 15)}
+                >
+                  {st[i].text.length < 15 ? `Enter ${15 - st[i].text.length} more characters` : "Submit"}
+                </button>
+              </div>
+            </>
+          ) : (
+            <div>
+              <div style={{ padding: 10, background: "#F8FAFC", borderRadius: 6, marginBottom: 8 }}>
+                <strong>Your answer:</strong> {st[i].text}
+              </div>
+              <div style={{ padding: 10, background: "#ECFDF5", borderRadius: 6, border: "1px solid #A7F3D0" }}>
+                <strong>Compare your answer to the authored one:</strong> {p.authored}
+              </div>
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/* --------------------------------------------------------------------------
+   MULTIPLE CHOICE (T-A, T-B, T-H share this; T-C is a styled variant)
+   -------------------------------------------------------------------------- */
+function MCQ({ id, label, prompt, options, state, setState, styleVariant, registerScore }) {
+  const q = state[id] || { selected: null, submitted: false, attemptCount: 0, scaffolding: false };
+  useEffect(() => {
+    if (q.submitted && registerScore) registerScore(id, !!(options[q.selected] && options[q.selected].correct));
+  }, [q.submitted]);
+  function select(i) {
+    if (q.submitted) return;
+    setState(prev => ({ ...prev, [id]: { ...q, selected: i } }));
+  }
+  function submit() {
+    const correct = options[q.selected].correct;
+    setState(prev => ({
+      ...prev,
+      [id]: { ...q, submitted: true, options, attemptCount: q.attemptCount + 1, scaffolding: !correct && q.attemptCount + 1 >= 2 }
+    }));
+  }
+  function tryAgain() {
+    setState(prev => ({ ...prev, [id]: { ...q, submitted: false, selected: null } }));
+  }
+  const wrapperStyle = styleVariant === "amber"
+    ? { background: "#FFFBEB", borderLeft: "3px solid #d97706", borderRadius: 8, padding: "16px 18px", margin: "20px 0" }
+    : { border: "1px solid #E2E8F0", borderRadius: 8, padding: "16px 18px", margin: "20px 0" };
+  return (
+    <div style={wrapperStyle}>
+      {styleVariant === "amber" && <div style={{ fontSize: 12, fontWeight: 700, color: "#B45309", textTransform: "uppercase", marginBottom: 6 }}>Case Prompt</div>}
+      <div style={{ fontSize: 12, fontWeight: 700, color: "#475569", textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 6 }}>{label}</div>
+      <div style={{ marginBottom: 12, fontSize: 15.5, whiteSpace: "pre-line" }}>{prompt}</div>
+      <div style={{ display: "grid", gap: 8 }}>
+        {options.map((opt, i) => {
+          let border = "1px solid #CBD5E1", bg = "#fff";
+          if (q.submitted) {
+            if (opt.correct) { border = "1px solid #10B981"; bg = "#ECFDF5"; }
+            else if (i === q.selected) { border = "1px solid #EF4444"; bg = "#FEF2F2"; }
+          } else if (i === q.selected) { border = "2px solid #111"; }
+          return (
+            <div key={i}
+              onClick={() => select(i)}
+              style={{ border, background: bg, borderRadius: 8, padding: "10px 12px", cursor: q.submitted ? "default" : "pointer", fontSize: 14.5 }}>
+              <strong>{String.fromCharCode(65 + i)}.</strong> {opt.text}
+            </div>
+          );
+        })}
+      </div>
+      {!q.submitted && q.selected !== null && (
+        <div style={{ marginTop: 10 }}><button style={btnStyle(false)} onClick={submit}>Submit</button></div>
+      )}
+      {q.selected === null && !q.submitted && (
+        <div style={{ marginTop: 10, fontSize: 13, color: "#94A3B8" }}>Select an option to enable Submit.</div>
+      )}
+      {q.submitted && (
+        <div style={{ marginTop: 12 }}>
+          {options[q.selected].correct ? (
+            <div style={{ padding: 10, background: "#ECFDF5", borderRadius: 6 }}>
+              <strong>Correct</strong> — this reasoning pattern generalizes to {options[q.selected].generalizes}. {options[q.selected].explanation}
+            </div>
+          ) : (
+            <div style={{ padding: 10, background: "#FEF2F2", borderRadius: 6 }}>
+              <strong>Incorrect</strong> — this is {options[q.selected].errorName}: {options[q.selected].explanation}
+            </div>
+          )}
+          <div style={{ marginTop: 8, fontSize: 13.5, color: "#475569" }}>
+            {options.find(o => o.correct).whyCorrect}
+          </div>
+          {q.scaffolding && !options[q.selected].correct && (
+            <Callout kind="note">
+              <strong>Scaffolding:</strong> {options[q.selected].scaffold}
+            </Callout>
+          )}
+          {!options[q.selected].correct && (
+            <div style={{ marginTop: 8 }}>
+              <button style={btnStyle(false)} onClick={tryAgain}>Try again</button>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* --------------------------------------------------------------------------
+   TRUE / FALSE WITH JUSTIFICATION (T-G)
+   -------------------------------------------------------------------------- */
+function TrueFalseQ({ id, prompt, correctValue, authoredJustification, errorName, state, setState, registerScore }) {
+  const q = state[id] || { choice: null, justification: "", submitted: false };
+  useEffect(() => {
+    if (q.submitted && registerScore) registerScore(id, q.choice === correctValue);
+  }, [q.submitted]);
+  function submit() {
+    setState(prev => ({ ...prev, [id]: { ...q, submitted: true } }));
+  }
+  const canSubmit = q.choice !== null && q.justification.length >= 15;
+  return (
+    <div style={{ border: "1px solid #E2E8F0", borderRadius: 8, padding: "16px 18px", margin: "20px 0" }}>
+      <div style={{ fontSize: 12, fontWeight: 700, color: "#475569", textTransform: "uppercase", marginBottom: 6 }}>True / False with justification</div>
+      <div style={{ marginBottom: 12, fontSize: 15.5 }}>{prompt}</div>
+      <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+        {["True", "False"].map((label, i) => {
+          const val = i === 0;
+          let border = "1px solid #CBD5E1", bg = "#fff";
+          if (q.submitted) {
+            if (val === correctValue) { border = "1px solid #10B981"; bg = "#ECFDF5"; }
+            else if (val === q.choice) { border = "1px solid #EF4444"; bg = "#FEF2F2"; }
+          } else if (val === q.choice) border = "2px solid #111";
+          return (
+            <div key={label} onClick={() => !q.submitted && setState(prev => ({ ...prev, [id]: { ...q, choice: val } }))}
+              style={{ flex: 1, textAlign: "center", border, background: bg, borderRadius: 8, padding: "10px 0", cursor: q.submitted ? "default" : "pointer", fontWeight: 600 }}>
+              {label}
+            </div>
+          );
+        })}
+      </div>
+      {!q.submitted && (
+        <>
+          <textarea
+            value={q.justification}
+            onChange={e => setState(prev => ({ ...prev, [id]: { ...q, justification: e.target.value } }))}
+            rows={2}
+            placeholder="Justify your answer in one sentence, naming the specific evidence (min. 15 characters)..."
+            style={{ width: "100%", borderRadius: 6, border: "1px solid #CBD5E1", padding: 8, fontSize: 14, fontFamily: "inherit" }}
+          />
+          <div style={{ marginTop: 8 }}>
+            <button disabled={!canSubmit} style={btnStyle(!canSubmit)} onClick={submit}>
+              {q.choice === null ? "Select True or False" : (q.justification.length < 15 ? `Enter ${15 - q.justification.length} more characters` : "Submit")}
+            </button>
+          </div>
+        </>
+      )}
+      {q.submitted && (
+        <div style={{ marginTop: 8 }}>
+          <div style={{ padding: 10, background: "#F8FAFC", borderRadius: 6, marginBottom: 8 }}>
+            <strong>Your justification:</strong> {q.justification}
+          </div>
+          <div style={{ padding: 10, background: q.choice === correctValue ? "#ECFDF5" : "#FEF2F2", borderRadius: 6 }}>
+            {q.choice === correctValue
+              ? <><strong>Correct.</strong> Authored justification: {authoredJustification}</>
+              : <><strong>Incorrect — this is {errorName}.</strong> Authored justification: {authoredJustification}</>}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* --------------------------------------------------------------------------
+   FERMI / NUMERIC ESTIMATION (T-D)
+   -------------------------------------------------------------------------- */
+function FermiQ({ id, prompt, assumptions, tolerancePct, answer, decomposition, scaffold, state, setState, min, max, step }) {
+  const q = state[id] || { value: "", submitted: false };
+  function submit() {
+    setState(prev => ({ ...prev, [id]: { ...q, submitted: true } }));
+  }
+  const num = parseFloat(q.value);
+  const withinTol = !isNaN(num) && Math.abs(num - answer) / answer <= tolerancePct;
+  const farOff = !isNaN(num) && Math.abs(num - answer) / answer > 0.5;
+  return (
+    <div style={{ border: "1px solid #E2E8F0", borderRadius: 8, padding: "16px 18px", margin: "20px 0" }}>
+      <div style={{ fontSize: 12, fontWeight: 700, color: "#475569", textTransform: "uppercase", marginBottom: 6 }}>Engineering estimation (Fermi) · tolerance ±{Math.round(tolerancePct * 100)}%</div>
+      <div style={{ marginBottom: 10, fontSize: 15.5, whiteSpace: "pre-line" }}>{prompt}</div>
+      <div style={{ background: "#F8FAFC", borderRadius: 6, padding: 10, marginBottom: 10, fontSize: 13.5 }}>
+        <strong>Assumptions stated for this estimate:</strong> {assumptions}
+      </div>
+      {!q.submitted ? (
+        <>
+          <input type="range" min={min} max={max} step={step} value={q.value || min}
+            onChange={e => setState(prev => ({ ...prev, [id]: { ...q, value: e.target.value } }))}
+            style={{ width: "100%" }} />
+          <input type="number" value={q.value}
+            onChange={e => setState(prev => ({ ...prev, [id]: { ...q, value: e.target.value } }))}
+            placeholder="Enter your estimate"
+            style={{ width: 160, borderRadius: 6, border: "1px solid #CBD5E1", padding: 8, fontSize: 14, marginTop: 8 }} />
+          <div style={{ marginTop: 8 }}>
+            <button disabled={q.value === ""} style={btnStyle(q.value === "")} onClick={submit}>
+              {q.value === "" ? "Enter a value to enable Submit" : "Submit"}
+            </button>
+          </div>
+        </>
+      ) : (
+        <div>
+          <div style={{ position: "relative", height: 40, margin: "16px 0" }}>
+            <div style={{ position: "absolute", top: 18, left: 0, right: 0, height: 4, background: "#E2E8F0", borderRadius: 2 }} />
+            <div style={{ position: "absolute", top: 0, left: `${Math.min(100, Math.max(0, (num - min) / (max - min) * 100))}%`, transform: "translateX(-50%)", fontSize: 12 }}>▼ You: {num}</div>
+            <div style={{ position: "absolute", top: 24, left: `${Math.min(100, Math.max(0, (answer - min) / (max - min) * 100))}%`, transform: "translateX(-50%)", fontSize: 12, color: "#059669" }}>▲ Actual: {answer}</div>
+          </div>
+          <div style={{ padding: 10, borderRadius: 6, background: withinTol ? "#ECFDF5" : "#FEF2F2" }}>
+            <strong>{withinTol ? "Within tolerance." : "Outside tolerance."}</strong> Decomposition: {decomposition}
+          </div>
+          {!withinTol && farOff && (
+            <Callout kind="note"><strong>Scaffolding:</strong> {scaffold}</Callout>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* --------------------------------------------------------------------------
+   PATTERN TRANSFER (T-F, free text)
+   -------------------------------------------------------------------------- */
+function PatternTransferQ({ id, prompt, state, setState }) {
+  const q = state[id] || { text: "", submitted: false, checks: [false, false, false] };
+  const canSubmit = q.text.length >= 50;
+  return (
+    <div style={{ border: "1px solid #E2E8F0", borderRadius: 8, padding: "16px 18px", margin: "20px 0" }}>
+      <div style={{ fontSize: 12, fontWeight: 700, color: "#475569", textTransform: "uppercase", marginBottom: 6 }}>Pattern transfer · highest-order question</div>
+      <div style={{ marginBottom: 10, fontSize: 15.5, whiteSpace: "pre-line" }}>{prompt}</div>
+      {!q.submitted ? (
+        <>
+          <textarea
+            value={q.text}
+            onChange={e => setState(prev => ({ ...prev, [id]: { ...q, text: e.target.value } }))}
+            rows={4}
+            placeholder="Min. 50 characters. Name the principle, apply it non-trivially, and name a new failure mode..."
+            style={{ width: "100%", borderRadius: 6, border: "1px solid #CBD5E1", padding: 8, fontSize: 14, fontFamily: "inherit" }}
+          />
+          <div style={{ marginTop: 8 }}>
+            <button disabled={!canSubmit} style={btnStyle(!canSubmit)} onClick={() => setState(prev => ({ ...prev, [id]: { ...q, submitted: true } }))}>
+              {canSubmit ? "Submit" : `Enter ${50 - q.text.length} more characters`}
+            </button>
+          </div>
+        </>
+      ) : (
+        <div>
+          <div style={{ padding: 10, background: "#F8FAFC", borderRadius: 6, marginBottom: 10 }}>{q.text}</div>
+          <div style={{ fontSize: 13.5, fontWeight: 600, marginBottom: 6 }}>Self-evaluation checklist:</div>
+          {["Did I name the principle accurately?", "Is my application genuinely different from the original case?", "Is my failure mode new (not one already covered)?"].map((c, i) => (
+            <label key={i} style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 4, fontSize: 14 }}>
+              <input type="checkbox" checked={q.checks[i]} onChange={() => {
+                const nc = q.checks.slice(); nc[i] = !nc[i];
+                setState(prev => ({ ...prev, [id]: { ...q, checks: nc } }));
+              }} />
+              {c}
+            </label>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* --------------------------------------------------------------------------
+   CHARTS
+   -------------------------------------------------------------------------- */
+function ThroughputChart() {
+  const data = [
+    { month: "Month 1", Engineers: 3, ImpliedPRsPerDay: 10.5 },
+    { month: "Month 2", Engineers: 4, ImpliedPRsPerDay: 14 },
+    { month: "Month 3", Engineers: 5, ImpliedPRsPerDay: 17.5 },
+    { month: "Month 4", Engineers: 6, ImpliedPRsPerDay: 21 },
+    { month: "Month 5", Engineers: 7, ImpliedPRsPerDay: 24.5 }
+  ];
+  return (
+    <div>
+      <div style={{ fontWeight: 600, marginBottom: 6 }}>Chart 1. Team size and modeled daily PR output across the five-month build</div>
+      <ResponsiveContainer width="100%" height={280}>
+        <ComposedChart data={data} margin={{ top: 10, right: 20, left: 0, bottom: 10 }}>
+          <CartesianGrid strokeDasharray="3 3" />
+          <XAxis dataKey="month" tick={{ fontSize: 11.5 }} />
+          <YAxis yAxisId="left" label={{ value: "Engineers", angle: -90, position: "insideLeft", fontSize: 11 }} />
+          <YAxis yAxisId="right" orientation="right" label={{ value: "PRs / day", angle: 90, position: "insideRight", fontSize: 11 }} />
+          <Tooltip />
+          <Legend />
+          <Bar yAxisId="left" dataKey="Engineers" name="Engineers (illustrative ramp; endpoints 3→7 are FACT)" fill="#94A3B8">
+            <LabelList dataKey="Engineers" position="top" style={{ fontSize: 11 }} />
+          </Bar>
+          <Line yAxisId="right" type="monotone" dataKey="ImpliedPRsPerDay" name="Implied PRs/day at reported 3.5/engineer/day (ESTIMATE)" stroke="#111" strokeWidth={2} dot={{ r: 4 }}>
+            <LabelList dataKey="ImpliedPRsPerDay" position="top" style={{ fontSize: 11 }} />
+          </Line>
+        </ComposedChart>
+      </ResponsiveContainer>
+      <ProvenanceNote>Anchors are FACT (OpenAI Engineering Blog, 2026): team grew from 3 to 7 engineers over five months; average throughput was 3.5 merged PRs per engineer per day; throughput rose, not fell, as the team grew. The month-by-month headcount curve shown here is ILLUSTRATION — OpenAI published only the start (3), the end (7), and the ~1,500-PR/five-month total, not a monthly series. The PRs/day line is ESTIMATE: illustrative headcount × the reported 3.5/engineer/day rate, shown for reference, not a reported figure.</ProvenanceNote>
+    </div>
+  );
+}
+
+function BuildTimeChart() {
+  const data = [
+    { label: "Actual (Codex-built)", months: 5 },
+    { label: "Estimated hand-written equivalent", months: 50 }
+  ];
+  return (
+    <div>
+      <div style={{ fontWeight: 600, marginBottom: 6 }}>Chart 2. Five months of Codex-built development vs. the implied hand-written baseline</div>
+      <ResponsiveContainer width="100%" height={220}>
+        <BarChart data={data} layout="vertical" margin={{ top: 10, right: 40, left: 10, bottom: 10 }}>
+          <CartesianGrid strokeDasharray="3 3" />
+          <XAxis type="number" unit=" mo" />
+          <YAxis type="category" dataKey="label" width={210} tick={{ fontSize: 11.5 }} />
+          <Tooltip formatter={v => v + " months"} />
+          <Bar dataKey="months" fill="#111">
+            <LabelList dataKey="months" position="right" formatter={v => v + " mo"} style={{ fontSize: 12 }} />
+          </Bar>
+        </BarChart>
+      </ResponsiveContainer>
+      <ProvenanceNote>“Actual” (5 months) is FACT (OpenAI Engineering Blog, 2026). “Estimated hand-written equivalent” (~50 months, ~4 years) is ESTIMATE: derived from OpenAI's own statement that the project took “about 1/10th the time it would have taken to write the code by hand” — 5 months ÷ (1/10) = 50 months. Rounded coarsely; not a reported statistic.</ProvenanceNote>
+    </div>
+  );
+}
+
+function ArchitectureSVG() {
+  return (
+    <div style={{ textAlign: "center" }}>
+      <div style={{ fontWeight: 600, marginBottom: 6 }}>Chart 3. The layered domain architecture Codex enforces on itself</div>
+      <svg viewBox="0 0 620 400" style={{ maxWidth: 560, width: "100%" }}>
+        {["Types", "Config", "Repo", "Service", "Runtime", "UI"].map((layer, i) => (
+          <g key={layer}>
+            <rect x="60" y={20 + i * 55} width="340" height="42" rx="8" fill={i % 2 === 0 ? "#111" : "#475569"} />
+            <text x="230" y={20 + i * 55 + 27} textAnchor="middle" fontSize="14" fill="#fff" fontWeight="700">{layer}</text>
+            {i < 5 && (
+              <line x1="230" y1={20 + i * 55 + 42} x2="230" y2={20 + (i + 1) * 55} stroke="#111" strokeWidth="2" markerEnd="url(#arrowDown)" />
+            )}
+          </g>
+        ))}
+        <rect x="440" y="130" width="150" height="90" rx="8" fill="#fff" stroke="#d97706" strokeWidth="2" />
+        <text x="515" y="152" textAnchor="middle" fontSize="12.5" fontWeight="700" fill="#B45309">Providers</text>
+        <text x="515" y="170" textAnchor="middle" fontSize="9.5" fill="#475569">the one entry point for:</text>
+        <text x="515" y="184" textAnchor="middle" fontSize="9" fill="#475569">auth · connectors</text>
+        <text x="515" y="197" textAnchor="middle" fontSize="9" fill="#475569">telemetry · feature flags</text>
+        <line x1="440" y1="175" x2="400" y2="130" stroke="#d97706" strokeDasharray="3 2" />
+        <line x1="440" y1="175" x2="400" y2="185" stroke="#d97706" strokeDasharray="3 2" />
+        <line x1="440" y1="175" x2="400" y2="240" stroke="#d97706" strokeDasharray="3 2" />
+        <defs>
+          <marker id="arrowDown" markerWidth="8" markerHeight="8" refX="4" refY="4" orient="auto">
+            <path d="M0,0 L8,4 L0,8 z" fill="#111" />
+          </marker>
+        </defs>
+        <text x="230" y="380" textAnchor="middle" fontSize="10.5" fill="#475569">Dependency direction is enforced mechanically — a layer may not import “upward”</text>
+      </svg>
+      <ProvenanceNote>Structure: FACT (OpenAI Engineering Blog, 2026) — layer names, the Providers entry point, and the mechanically-enforced dependency direction are stated directly in the source; this is a simplified rendering, not a diagram OpenAI itself published.</ProvenanceNote>
+    </div>
+  );
+}
+
+function FailureModeTable() {
+  const rows = [
+    ["Environment under-specification (early months)", "Codex works depth-first on an ambiguous goal, but the repo is missing a tool, abstraction, or piece of internal structure it needs", "Ask “what capability is missing, and how do we make it legible and enforceable for the agent?” instead of “try harder,” then have Codex build the missing piece"],
+    ["Entropy / “AI slop” (emerges once throughput rises)", "Codex faithfully replicates whatever pattern already exists in the repo — uneven or suboptimal patterns included — which compounds over time", "Encode “golden principles” directly into the repo (e.g., prefer shared utility packages over hand-rolled helpers; never probe data “YOLO-style”) plus recurring background Codex cleanup tasks that scan for deviations, update quality grades, and open auto-mergeable refactor PRs"]
+  ];
+  return (
+    <div>
+      <div style={{ fontWeight: 600, marginBottom: 6 }}>Chart 4. Two reliability failure modes Codex's full autonomy produced, and OpenAI's fix for each</div>
+      <div style={{ overflowX: "auto" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+          <thead>
+            <tr style={{ background: "#F1F5F9" }}>
+              {["Failure mode", "Why it happens", "OpenAI's mechanical fix"].map(h => (
+                <th key={h} style={{ textAlign: "left", padding: "8px 10px", borderBottom: "2px solid #CBD5E1" }}>{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r, i) => (
+              <tr key={i} style={{ borderBottom: "1px solid #E2E8F0" }}>
+                {r.map((c, j) => <td key={j} style={{ padding: "8px 10px", verticalAlign: "top" }}>{c}</td>)}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <ProvenanceNote>FACT (OpenAI Engineering Blog, 2026) — both failure modes and both fixes are described directly in the source; wording paraphrased for clarity.</ProvenanceNote>
+    </div>
+  );
+}
+
+function RalphWiggumLoopSVG() {
+  return (
+    <div style={{ textAlign: "center" }}>
+      <div style={{ fontWeight: 600, marginBottom: 6 }}>Chart 5. The “Ralph Wiggum Loop” — agents reviewing agents until every reviewer is satisfied</div>
+      <svg viewBox="0 0 640 260" style={{ maxWidth: 600, width: "100%" }}>
+        <rect x="20" y="20" width="140" height="50" rx="8" fill="#111" /><text x="90" y="40" textAnchor="middle" fontSize="10.5" fill="#fff" fontWeight="700">Codex opens</text><text x="90" y="55" textAnchor="middle" fontSize="10.5" fill="#fff" fontWeight="700">a PR</text>
+        <line x1="160" y1="45" x2="200" y2="45" stroke="#111" strokeWidth="2" markerEnd="url(#arrR)" />
+        <rect x="200" y="20" width="150" height="50" rx="8" fill="#475569" /><text x="275" y="40" textAnchor="middle" fontSize="10" fill="#fff">Reviews its own</text><text x="275" y="55" textAnchor="middle" fontSize="10" fill="#fff">changes locally</text>
+        <line x1="350" y1="45" x2="390" y2="45" stroke="#111" strokeWidth="2" markerEnd="url(#arrR)" />
+        <rect x="390" y="20" width="230" height="50" rx="8" fill="#475569" /><text x="505" y="40" textAnchor="middle" fontSize="10" fill="#fff">Requests agent reviews</text><text x="505" y="55" textAnchor="middle" fontSize="10" fill="#fff">(local + cloud reviewers)</text>
+        <line x1="505" y1="70" x2="505" y2="110" stroke="#111" strokeWidth="2" markerEnd="url(#arrR)" />
+        <rect x="390" y="110" width="230" height="50" rx="8" fill="#475569" /><text x="505" y="130" textAnchor="middle" fontSize="10" fill="#fff">Responds to feedback,</text><text x="505" y="145" textAnchor="middle" fontSize="10" fill="#fff">iterates</text>
+        <path d="M 390 135 C 250 135, 250 45, 350 45" fill="none" stroke="#d97706" strokeWidth="2" strokeDasharray="4 3" markerEnd="url(#arrO)" />
+        <text x="255" y="95" textAnchor="middle" fontSize="9" fill="#B45309">loop until all reviewers satisfied</text>
+        <line x1="505" y1="160" x2="505" y2="195" stroke="#111" strokeWidth="2" markerEnd="url(#arrR)" />
+        <rect x="390" y="195" width="230" height="45" rx="8" fill="#F8FAFC" stroke="#111" /><text x="505" y="213" textAnchor="middle" fontSize="10">Human review: optional,</text><text x="505" y="227" textAnchor="middle" fontSize="10">not required → merge</text>
+        <defs>
+          <marker id="arrR" markerWidth="8" markerHeight="8" refX="4" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#111" /></marker>
+          <marker id="arrO" markerWidth="8" markerHeight="8" refX="4" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#d97706" /></marker>
+        </defs>
+      </svg>
+      <ProvenanceNote>Structure: FACT (OpenAI Engineering Blog, 2026) — the steps, the iterate-until-satisfied loop, and “human review is optional, not required” are stated directly in the source. OpenAI calls this pattern the “Ralph Wiggum Loop,” crediting the name to Geoffrey Huntley's independent write-up (ghuntley.com, 2025). This is a simplified flowchart, not a diagram OpenAI itself published.</ProvenanceNote>
+    </div>
+  );
+}
+
+function EntropyTimelineSVG() {
+  return (
+    <div style={{ textAlign: "center" }}>
+      <div style={{ fontWeight: 600, marginBottom: 6 }}>Chart 6. Before and after: how OpenAI stopped paying for entropy by hand</div>
+      <svg viewBox="0 0 640 220" style={{ maxWidth: 620, width: "100%" }}>
+        <rect x="20" y="30" width="270" height="130" rx="8" fill="#FEF2F2" stroke="#FCA5A5" strokeWidth="2" />
+        <text x="155" y="55" textAnchor="middle" fontSize="12.5" fontWeight="700" fill="#991B1B">Era 1: manual cleanup</text>
+        <text x="155" y="78" textAnchor="middle" fontSize="10.5" fill="#334155">Humans spend every Friday —</text>
+        <text x="155" y="93" textAnchor="middle" fontSize="10.5" fill="#334155">20% of the team's week —</text>
+        <text x="155" y="108" textAnchor="middle" fontSize="10.5" fill="#334155">manually cleaning up</text>
+        <text x="155" y="123" textAnchor="middle" fontSize="10.5" fill="#334155">“AI slop”</text>
+        <text x="155" y="145" textAnchor="middle" fontSize="9.5" fill="#B91C1C" fontStyle="italic">Did not scale, “unsurprisingly”</text>
+        <line x1="290" y1="95" x2="345" y2="95" stroke="#111" strokeWidth="2" markerEnd="url(#arrE)" />
+        <rect x="350" y="30" width="270" height="130" rx="8" fill="#ECFDF5" stroke="#A7F3D0" strokeWidth="2" />
+        <text x="485" y="55" textAnchor="middle" fontSize="12.5" fontWeight="700" fill="#065F46">Era 2: golden principles + cleanup agents</text>
+        <text x="485" y="78" textAnchor="middle" fontSize="10.5" fill="#334155">Mechanical rules encoded in the repo;</text>
+        <text x="485" y="93" textAnchor="middle" fontSize="10.5" fill="#334155">recurring background Codex tasks scan</text>
+        <text x="485" y="108" textAnchor="middle" fontSize="10.5" fill="#334155">for deviations and update quality grades</text>
+        <text x="485" y="123" textAnchor="middle" fontSize="10.5" fill="#334155">on a regular cadence</text>
+        <text x="485" y="145" textAnchor="middle" fontSize="9.5" fill="#047857" fontStyle="italic">Most cleanup PRs reviewable in under a minute, auto-merged</text>
+        <defs><marker id="arrE" markerWidth="8" markerHeight="8" refX="4" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#111" /></marker></defs>
+      </svg>
+      <ProvenanceNote>FACT (OpenAI Engineering Blog, 2026), including the direct figure of 20% of the team's week. The exact calendar length of each era is not stated in the source — only the sequence (manual fix tried and abandoned, then the mechanical fix) and the described costs and outcomes shown here.</ProvenanceNote>
+    </div>
+  );
+}
+
+/* --------------------------------------------------------------------------
+   WARM-UP SCREEN
+   -------------------------------------------------------------------------- */
+function WarmUpScreen({ onDone }) {
+  const [answers, setAnswers] = useState(["", "", ""]);
+  const [submitted, setSubmitted] = useState([false, false, false]);
+
+  return (
+    <div style={{ background: "#F8FAFC", minHeight: "100vh", padding: "40px 20px" }}>
+      <div style={{ maxWidth: 720, margin: "0 auto" }}>
+        <h1 style={{ fontSize: 26 }}>Before you begin — recall from your prior reading</h1>
+        <p style={{ color: "#475569", marginBottom: 24 }}>
+          Three questions drawn from articles you've already completed. Each asks you to apply a prior principle to a new situation — not to recall a company name or fact. This is retrieval practice, not scored assessment.
+        </p>
+        {WARM_UPS.map((w, i) => (
+          <div key={i} style={{ background: "#fff", border: "1px solid #E2E8F0", borderRadius: 8, padding: 18, marginBottom: 16 }}>
+            <div style={{ fontWeight: 600, marginBottom: 8 }}>Warm-up {i + 1}</div>
+            <div style={{ marginBottom: 10 }}>{w.prompt}</div>
+            {!submitted[i] ? (
+              <>
+                <textarea rows={2} value={answers[i]}
+                  onChange={e => { const a = answers.slice(); a[i] = e.target.value; setAnswers(a); }}
+                  placeholder="Min. 25 characters..."
+                  style={{ width: "100%", borderRadius: 6, border: "1px solid #CBD5E1", padding: 8, fontSize: 14, fontFamily: "inherit" }} />
+                <div style={{ marginTop: 8 }}>
+                  <button disabled={answers[i].length < 25} style={btnStyle(answers[i].length < 25)}
+                    onClick={() => { const s = submitted.slice(); s[i] = true; setSubmitted(s); }}>
+                    {answers[i].length < 25 ? `Enter ${25 - answers[i].length} more characters` : "Submit"}
+                  </button>
+                </div>
+              </>
+            ) : (
+              <div style={{ padding: 10, background: "#F1F5F9", borderRadius: 6, fontSize: 14 }}>
+                <div><strong>Source article:</strong> {w.source} ({w.lifecycle})</div>
+                <div style={{ marginTop: 6 }}><strong>Principle tested:</strong> {w.principle}</div>
+              </div>
+            )}
+          </div>
+        ))}
+        <div style={{ display: "flex", gap: 12, marginTop: 20 }}>
+          <button style={btnStyle(false)} onClick={() => onDone(submitted.filter(Boolean).length, submitted.every(Boolean))}>
+            Continue to article
+          </button>
+          <button style={{ background: "none", border: "1px solid #CBD5E1", borderRadius: 6, padding: "8px 16px", fontSize: 14, color: "#64748B", cursor: "pointer" }}
+            onClick={() => onDone(0, false)}>
+            Skip warm-up
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* --------------------------------------------------------------------------
+   HEADER / NAV
+   -------------------------------------------------------------------------- */
+const PHASES = ["Feasibility", "Design", "Build", "Evaluate", "Deploy", "Scale", "Govern"];
+const ACTIVE_PHASES = ["Build", "Evaluate", "Scale"];
+
+function LifecycleStrip() {
+  return (
+    <div style={{ display: "flex", gap: 4, padding: "6px 16px", fontSize: 10.5, flexWrap: "wrap" }}>
+      {PHASES.map(p => (
+        <span key={p} style={{
+          padding: "2px 8px", borderRadius: 10,
+          background: ACTIVE_PHASES.includes(p) ? "#111" : "#E2E8F0",
+          color: ACTIVE_PHASES.includes(p) ? "#fff" : "#64748B",
+          fontWeight: ACTIVE_PHASES.includes(p) ? 700 : 400
+        }}>{p}</span>
+      ))}
+    </div>
+  );
+}
+
+function Header({ progress }) {
+  return (
+    <div style={{ position: "sticky", top: 0, zIndex: 20, background: "#fff", borderBottom: "1px solid #E2E8F0" }}>
+      <div style={{ height: 4, background: "#E2E8F0" }}>
+        <div style={{ height: 4, background: "#111", width: `${progress}%`, transition: "width .2s" }} />
+      </div>
+      <div style={{ padding: "10px 16px 4px" }}>
+        <div style={{ fontSize: 15, fontWeight: 700 }}>Harness Engineering: How OpenAI's Codex Team Shipped a Product With Zero Manually-Written Code</div>
+        <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginTop: 4 }}>
+          <span style={{ fontSize: 11, background: "#EFF6FF", color: "#1D4ED8", padding: "2px 8px", borderRadius: 10, fontWeight: 700 }}>Agentic System Architecture (Type 3)</span>
+          <span style={{ fontSize: 11.5, color: "#64748B" }}>← Prev: AI Product Teardown (Type 2)</span>
+          <span style={{ fontSize: 11.5, color: "#64748B" }}>Next: CTO Scaling Playbook (Type 9) →</span>
+        </div>
+      </div>
+      <LifecycleStrip />
+    </div>
+  );
+}
+
+const NAV_ITEMS = [
+  { id: "intro", label: "Introduction" },
+  { id: "landscape", label: "Landscape" },
+  { id: "rq1", label: "RQ1 · Architecture" },
+  { id: "rq2", label: "RQ2 · Reliability" },
+  { id: "rq3", label: "RQ3 · Evaluation" },
+  { id: "broke", label: "What Broke" },
+  { id: "summary", label: "Learning Summary" },
+  { id: "conclusion", label: "Conclusion" }
+];
+
+function SectionNav({ active, onNav, wide }) {
+  if (!wide) return null;
+  return (
+    <div style={{ position: "fixed", top: 130, left: "max(8px, calc(50% - 480px))", width: 170 }}>
+      {NAV_ITEMS.map(item => (
+        <div key={item.id} onClick={() => onNav(item.id)}
+          style={{
+            padding: "8px 10px", fontSize: 13, cursor: "pointer", borderRadius: 6,
+            borderLeft: active === item.id ? "3px solid #111" : "3px solid transparent",
+            background: active === item.id ? "#F1F5F9" : "transparent",
+            fontWeight: active === item.id ? 700 : 400, color: active === item.id ? "#111" : "#64748B"
+          }}>
+          {item.label}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function ScoreBadge({ score, total }) {
+  return (
+    <div style={{ position: "fixed", top: 8, right: 12, zIndex: 30, background: "#111", color: "#fff", borderRadius: 20, padding: "5px 12px", fontSize: 12.5, fontWeight: 700 }}>
+      Score: {score}/{total}
+    </div>
+  );
+}
+
+/* --------------------------------------------------------------------------
+   MAIN APP
+   -------------------------------------------------------------------------- */
+function App() {
+  const [screen, setScreen] = useState("warmup");
+  const [warmUpResult, setWarmUpResult] = useState({ completed: 0, all: false, skipped: false });
+  const [active, setActive] = useState("intro");
+  const [wide, setWide] = useState(window.innerWidth > 1160);
+  const [interp, setInterp] = useState({});
+  const [mcq, setMcq] = useState({});
+  const [tf, setTf] = useState({});
+  const [fermi, setFermi] = useState({});
+  const [ptf, setPtf] = useState({});
+  const [principle, setPrinciple] = useState({});
+  const [showSummary, setShowSummary] = useState(false);
+  const [showConclusion, setShowConclusion] = useState(false);
+  const [insightSlot, setInsightSlot] = useState("");
+  const [insightRevealed, setInsightRevealed] = useState(false);
+  const [applyPresent, setApplyPresent] = useState({ thesis: "", assumption: "", disconfirm: "", premortem: "", submitted: false });
+  const [apply2027, setApply2027] = useState({});
+  const [progressPct, setProgressPct] = useState(0);
+  const [scoreRegistry, setScoreRegistry] = useState({});
+
+  useEffect(() => {
+    function onResize() { setWide(window.innerWidth > 1160); }
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+
+  useEffect(() => {
+    if (screen !== "article") return;
+    function onScroll() {
+      const offset = 140;
+      let current = NAV_ITEMS[0].id;
+      for (const item of NAV_ITEMS) {
+        const el = document.getElementById(item.id);
+        if (el && el.getBoundingClientRect().top - offset <= 0) current = item.id;
+      }
+      setActive(current);
+      const doc = document.documentElement;
+      const pct = Math.min(100, Math.max(0, (window.scrollY / (doc.scrollHeight - window.innerHeight)) * 100));
+      setProgressPct(pct);
+    }
+    window.addEventListener("scroll", onScroll);
+    onScroll();
+    return () => window.removeEventListener("scroll", onScroll);
+  }, [screen, showSummary, showConclusion]);
+
+  function navTo(id) {
+    if (id === "summary") setShowSummary(true);
+    if (id === "conclusion") setShowConclusion(true);
+    setTimeout(() => {
+      const el = document.getElementById(id);
+      if (el) el.scrollIntoView({ behavior: "smooth" });
+    }, 30);
+  }
+
+  function registerScore(id, correct) {
+    setScoreRegistry(prev => (prev[id] === correct ? prev : { ...prev, [id]: correct }));
+  }
+  const scoreEntries = Object.values(scoreRegistry);
+  const score = scoreEntries.filter(Boolean).length;
+
+  if (screen === "warmup") {
+    return <WarmUpScreen onDone={(completed, all) => { setWarmUpResult({ completed, all, skipped: completed === 0 }); setScreen("article"); }} />;
+  }
+
+  return (
+    <div style={{ maxWidth: 720, margin: "0 auto", padding: "0 20px 80px", fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif", color: "#111", lineHeight: 1.7, fontSize: 16 }}>
+      <Header progress={progressPct} />
+      <ScoreBadge score={score} total={7} />
+      <SectionNav active={active} onNav={navTo} wide={wide} />
+
+      <Introduction />
+      <Landscape interp={interp} setInterp={setInterp} />
+      <RQ1Architecture interp={interp} setInterp={setInterp} mcq={mcq} setMcq={setMcq} fermi={fermi} setFermi={setFermi}
+        ptf={ptf} setPtf={setPtf} principle={principle} setPrinciple={setPrinciple} registerScore={registerScore} />
+      <RQ2Reliability interp={interp} setInterp={setInterp} mcq={mcq} setMcq={setMcq} tf={tf} setTf={setTf}
+        ptf={ptf} setPtf={setPtf} principle={principle} setPrinciple={setPrinciple} registerScore={registerScore} />
+      <RQ3Evaluation interp={interp} setInterp={setInterp} mcq={mcq} setMcq={setMcq} fermi={fermi} setFermi={setFermi}
+        ptf={ptf} setPtf={setPtf} principle={principle} setPrinciple={setPrinciple} registerScore={registerScore} />
+      <WhatBroke interp={interp} setInterp={setInterp} mcq={mcq} setMcq={setMcq} registerScore={registerScore} />
+
+      <div style={{ textAlign: "center", margin: "40px 0" }}>
+        <button style={btnStyle(false)} onClick={() => navTo("summary")}>Open Learning Summary →</button>
+      </div>
+
+      {showSummary && (
+        <LearningSummary
+          principle={principle} mcq={mcq} tf={tf} fermi={fermi} score={score} total={7}
+          warmUpResult={warmUpResult}
+          insightSlot={insightSlot} setInsightSlot={setInsightSlot} insightRevealed={insightRevealed} setInsightRevealed={setInsightRevealed}
+          applyPresent={applyPresent} setApplyPresent={setApplyPresent}
+          apply2027={apply2027} setApply2027={setApply2027} registerScore={registerScore}
+          onContinue={() => navTo("conclusion")}
+        />
+      )}
+
+      {showConclusion && (
+        <Conclusion ptf={ptf} setPtf={setPtf} />
+      )}
+    </div>
+  );
+}
+
+/* --------------------------------------------------------------------------
+   SECTION: INTRODUCTION
+   -------------------------------------------------------------------------- */
+function Introduction() {
+  return (
+    <section id="intro" style={{ paddingTop: 24 }}>
+      <Callout kind="note">
+        <strong>Governing principle.</strong> When agents write all the code, the engineering team's job stops being "write code" and becomes "design the environment that lets an agent do reliable work" — repo-local legibility, mechanically enforced architecture, and full runtime observability, not a smarter model, are what let throughput rise as the team scales. OpenAI's Harness Engineering project is the clearest evidence: three engineers, growing to seven, merged roughly 1,500 pull requests and about a million lines of code over five months with zero manually-written lines, and throughput rose rather than fell as headcount grew — but the same full autonomy that produced this also produced a real failure, entropy ("AI slop"), that first cost 20% of the team's week before being re-engineered away.
+      </Callout>
+
+      <SectionHeading id="intro">Introduction</SectionHeading>
+      <p>OpenAI's own Codex team ran a five-month experiment: build and ship a real internal software product without any engineer typing a single line of the code themselves. Codex is OpenAI's coding agent — a system that reads a task, writes code, tests it, and opens a pull request on its own. The team's account, published on OpenAI's engineering blog in February 2026, is the evidence this article uses, because it is a rare thing: a company naming exactly what its human engineers stopped doing, and exactly what they started doing instead (OpenAI Engineering Blog, 2026). OpenAI is the right case not because it is famous, but because it ran the experiment to its logical extreme — zero manually-written code, for five full months — and published the failure along with the win.</p>
+      <p>The project started with the first commit to an empty code repository (a shared, versioned folder of files) in late August 2025, and the account was published February 11, 2026 — just under five months later (OpenAI Engineering Blog, 2026). In that time, the repository grew to "on the order of a million lines of code" spanning application logic, infrastructure, tooling, documentation, and internal developer utilities, through roughly 1,500 merged pull requests — batches of proposed code changes that get reviewed and folded into the shared codebase (OpenAI Engineering Blog, 2026). The team driving this started at 3 engineers and grew to 7 by publication time, and OpenAI states plainly that average throughput — 3.5 merged pull requests per engineer per day — rose, not fell, as headcount grew (OpenAI Engineering Blog, 2026). OpenAI's own estimate is that this took "about 1/10th the time it would have taken to write the code by hand" (OpenAI Engineering Blog, 2026).</p>
+      <p>The conventional way AI coding tools get used today assumes a human is still the author: a developer writes most of the code and accepts an AI suggestion here, delegates a small task there. That model has an obvious ceiling — a human still has to read, understand, and approve almost everything, so the team's speed still tracks the humans' attention span. OpenAI's Codex team removed that ceiling on purpose. Humans never wrote code, so the human's job had to become something else entirely: deciding what to build, and building the surrounding structure — documentation, tests, lint rules, observability — that lets an agent do that work reliably without a human checking every line. That is the structural gap this article studies: what specifically does an engineering team have to build, once code-writing itself is fully delegated, to keep the resulting system from decaying?</p>
+      <p>This article addresses three questions. First, how is the Codex team's environment actually structured so that an agent can operate on ambiguous goals without constant human hand-holding — what do the documentation system, the code architecture, and the running application itself have to look like? Second, what specific ways did this fully agent-written system fail in practice, and how did OpenAI fix each failure mechanically rather than by asking Codex to "try harder"? Third, how does OpenAI actually decide whether Codex's work is trustworthy enough to merge, beyond "did the code compile"?</p>
+
+      <Glossary items={[
+        { term: "Codex", def: "OpenAI's coding agent — a system built on an OpenAI language model that can read a task, write and test code, and open a pull request on its own." },
+        { term: "Repository (repo)", def: "a shared, version-controlled folder of code and files that a team edits together over time." },
+        { term: "Pull request (PR)", def: "a proposed, reviewable batch of code changes waiting to be merged into the main shared codebase." },
+        { term: "AGENTS.md", def: "a file, written for an AI agent rather than a human, that tells the agent how to work in a given repository." }
+      ]} />
+    </section>
+  );
+}
+
+/* --------------------------------------------------------------------------
+   SECTION: LANDSCAPE
+   -------------------------------------------------------------------------- */
+function Landscape({ interp, setInterp }) {
+  return (
+    <section id="landscape" style={{ paddingTop: 24 }}>
+      <SectionHeading id="landscape">Technical and Product Landscape</SectionHeading>
+      <p>Most AI coding tools on the market today are built around a different paradigm than OpenAI's Codex team used: AI assists a human who still writes and owns the code. Cursor is the clearest example — its architecture splits work into a sub-second "Tab" lane for inline suggestions and a slower agent lane for larger tasks, but a human developer reads and accepts every suggestion, and the human remains the final author of record (Evidently AI, 2025). GitHub Copilot follows the same paradigm from a different angle: its context-assembly pipeline decides what code and documentation to show the model before it suggests anything, but the suggestion is exactly that — a suggestion a human chooses to accept or reject line by line (GitHub Engineering Blog, 2026). In both products, the ceiling on team speed is still a human's reading speed and attention span, because a human is still the one who has to understand and sign off on the code before it ships.</p>
+      <p>A partial precedent for full agent authorship already exists in Replit Agent, which lets an agent write and deploy an entire application from a natural-language prompt, using a multi-agent harness (a planner, several "doer" agents, and a checker) and copy-on-write storage so mistakes are cheap to undo (Replit Blog, 2025). But Replit Agent is built for a single working session with one user watching — it is not a persistent, multi-month engineering organization where several agents and several humans coordinate on one shared, growing codebase over time the way a real engineering team does. OpenAI's Codex team sits on the far side of that gap: not one agent building one app in one sitting, but a standing engineering practice, sustained for five months, where agents are the only authors and humans manage the practice itself.</p>
+      <p>Two other companies in this series show a related but different kind of agent scaling: not "who writes the code" but "how many jobs can one agent platform do." Meta built one shared layer of tool interfaces that powers two structurally different jobs — finding capacity problems and fixing them — by swapping only the layer that encodes domain judgment, and used that same reusable foundation to expand into five more applications within about a year with few or no new data integrations (Meta Engineering, 2026). Cox Automotive built a shared runtime, memory, and observability foundation on Amazon Bedrock AgentCore and moved 17 of 57 evaluated agent ideas into production within about a year (AWS, 2026). Both are stories about scaling how many agents a company runs. OpenAI's case is a story about scaling how much of one team's actual code-writing work an agent can own — a different axis of the same underlying shift toward agent-run engineering.</p>
+      <p>The gap this creates is concrete, not philosophical. In the assist-a-human paradigm, quality control happens inside a human's head, one suggestion at a time, and it scales only as fast as human reading does. In OpenAI's zero-manually-written-code paradigm, there is no human reading each line by default, so quality control has to be built into the environment itself — into what the agent can see, what rules are checked automatically, and what the running system tells the agent about its own behavior. That is a different kind of engineering problem than "make better AI suggestions," and it is the one this article's three research questions dig into.</p>
+
+      <ThroughputChart />
+      <ChartInterp chartId="chart-landscape-1" state={interp} setState={setInterp} prompts={[
+        { kind: "So-what / threshold-decision rule", text: "The illustrative ramp shows engineer count doubling from 3 to 7 over five months while the reported 3.5 PRs/engineer/day rate stays fixed in this model. Using a threshold/decision-rule framework, at what team size (if any) would you expect this constant per-engineer rate to break down, and what evidence elsewhere in OpenAI's account tells you the real rate did not stay this simple?", authored: "The article's evidence directly contradicts a flat 3.5/engineer/day rate holding from month one: OpenAI states throughput itself rose as the team grew, meaning early per-engineer output was almost certainly below 3.5 and later output above it. A defensible decision rule for a team trying this is to expect the fixed-rate assumption to break down almost immediately — budget for a ramp in the rate itself, not just in headcount, and re-measure throughput per engineer at every headcount change rather than assuming it holds constant." },
+        { kind: "Quantitative reasoning", text: "If you sum the chart's implied PRs/day across all five months (using 30 days per month), the illustrative model implies about 2,625 total PRs — roughly 1.75× the ~1,500 actually reported over the same five months. What does this specific 1.75× gap most likely tell you about how to read the reported “3.5 PRs/engineer/day” figure?", authored: "A gap this large means 3.5 PRs/engineer/day is very unlikely to be a rate that held constant for the full five months — it reads much more like a recent or current-state average, closer to what the 7-engineer team was doing near publication, than an average sustained since the 3-engineer start. That is consistent with, and further supports, the article's own claim that per-engineer throughput increased over time rather than just team size increasing while the rate stayed flat." }
+      ]} />
+
+      <BuildTimeChart />
+      <ChartInterp chartId="chart-landscape-2" state={interp} setState={setInterp} prompts={[
+        { kind: "So-what / sizing", text: "Using a sizing framework, if a different mid-size engineering team estimated a comparable internal product would normally take 20 human-engineer-months to build, and applied OpenAI's own reported “1/10th the time” multiplier, what would their projected Codex-driven timeline be, and which single input in that calculation would most change the answer if it turned out to be wrong for their specific codebase?", authored: "20 months ÷ 10 = roughly 2 months on OpenAI's reported multiplier. The input that most changes this answer is whether the “1/10th the time” figure generalizes to a codebase without OpenAI's five months of environment investment (the AGENTS.md redesign, the layered architecture, the observability stack) already built — a team starting from zero legibility work would likely see a smaller multiplier at first, since much of OpenAI's speed came from harness investment made during, not before, the build." },
+        { kind: "Qualitative / mechanism", text: "A 10× build-time compression is a much larger gain than “the agent types code faster than a human.” What mechanism, beyond typing speed, would have to be true for removing an entire category of overhead — not just writing code faster — to produce a compounding, order-of-magnitude gain like this one?", authored: "Typing speed alone could only ever produce a modest, linear speedup, because a human team's real bottleneck is rarely how fast anyone types — it is coordination, context-switching, onboarding new people onto tribal knowledge, and waiting on review. A 10× gain implies those overheads were mostly removed, not just sped up: an agent that never needs onboarding, never forgets context that is written into the repo, and reviews its own work continuously removes whole categories of delay a human team cannot avoid, which is exactly the kind of compounding effect a bigger typing speed could never produce on its own." }
+      ]} />
+
+      <Glossary items={[
+        { term: "Multi-agent harness", def: "a system where several specialized AI agents (for example a planner, several workers, and a checker) coordinate on one task, instead of one agent doing everything." },
+        { term: "Copy-on-write", def: "a storage technique that keeps a cheap, separate copy of data before it changes, so a destructive action can be undone." }
+      ]} />
+    </section>
+  );
+}
+
+/* --------------------------------------------------------------------------
+   SECTION: RQ1 ARCHITECTURE
+   -------------------------------------------------------------------------- */
+function RQ1Architecture({ interp, setInterp, mcq, setMcq, fermi, setFermi, ptf, setPtf, principle, setPrinciple, registerScore }) {
+  const options = [
+    {
+      text: "The Runtime layer, because it sits closest to the UI layer and would absorb the largest share of new feature requests as the product's user base grows — exactly the kind of growth pressure that a fixed dependency direction cannot relieve on its own.",
+      correct: false,
+      errorName: "confusing rate and level",
+      explanation: "User-facing growth pressure lands on whichever layer handles the specific new capability, not reliably on Runtime just because it is closer to the UI — this assumes a growth variable (user count) automatically strains a specific layer, when the actual strain in the article's evidence comes from code volume interacting with an under-enforced or newly-added dependency, not from user growth.",
+      scaffold: "Ask what variable the question is actually asking about: it's about code volume growing 10× without new structural enforcement, not about user growth. Match the strain to the layer whose enforcement, specifically, would be tested by more code being generated inside the existing rules."
+    },
+    {
+      text: "Whichever layer is missing a mechanically-enforced boundary at the time of the growth, because Codex will keep replicating whatever pattern already exists in the code around it — including a pattern that quietly crosses a layer boundary — so an unenforced boundary is exactly where 10× more agent-written code compounds an existing architectural gap fastest.",
+      correct: true,
+      whyCorrect: "This is correct because it names the actual mechanism the article's evidence supports: Codex replicates existing repo patterns (the same mechanism behind the entropy failure), so a boundary that lacks mechanical enforcement, not any single named layer, is where growth in agent-written volume compounds fastest — and it points a PM toward auditing enforcement coverage, not guessing which layer “feels” biggest.",
+      generalizes: "any fully agent-written codebase where architectural invariants are enforced unevenly across components, regardless of which specific layers or names a given system uses"
+    },
+    {
+      text: "The Providers layer, because every cross-cutting concern — auth, connectors, telemetry, feature flags — already funnels through it by design, so adding 10× more code anywhere else in the system would multiply the number of features Providers has to mediate, overloading its single entry point.",
+      correct: false,
+      errorName: "applying classical software assumptions to AI",
+      explanation: "This assumes a single shared interface degrades simply because more code exists elsewhere, the way a classical shared server might buckle under more callers — but Providers is a narrow, explicit interface precisely so it does not grow in proportion to the rest of the codebase; the growth pressure in this scenario falls on wherever enforcement is missing, not on the interface designed to stay small.",
+      scaffold: "Separate what Providers actually does (gate a fixed set of cross-cutting concerns) from what would actually strain under more code (an unenforced boundary somewhere else). A narrow, purpose-built interface is the opposite of the kind of component that scales badly with unrelated code growth."
+    },
+    {
+      text: "None of the layers, because the fixed Types → Config → Repo → Service → Runtime → UI dependency direction, once adopted, structurally prevents any layer from becoming a bottleneck no matter how much new code Codex generates inside it going forward.",
+      correct: false,
+      errorName: "survivorship bias",
+      explanation: "A documented dependency-direction rule constrains which way imports can point; it does not guarantee every layer stays bottleneck-free forever as volume grows — assuming a structural rule that worked at the scale it was described at will hold at any future scale, just because it worked so far, is the survivorship-bias trap.",
+      scaffold: "Separate what the rule guarantees (imports only flow one way) from what it does not guarantee (that every layer's internal enforcement stays complete as more code arrives). A direction rule and a completeness guarantee are two different claims."
+    }
+  ];
+
+  return (
+    <section id="rq1" style={{ paddingTop: 24 }}>
+      <SectionHeading id="rq1">RQ1 — How Is Codex's Environment Actually Structured?</SectionHeading>
+      <p>The first question is architectural: what does an engineering team have to build so an agent, not a human, can operate reliably on ambiguous, multi-step goals? The thesis this section defends is that legibility — making the right information visible to the agent, in the repository itself, at the right layer — does more work than any single model upgrade could.</p>
+      <p>OpenAI names the underlying problem directly: "anything [Codex] can't access in-context while running effectively doesn't exist" for it (OpenAI Engineering Blog, 2026). A fact sitting in a Google Doc, a Slack thread, or a person's head is invisible to an agent, no matter how well the humans around it understand it. This pushed the team to continuously migrate tribal knowledge — for example, a Slack thread that once settled an architectural debate — into the repository itself, as versioned files Codex can read (OpenAI Engineering Blog, 2026). Nothing counts as documented unless a machine, not just a person, can find it.</p>
+      <p>The team's first attempt at making instructions legible was "one big AGENTS.md," a single monolithic file meant to tell Codex everything about how to work in the repository. OpenAI reports this failed for four specific reasons: a giant file crowds out the actual task, code, and relevant docs, because context — how much text a model can usefully hold in mind at once — is scarce; too much guidance becomes non-guidance, since if everything is flagged "important," nothing is, and the agent starts pattern-matching locally instead of navigating with intent; the file rots almost immediately, becoming a graveyard of stale rules nobody maintains; and it is hard to check mechanically for coverage, freshness, or ownership, so drift is inevitable (OpenAI Engineering Blog, 2026).</p>
+      <p>The fix reframes what AGENTS.md is for: a table of contents, not an encyclopedia. OpenAI's final AGENTS.md is roughly 100 lines, and it points into a structured <code>docs/</code> directory that is the actual system of record — including design-docs, an exec-plans folder split into active and completed work, generated references, product specs, and top-level files like DESIGN.md, ARCHITECTURE.md, QUALITY_SCORE.md, RELIABILITY.md, and SECURITY.md (OpenAI Engineering Blog, 2026). Plans themselves are treated as first-class, versioned artifacts: lightweight, ephemeral plans for small changes, and "execution plans" with running progress and decision logs for complex, multi-hour work (OpenAI Engineering Blog, 2026; OpenAI Cookbook, 2026). Dedicated linters and CI checks — automated tests run on every change — verify the docs are cross-linked and current, and a recurring "doc-gardening" agent scans for documentation that no longer matches what the code actually does and opens fix-up pull requests on its own (OpenAI Engineering Blog, 2026).</p>
+      <p>Legibility extends past documentation into the code's own shape. OpenAI enforces a fixed set of layers per business domain, with a strictly validated dependency direction: Types → Config → Repo → Service → Runtime → UI. Cross-cutting concerns — auth, connectors, telemetry, feature flags — must enter through one explicit interface called Providers; anything else is disallowed and checked mechanically, using custom, Codex-generated linters and structural tests (OpenAI Engineering Blog, 2026). Notably, OpenAI enforces the invariant, not the implementation — the rule is "parse, don't validate" at data boundaries (check and transform data into a trusted shape once, rather than re-checking it ad hoc everywhere), without prescribing which library does it, and Codex tends to converge on the same third-party library (Zod) on its own (OpenAI Engineering Blog, 2026). OpenAI calls this "the kind of architecture you usually postpone until you have hundreds of engineers," but treats it as an early prerequisite once agents write all the code, because, in the team's words, "the constraints are what allows speed without decay or architectural drift" (OpenAI Engineering Blog, 2026). Even the lint error messages are written to inject remediation instructions directly into the agent's context, so a failed check teaches Codex how to fix itself on the spot (OpenAI Engineering Blog, 2026).</p>
+      <p>The third leg of legibility is runtime, not code. Instead of relying on humans to manually reproduce bugs, OpenAI made the running application itself legible to Codex: the app boots inside its own git worktree (an isolated, per-change copy of the repository) for every task, and the Chrome DevTools Protocol — a browser's own debugging interface — is wired into the agent's runtime with skills for DOM snapshots, screenshots, and page navigation, so Codex can reproduce a bug and verify a fix by actually driving the app (OpenAI Engineering Blog, 2026). A full observability stack — logs, metrics, and traces, three different lenses on what a running system is doing — is stood up per worktree and torn down when the task finishes; Codex queries logs with a query language called LogQL and metrics with PromQL, through tools named Victoria Logs, Victoria Metrics, and Victoria Traces, fed by a collector called Vector (OpenAI Engineering Blog, 2026). That stack turns a vague instruction like "make sure service startup completes in under 800 milliseconds" into something Codex can directly check, not just something a human has to remember to verify. The combined effect of all three legs — documentation, code structure, and runtime — is long enough leash for genuinely long, unattended work: single Codex runs are regularly observed working on one task for six or more hours continuously, often overnight, while no human is watching (OpenAI Engineering Blog, 2026).</p>
+      <p>The honest limit here is that none of this removed the need for human judgment about what to build — it only removed the need for a human to write the code once that judgment was made. OpenAI's account is detailed about structure and thin on exactly how much human time went into designing the layered architecture and the docs system itself in the first five months; the reader can trust that the structure exists and is enforced, but not exactly how the initial investment in building it was staffed or scheduled.</p>
+      <p><strong>Adjacent capability.</strong> OpenAI's layered domain architecture enforces structure along one axis: which direction code dependencies are allowed to point. Cursor's architecture, covered earlier in this series, enforces structure along a different axis entirely — latency budget. Cursor splits its product into a sub-second "Tab" lane, running a small in-house model with minimal context, and a slower agent lane with full semantic search and frontier-model routing, and a content-keyed embedding cache combined with reusing a 92%-similar teammate's index cut Cursor's own p99 (99th-percentile, meaning the slowest realistic case) time-to-first-query from 4.03 hours down to 21 seconds (Evidently AI, 2025). Both companies are partitioning a system to keep one property from silently degrading as the system grows — OpenAI partitions to keep architectural coherence from decaying, Cursor partitions to keep response time from decaying — which shows that "pick the axis that actually threatens you and enforce structure along it" is a more general move than either single case.</p>
+
+      <ArchitectureSVG />
+      <ChartInterp chartId="chart-rq1" state={interp} setState={setInterp} prompts={[
+        { kind: "So-what / prioritization", text: "If a team adopting this pattern can only build mechanical enforcement for one layer boundary first, and their current pain point is cross-cutting code (auth checks, telemetry calls) scattered directly inside Service and Runtime code instead of behind one interface, which boundary should they enforce first using a prioritization framework, and what in the diagram supports that choice?", authored: "Enforce the Providers boundary first: the diagram shows Providers as the single, explicit entry point every cross-cutting concern must pass through, and OpenAI's account states this exact scattering — auth, connectors, telemetry, and feature flags leaking into ordinary layer code — is precisely what Providers exists to prevent. Prioritizing it first addresses the team's stated pain point directly, rather than enforcing a domain-layer boundary (like Repo → Service) that isn't yet where their problem is showing up." },
+        { kind: "Qualitative / mechanism", text: "Why does forcing auth, connectors, telemetry, and feature flags through one Providers interface — rather than letting Service or Runtime code import them directly — matter specifically because Codex, not a human, is writing 100% of the code?", authored: "A human engineer might informally remember “we always route telemetry through the shared client,” even without a hard rule, because humans carry unwritten conventions in their heads across files. Codex has no such memory beyond what is legible in the repo at the moment it acts, and it will happily replicate whatever pattern it sees nearby — including a one-off direct import if that's what an earlier task happened to write. A single mechanically-enforced entry point removes the option to drift at all, which matters far more once there is no human glancing at each file to catch the drift informally." }
+      ]} />
+
+      <MCQ id="rq1-ta" label="T-A · Architecture and system implication" registerScore={registerScore}
+        prompt={"Based on OpenAI's layered domain architecture (Types → Config → Repo → Service → Runtime → UI, with Providers as the one cross-cutting entry point), which component is most likely to become a bottleneck if the total volume of Codex-generated code grows 10× without any new structural enforcement being added, and what does that imply about where a PM should invest next?"}
+        options={options} state={mcq} setState={setMcq} />
+
+      <FermiQ id="rq1-td" state={fermi} setState={setFermi}
+        prompt={"Given OpenAI's two headline totals — on the order of 1,000,000 lines of code and roughly 1,500 merged pull requests over five months — estimate the average number of lines of code per merged PR."}
+        assumptions={"Uses the two reported totals directly (1,000,000 lines ÷ 1,500 PRs); treats lines-of-code as evenly distributed across PRs, which is a simplification — the initial repo scaffold and generated documentation were almost certainly far larger single PRs than a typical incremental change."}
+        tolerancePct={0.10} answer={667} min={0} max={2000} step={5}
+        decomposition={"1,000,000 lines ÷ 1,500 PRs ≈ 667 lines per PR."}
+        scaffold={"If you're far off, check whether you divided in the right direction (lines ÷ PRs, not PRs ÷ lines) and whether you used the correct total lines figure (about a million, not the PR count or engineer count)."} />
+
+      <PatternTransferQ id="rq1-tf" state={ptf} setState={setPtf}
+        prompt={"The principle from this section is: making an agent's environment legible — a table-of-contents AGENTS.md pointing into a structured docs system, a mechanically enforced layered architecture, and a fully observable runtime — lets an agent operate reliably on ambiguous goals, because anything it can't access in-context while running effectively doesn't exist for it. Apply this to a mid-size insurance company building an internal claims-processing tool with a coding agent doing all the implementation. What would the insurance company's engineering lead do differently from OpenAI's approach, and what new failure mode would they face that did not appear in OpenAI's software-product example?"} />
+
+      <PrincipleGate sectionId="rq1" value={principle["rq1"] || ""} onChange={v => setPrinciple(prev => ({ ...prev, rq1: v }))} />
+
+      <Glossary items={[
+        { term: "Context (for a model)", def: "the text a model can actually see and use while it is working — a limited, scarce resource, not an unlimited memory." },
+        { term: "CI (continuous integration)", def: "an automated system that runs checks (tests, linters) on every proposed code change before it can be merged." },
+        { term: "Linter", def: "a tool that automatically scans code for rule violations or bad patterns, without a human reading every line." },
+        { term: "Git worktree", def: "a separate, isolated working copy of a shared code repository, so one change can be built and tested without disturbing others." },
+        { term: "Parse, don't validate", def: "a design rule: transform incoming data into a trusted, checked shape once at the boundary, instead of re-checking untrusted data everywhere it's used." }
+      ]} />
+    </section>
+  );
+}
+
+/* --------------------------------------------------------------------------
+   SECTION: RQ2 RELIABILITY
+   -------------------------------------------------------------------------- */
+function RQ2Reliability({ interp, setInterp, mcq, setMcq, tf, setTf, ptf, setPtf, principle, setPrinciple, registerScore }) {
+  const tbOptions = [
+    {
+      text: "Because merged-PR throughput is a purely mechanical count, similar to a server's requests-per-second figure, it cannot meaningfully relate to a judgment-based property like code quality, since one reflects fixed process cadence and the other reflects a human or agent's evolving skill.",
+      correct: false,
+      errorName: "applying classical software assumptions to AI",
+      explanation: "Treating throughput as “purely mechanical and separate” from quality misapplies a classical-software instinct; in this fully agent-written system, both the pace of merges and the risk of quality drift trace back to the same underlying cause — how well the environment constrains and reviews Codex's output — so they are not walled off from each other the way this option assumes.",
+      scaffold: "Ask what actually drives each number here. Throughput rose because environment investment (legible docs, enforced architecture, agent review) let Codex work with less friction; that same investment is also what keeps quality from drifting — they share a cause, they aren't separate mechanical vs. judgment domains."
+    },
+    {
+      text: "Both figures plausibly share an upstream cause: as OpenAI's environment investment (legible docs, enforced architecture, the agent review loop) matured, it simultaneously let Codex merge more PRs per day and made each PR more likely to meet the repo's quality bar — so rising throughput and stable-to-rising quality are more likely two effects of one shared cause than one causing the other.",
+      correct: true,
+      whyCorrect: "This is correct because it identifies the plausible shared upstream cause (environment maturity) driving both observed trends, which is the strongest reason to doubt that throughput rising directly caused quality to hold up, rather than both improving together for a common reason.",
+      generalizes: "any pair of metrics in a system that improved together right after one shared underlying investment (a documentation system, a review process, an observability stack), rather than one metric mechanically causing the other"
+    },
+    {
+      text: "Merged-PR throughput measures pull requests, while code quality is not measured in the same unit at all, so a rate metric and a non-rate metric cannot be meaningfully compared in the first place, regardless of what caused either one to move.",
+      correct: false,
+      errorName: "confusing rate and level",
+      explanation: "This raises a genuine general caution about comparing metrics in different units, but it isn't the strongest reason to doubt causation here — the actual question is about what caused two trends to move together, not about whether their units are comparable, so this answers a different, narrower objection than the one asked.",
+      scaffold: "Re-check what the question is actually asking: not “can you compare these two numbers directly,” but “what's the strongest reason not to say one caused the other.” A units mismatch doesn't address causation one way or the other."
+    },
+    {
+      text: "Because this is one successful company's account, the pattern of throughput rising without quality collapsing cannot be assumed to hold at companies whose full-autonomy attempts failed, since one successful case says little about how often this pattern holds industry-wide.",
+      correct: false,
+      errorName: "survivorship bias",
+      explanation: "This is a reasonable general caution about generalizing from a success story to the rest of the industry, but it doesn't answer the specific question asked — why these two trends moving together inside this one case shouldn't be read as one causing the other; it changes the subject to external generalizability instead of internal causation.",
+      scaffold: "Re-read the question: it's about causation between two trends inside one account, not about whether the finding generalizes to other companies. A true statement about a different topic isn't the strongest answer to the question actually asked."
+    }
+  ];
+
+  const tcOptions = [
+    {
+      text: "That Codex, or any comparable coding agent, is already reliable enough in general that a checklist of golden principles is a nice-to-have refinement rather than something FinLedger's launch plan actually depends on, since general model capability will keep quality acceptable on its own over time.",
+      correct: false,
+      errorName: "scope creep misdiagnosis",
+      explanation: "This substitutes a different, broader claim (general model capability) for the specific mechanism this plan is actually skipping — mechanically encoded, repo-specific golden principles plus a recurring automated cleanup process — which OpenAI's own account shows general capability alone did not prevent.",
+      scaffold: "Separate “is the underlying model good enough in general” from “does this specific repo have mechanical rules and a recurring cleanup process to stop it from replicating its own bad patterns.” The plan's real gap is the second one."
+    },
+    {
+      text: "That FinLedger will eventually be able to hire engineers experienced enough to write golden principles once the codebase is larger and its own patterns are better understood, so it is safe to treat the current lack of any golden-principles process as a temporary, low-risk gap to close later.",
+      correct: false,
+      errorName: "single-cause fallacy",
+      explanation: "Future hiring availability doesn't address the risk window between launch and that later date, during which Codex is already free to replicate whatever pattern exists, uneven or not — this treats one incidental future fix as if it resolves a risk that exists starting on day one.",
+      scaffold: "Ask whether this assumption, even if it turns out true, removes the risk in question. Being able to hire engineers next year doesn't protect the codebase's coherence in the meantime."
+    },
+    {
+      text: "That code entropy in a fully agent-written repository will surface slowly enough, and be caught by ordinary code review, for the team to notice and correct drift before it compounds — an assumption OpenAI's own account treats as false, since its team tried exactly this (weekly human review) and found it consumed 20% of the week without scaling, before switching to mechanically encoded rules and automated cleanup.",
+      correct: true,
+      whyCorrect: "This names the specific load-bearing assumption — that manual review can keep pace with agent-driven drift — and points to the thinnest evidence for it: OpenAI's own account describes trying exactly this and having it fail to scale, which is the most directly relevant evidence in the article for why this plan is risky.",
+      generalizes: "any plan to rely on periodic manual review to catch quality drift in a codebase where an AI agent is the sole author of new code"
+    },
+    {
+      text: "That launching without any golden-principles process is risky — which restates the concern FinLedger's leadership is already worried about rather than naming the specific, testable belief the launch plan actually depends on, so it does not answer what would have to be true for the plan to be safe.",
+      correct: false,
+      errorName: "hindsight bias in incident analysis",
+      explanation: "Restating “this is risky” doesn't identify what would have to be true for the plan to work anyway; a weakest-link answer has to name the specific belief the plan depends on, not repeat the underlying worry in different words.",
+      scaffold: "A weakest-link assumption is a testable belief the plan needs to be true, not a restatement of the worry itself. Ask: what would FinLedger have to believe about their own repo's drift rate for this plan to be fine without a golden-principles process?"
+    }
+  ];
+
+  return (
+    <section id="rq2" style={{ paddingTop: 24 }}>
+      <SectionHeading id="rq2">RQ2 — What Ways Did This Fully Agent-Written System Fail?</SectionHeading>
+      <p>The second question is about failure: what specific ways did OpenAI's fully autonomous build break in practice, and how did the team fix each one? The thesis this section defends is that the two failure modes OpenAI names are genuinely different problems, needing genuinely different fixes — and that the team's instinct was consistently to build a missing capability rather than to push Codex harder.</p>
+      <p>The first failure mode showed up early, before the team had much structure in place at all. Progress was slower than expected in the first stretch of the project — not because Codex lacked raw capability, but because the environment itself was under-specified: missing tools, missing abstractions, missing internal structure (OpenAI Engineering Blog, 2026). The team's response became a discipline: work depth-first, breaking large goals into small building blocks — design, code, review, test — and use those blocks to unlock more complex tasks. When something failed, the team's question was never "try harder." It was "what capability is missing, and how do we make it legible and enforceable for the agent?" (OpenAI Engineering Blog, 2026). This is a direct instance of RQ1's legibility principle applied to failure response: a stuck agent is read as a missing-capability signal, not a motivation problem.</p>
+      <p>The second failure mode only became visible once the first one was mostly solved and throughput rose. Full autonomy introduced a real, named problem: entropy. Codex replicates whatever pattern already exists in the repository — including uneven or suboptimal ones — and OpenAI states this "inevitably leads to drift" over time (OpenAI Engineering Blog, 2026). This is a structurally different failure from the first one. Under-specification is a one-time gap you close by building the missing piece. Entropy is a compounding process: each new PR that copies a slightly-worse pattern makes that pattern slightly more "normal" for the next PR to copy, and the problem gets worse the faster the team ships, not slower.</p>
+      <p>OpenAI's first fix for entropy was manual, and it did not work. Humans spent every Friday — 20% of the team's work week — cleaning up what the team calls "AI slop" (OpenAI Engineering Blog, 2026). This did not scale, "unsurprisingly" (OpenAI Engineering Blog, 2026): a fixed weekly human cleanup slot is a constant-sized fix applied to a problem that grows with throughput, so as the team's own PR volume rose, the same one day a week bought proportionally less coverage. The team's next fix was mechanical instead of manual: encode opinionated "golden principles" directly into the repository — for example, prefer shared utility packages over hand-rolled helpers, to keep invariants centralized, and never probe data "YOLO-style" (informally, without checking its shape first); validate boundaries or use typed SDKs (pre-built, type-checked client libraries) so Codex cannot build logic on top of a guessed data shape (OpenAI Engineering Blog, 2026). Alongside the rules, OpenAI built a recurring cleanup process: background Codex tasks, run on a regular cadence, that scan for deviations from the golden principles, update quality grades, and open targeted refactoring pull requests — most of which are reviewable in under a minute and get auto-merged (OpenAI Engineering Blog, 2026).</p>
+      <p>OpenAI's own framing of the lesson is worth stating directly, because it reframes what "technical debt" means once an agent, not a human, is generating it: "This functions like garbage collection. Technical debt is like a high-interest loan: it's almost always better to pay it down continuously in small increments than to let it compound and tackle it in painful bursts" (OpenAI Engineering Blog, 2026). The shift from a scheduled human sweep to a continuously-running mechanical process is the same shift RQ1 described for documentation and architecture: move the check from something a person has to remember to do, to something the system does on its own, all the time.</p>
+      <p>This section's evidence has a real limit: OpenAI reports what the golden principles are and that most resulting cleanup PRs are reviewable in under a minute, but it does not publish a quality metric before-and-after the switch — there is no published number showing exactly how much entropy the mechanical fix removes, only a qualitative description of the outcome. A reader can trust that the fix reduced the manual burden enough that the team stopped needing the Friday sweep; a reader cannot verify precisely how close to zero the underlying entropy rate actually got.</p>
+      <p>This matters because the natural response to "the agent is producing worse and worse patterns over time" is to add more human review, on the theory that more human eyes catches more problems. OpenAI's own experience argues against that default: more human review is exactly what they tried first, and it consumed a fixed, non-scaling slice of the week without solving the underlying problem. The fix that actually worked did not add more human attention — it removed the need for it, by making the desired pattern mechanically checkable.</p>
+      <p><strong>Adjacent capability.</strong> Replit Agent, covered earlier in this series, solves a different reliability problem with a different lever. Its main defense is copy-on-write reversibility — storage that keeps a cheap, separate copy of data before a change, so a destructive action (like an accidentally deleted database) can be undone — which is exactly what did not work during a July 2025 incident where the agent deleted a live production database during an explicit code freeze (Replit Blog, 2025). Reversibility answers "how do we undo a destructive action," a single bad event with a clear before-and-after state. Entropy is not destructive in that sense — no single PR looks like an incident, and there is no single moment to roll back to, because the problem is a slow accumulation of many individually-reasonable-looking small changes. A reversibility lever like Replit's would not have caught OpenAI's entropy problem at all, because nothing about a slightly-worse-but-still-working pattern ever triggers an "undo this" moment; the two companies needed genuinely different kinds of machinery because they were defending against genuinely different failure classes.</p>
+
+      <FailureModeTable />
+      <ChartInterp chartId="chart-rq2" state={interp} setState={setInterp} prompts={[
+        { kind: "So-what / kill-criteria", text: "OpenAI's first fix for entropy (weekly manual cleanup, 20% of the week) failed to scale, but the team didn't abandon the goal of clean code — they replaced the mechanism. Using a kill-criteria/pre-mortem framework, what specific signal, if OpenAI had seen it during the manual-cleanup era, should have told the team to kill that approach months earlier than they apparently did?", authored: "The clearest kill signal would be the Friday cleanup slot's share of the week staying flat or shrinking as a fraction of total work while the team's PR volume kept climbing — in other words, watching the ratio of (time spent cleaning) to (PRs merged that week) trend the wrong direction. A fixed 20% commitment that buys proportionally less coverage as volume rises is the signature of a fix that cannot scale with the thing it's meant to control, and that ratio, tracked explicitly, would have been visible well before the team is described as abandoning the approach." },
+        { kind: "Causal / comparative", text: "Environment under-specification (early months) and entropy (once throughput rose) both count as “reliability failures,” but they sit in different rows of this table with different root mechanisms. If a team observed both symptoms — Codex stuck on a task, and Codex quietly copying a bad pattern — in the same week, what is the strongest reason not to assume a single underlying cause explains both?", authored: "A missing capability and a replicated bad pattern point in opposite directions: one means the agent doesn't yet have something it needs (a tool, an abstraction, a doc), and the other means the agent has plenty of examples to copy from — just not good ones. Treating both as “the environment isn't ready” in the same generic sense risks fixing the wrong half: building a new tool does nothing to stop pattern replication, and writing a golden principle does nothing to unblock a genuinely missing capability. OpenAI's own two distinct fixes — build the missing piece vs. encode a mechanical rule — are a structural admission that these are separate failure sources needing separate diagnoses." }
+      ]} />
+
+      <MCQ id="rq2-tb" label="T-B · Technical trend reasoning (causal distinction)" registerScore={registerScore}
+        prompt={"Suppose a team observes merged-PR throughput per engineer rising at the same time their codebase's overall quality holds steady rather than degrading, right after they finish building a legible-documentation system and an agent review loop. What is the strongest reason NOT to conclude that the throughput increase itself directly caused the quality to hold steady?"}
+        options={tbOptions} state={mcq} setState={setMcq} />
+
+      <MCQ id="rq2-tc" label="T-C · PM consulting case (weakest link)" styleVariant="amber" registerScore={registerScore}
+        prompt={"FinLedger Analytics, a mid-size fintech data company, is planning to let a coding agent author all new code in its risk-scoring service, following OpenAI's zero-manually-written-code approach. Leadership is excited about the throughput gains and plans to launch with automated testing and a basic style linter, but no dedicated “golden principles” checklist or recurring automated cleanup process — reasoning that the team can “just review PRs carefully” if quality starts slipping. Which assumption must hold for this launch plan to create value without unacceptable risk, and what evidence in this article is thinnest in supporting it?"}
+        options={tcOptions} state={mcq} setState={setMcq} />
+
+      <TrueFalseQ id="rq2-tg" state={tf} setState={setTf} registerScore={registerScore}
+        prompt={"True or False: because OpenAI encoded golden principles directly into its repository, Codex-generated code no longer requires any further cleanup process going forward."}
+        correctValue={false}
+        authoredJustification={"False — OpenAI's own account describes a recurring, ongoing cleanup process (background Codex tasks running on a regular cadence, scanning for deviations and opening refactoring PRs) that continues indefinitely, not a one-time fix that made further cleanup unnecessary. Golden principles reduce how often drift happens and make the resulting cleanup cheap and fast (often auto-merged in under a minute), but they do not eliminate the need for a continuing check — treating a necessary mitigation as a sufficient, one-time cure over-generalizes what the golden principles actually do."}
+        errorName={"confusing a metric for its cause"} />
+
+      <PatternTransferQ id="rq2-tf" state={ptf} setState={setPtf}
+        prompt={"The principle from this section is: an under-specified environment and entropy from pattern replication are two different reliability failures needing two different fixes — build the missing capability once for the first, and encode mechanical, continuously-enforced rules for the second, because manual review cannot keep pace with a compounding problem. Apply this to a retail company whose AI agent writes and maintains the pricing rules in its e-commerce backend. What would the retail company's engineering team do differently, and what new failure mode would they face that did not appear in OpenAI's software-engineering example?"} />
+
+      <PrincipleGate sectionId="rq2" value={principle["rq2"] || ""} onChange={v => setPrinciple(prev => ({ ...prev, rq2: v }))} />
+
+      <Glossary items={[
+        { term: "Entropy (in a codebase)", def: "the tendency of a system's structure to become messier and less consistent over time as small, individually-reasonable changes accumulate." },
+        { term: "Typed SDK", def: "a pre-built client library for a service whose inputs and outputs are checked against a known, fixed shape, instead of being handled as loose, unchecked data." },
+        { term: "Golden principles", def: "a small set of opinionated, mechanically-checkable rules a team encodes directly into a codebase to keep an AI agent's output consistent." }
+      ]} />
+    </section>
+  );
+}
+
+/* --------------------------------------------------------------------------
+   SECTION: RQ3 EVALUATION
+   -------------------------------------------------------------------------- */
+function RQ3Evaluation({ interp, setInterp, mcq, setMcq, fermi, setFermi, ptf, setPtf, principle, setPrinciple, registerScore }) {
+  const thOptions = [
+    {
+      text: "That OpenAI has enough compute budget to run local and cloud agent reviewers on every single PR indefinitely, since sustaining agent-to-agent review as PR volume grows requires ongoing infrastructure spend that a smaller company attempting the same pattern might not be able to sustain.",
+      correct: false,
+      errorName: "scope creep misdiagnosis",
+      explanation: "Compute budget is a real operational constraint, but it isn't load-bearing to the specific argument that agent-to-agent review substitutes for human review — removing this assumption would make the pattern more expensive to sustain, not falsify the claim that reviewer agents can catch what matters.",
+      scaffold: "Ask: if this assumption turned out false (not enough compute budget), would the core claim “agent review catches meaningful problems” become false too, or just harder to afford? Load-bearing assumptions break the argument itself, not just its cost."
+    },
+    {
+      text: "That the reviewer agents (local and cloud) apply genuinely independent judgment rather than sharing the same blind spots as the authoring agent — if reviewer agents tend to approve of patterns for the same underlying reasons the authoring agent chose them, then agreement among reviewers does not mean a mistake was actually caught; it may just mean the same misjudgment was repeated by every reviewer.",
+      correct: true,
+      whyCorrect: "This is the load-bearing assumption: remove it, and the entire case for pushing “almost all review effort” to agent-to-agent review collapses, even though every step OpenAI describes — self-review, additional agent review, iterate until satisfied — remains exactly as stated, which is exactly what makes an assumption truly load-bearing rather than incidental.",
+      generalizes: "any multi-reviewer system, human or agent, where the reviewers might share a common blind spot with the author instead of applying genuinely independent judgment"
+    },
+    {
+      text: "That end users of OpenAI's internal product actually notice and value whether their bug fixes came from an agent-reviewed process versus a human-reviewed one, since the argument for the review loop's effectiveness ultimately depends on customer perception rather than on what happens inside the review process itself.",
+      correct: false,
+      errorName: "hindsight bias in incident analysis",
+      explanation: "Customer perception of how a fix was reviewed is external to whether the review process itself actually catches mistakes; even if users never noticed or cared, the review loop could still be genuinely effective or genuinely flawed as a quality-control mechanism on its own terms.",
+      scaffold: "Ask whether this assumption is about the argument's internal logic (does the review process catch real problems) or about something outside it entirely (what customers happen to notice). Load-bearing assumptions sit inside the reasoning chain, not outside it."
+    },
+    {
+      text: "That Codex specifically, rather than any comparable coding agent, is the only system capable of reviewing its own pull requests successfully, so the argument that agent-to-agent review works depends specifically on using OpenAI's own model rather than any other agent architecture doing the same reviewing steps.",
+      correct: false,
+      errorName: "single-cause fallacy",
+      explanation: "The argument about agent-to-agent review substituting for human review doesn't hinge on which specific model performs the reviewing — treating the particular agent brand as the load-bearing piece conflates one implementation detail with the actual structural claim being tested (whether independent-enough review happens at all).",
+      scaffold: "Separate the idea (agent-to-agent review can substitute for human review) from the implementation (which specific agent does the reviewing). The idea could hold or fail regardless of which company's agent is doing the work."
+    }
+  ];
+
+  return (
+    <section id="rq3" style={{ paddingTop: 24 }}>
+      <SectionHeading id="rq3">RQ3 — How Does OpenAI Actually Decide Codex's Work Is Trustworthy?</SectionHeading>
+      <p>The third question is about process: with no human required to review most pull requests, how does OpenAI decide a given piece of Codex's work is good enough to merge? The thesis this section defends is that trust is built into the review process itself — agents reviewing agents, repeatedly, until satisfied — rather than checked afterward by a human reading the final diff.</p>
+      <p>To drive a pull request to completion, Codex is instructed to review its own changes locally first, then request additional agent reviews — both a local reviewer and a cloud-based one — respond to whatever feedback comes back, and keep iterating until every agent reviewer is satisfied (OpenAI Engineering Blog, 2026). OpenAI names this pattern the "Ralph Wiggum Loop," crediting the term to an earlier, independent piece of practitioner writing on the same idea (ghuntley.com, 2025; OpenAI Engineering Blog, 2026). Human review of a pull request is optional in this system, not required, and OpenAI states plainly that the team has pushed "almost all review effort" onto agent-to-agent review instead (OpenAI Engineering Blog, 2026).</p>
+      <p>This is a genuinely different model of quality control than "a human reads the diff before it merges." In the conventional model, the reviewer's judgment is the bottleneck and the safeguard at the same time — one person's attention decides both how fast work moves and how carefully it gets checked. In OpenAI's loop, speed and scrutiny are decoupled: the loop can run as many iterations as it needs, as fast as the agents can work, without waiting on a human's calendar, while the requirement to satisfy every reviewer before merging is what keeps the process from just rubber-stamping the first draft.</p>
+      <p>OpenAI also tracks a running measure of how good the code actually is, not just whether it passed review: QUALITY_SCORE.md is one of the top-level documents in the team's structured docs system, functioning as a graded scorecard per domain and layer that the recurring cleanup process (described in RQ2) updates over time (OpenAI Engineering Blog, 2026). This is a second, independent signal from the review loop itself — a PR can pass every reviewer's checks and still leave a domain's quality grade unchanged or improved, giving the team a way to track code health as a trend, not just a pass/fail gate at merge time.</p>
+      <p>The clearest evidence that this process-first approach actually works at scale is what OpenAI reports the repository can now do, unprompted by a human beyond the initial request. By publication time, given a single prompt, Codex can validate the current state of the codebase, reproduce a reported bug, record a video demonstrating the failure, implement a fix, validate that fix by actually driving the running application, record a second video showing the problem is resolved, open a pull request, respond to agent and human feedback, detect and fix its own build failures, escalate to a human only when real judgment is required, and merge the change (OpenAI Engineering Blog, 2026). That is the entire lifecycle of a bug fix, end to end, from one instruction.</p>
+      <p>OpenAI is careful to bound this claim rather than present it as a general result: "this behavior depends heavily on the specific structure and tooling of this repository and should not be assumed to generalize without similar investment — at least, not yet" (OpenAI Engineering Blog, 2026). In other words, the single-prompt threshold is not evidence that any codebase, given a capable enough model, would reach the same point — it is evidence that five months of harness investment (legible docs, enforced architecture, runtime observability, the review loop, and QUALITY_SCORE.md) compounds into a capability that none of those pieces alone would produce.</p>
+      <p>The limit in this section's evidence is the same one that shows up throughout the article: OpenAI describes the review loop's steps and the existence of QUALITY_SCORE.md in detail, but does not publish a defect rate, an escaped-bug count, or any other number showing how often the loop actually catches a real problem versus lets one through. A reader can verify that the process exists and that its most visible output (the single-prompt bug-fix lifecycle) is real; a reader cannot verify, from this source alone, exactly how reliable the underlying review loop is at the level of an individual pull request.</p>
+      <p><strong>Adjacent capability.</strong> Amazon, covered earlier in this series, takes a more formal, metrics-first approach to the same underlying problem — deciding whether an agent's work can be trusted. Rather than a review loop that iterates until reviewers agree, Amazon separately instruments each specific way its production agents can fail: planning, tool selection, tool parameters, response format, authentication, and memory retrieval each get their own dedicated metric, so a wrong final answer can be traced to a specific broken link in the chain rather than judged only as a pass or fail (AWS Machine Learning Blog, 2026). OpenAI's process-first approach (agents reviewing agents until satisfied, plus a running quality grade) and Amazon's metrics-first approach (a distinct instrument for each failure mode) are answering the same question — "can we trust this agent's work?" — with genuinely different philosophies: one bets that iterative review converges on quality, the other bets that quality is only trustworthy once every way it could fail has its own named, tracked signal. Neither article's evidence shows one approach is strictly better; they are different bets a team can make depending on whether its failures are easier to catch by iteration or by targeted instrumentation.</p>
+
+      <RalphWiggumLoopSVG />
+      <ChartInterp chartId="chart-rq3" state={interp} setState={setInterp} prompts={[
+        { kind: "So-what / segmentation", text: "Human review sits at the end of this loop as optional, not required. Using a segmentation framework, how should a team deciding to adopt this pattern segment its own pull requests — by what property — so that some PRs skip human review by default and others are routed to a human even when every agent reviewer is satisfied?", authored: "Segment by the reversibility and blast radius of the change, not by its size or its author: a PR that only an agent can quickly verify and that is cheap to roll back if wrong (an internal tool, a UI copy change) is a good candidate to skip human review by default, while a PR touching payment logic, data deletion, or anything hard to reverse should route to a human even if every agent reviewer approved — because agent reviewers, however good, share the same blind-spot risk this section's T-H question raises, and irreversible changes are exactly where that risk is most expensive." },
+        { kind: "Quantitative reasoning", text: "OpenAI reports 3.5 merged PRs per engineer per day as an average. If you assume an 8-hour workday and treat that day as the full time budget available per engineer for authoring, reviewing, and iterating on their PRs, roughly how much wall-clock time does that leave, on average, per PR for the review loop shown in this chart to run its course?", authored: "8 hours ÷ 3.5 PRs ≈ 2.3 hours per PR, on average. That is a small enough budget that a review loop requiring multiple rounds of human back-and-forth per PR could not sustain this pace — which is itself indirect evidence for why OpenAI needed the loop to run between agents rather than waiting on a human's calendar each round: only a review process that can iterate in minutes, not business days, fits inside a roughly two-hour-per-PR budget." }
+      ]} />
+
+      <MCQ id="rq3-th" label="T-H · Critical reasoning — Assumption" registerScore={registerScore}
+        prompt={"The argument that OpenAI's “Ralph Wiggum Loop” (agent self-review, then additional local and cloud agent review, iterated until every reviewer is satisfied) can safely replace most human review depends on evidence that OpenAI built exactly these review steps and made human review optional. Which assumption, if false, would break this argument even though OpenAI's stated review steps remain exactly as described?"}
+        options={thOptions} state={mcq} setState={setMcq} />
+
+      <FermiQ id="rq3-td" state={fermi} setState={setFermi}
+        prompt={"OpenAI does not publish how many human-engineer-hours a comparable manual pull-request review process would have cost this project. Build your own decomposition path, then estimate: using the stated assumptions, roughly how many total human reviewer-hours would it take for two engineers to manually review all ~1,500 merged PRs, if each PR took 45 minutes for the pair to review together?"}
+        assumptions={"1,500 merged PRs (FACT, OpenAI Engineering Blog, 2026); 45 minutes of review time per PR; 2 human reviewers present for each review session (assumption, not reported by OpenAI — supplied for this exercise)."}
+        tolerancePct={0.10} answer={2250} min={0} max={5000} step={50}
+        decomposition={"1,500 PRs × 45 minutes/PR = 67,500 minutes = 1,125 session-hours; × 2 reviewers per session = 2,250 total reviewer-hours."}
+        scaffold={"Build the chain explicitly: PRs × minutes per PR = total session-minutes; convert to session-hours by dividing by 60; multiply by the number of reviewers per session to get total reviewer-hours. Check each step to find where your number diverged."} />
+
+      <PatternTransferQ id="rq3-tf" state={ptf} setState={setPtf}
+        prompt={"The principle from this section is: pushing review effort to agents reviewing agents, iterated until every reviewer is satisfied, plus a running quality scorecard, can substitute for most human review — but this is a process-first bet on iteration catching problems, a different bet than instrumenting each specific failure mode separately. Apply this to a university IT department using a coding agent to build and maintain its student-records system. What would the university do differently from OpenAI's approach, and what new failure mode would they face that did not appear in this article's evidence?"} />
+
+      <PrincipleGate sectionId="rq3" value={principle["rq3"] || ""} onChange={v => setPrinciple(prev => ({ ...prev, rq3: v }))} />
+
+      <Glossary items={[
+        { term: "Ralph Wiggum Loop", def: "OpenAI's name (crediting an earlier independent write-up) for an agent iterating — self-review, then more agent review, then respond and repeat — until every reviewer is satisfied." },
+        { term: "QUALITY_SCORE.md", def: "a top-level document in OpenAI's docs system that tracks a running quality grade per code domain and layer, separate from any single PR's pass/fail review." },
+        { term: "Escalate (to a human)", def: "when an agent stops and hands a decision to a person, because the situation needs judgment the agent isn't set up to make on its own." }
+      ]} />
+    </section>
+  );
+}
+
+/* --------------------------------------------------------------------------
+   SECTION: WHAT BROKE
+   -------------------------------------------------------------------------- */
+function WhatBroke({ interp, setInterp, mcq, setMcq, registerScore }) {
+  const failOptions = [
+    {
+      text: "That Codex should have been intelligent enough, from the start, to recognize on its own which existing patterns in the repo were good and which were worth deviating from — wrong because no model, however capable, can be expected to distinguish “good pattern to copy” from “bad pattern to copy” without an explicit, external signal telling it which is which.",
+      correct: false,
+      errorName: "hindsight bias in incident analysis",
+      explanation: "This blames the model's general intelligence rather than the structural gap the team actually closed — the lack of any explicit, mechanical signal distinguishing good patterns from bad ones — which is a lesson that sounds obvious only in hindsight, after seeing that golden principles fixed the problem.",
+      scaffold: "Ask what would still have been a problem even with a smarter model. If a smarter Codex would still lack any explicit signal for “this pattern is the one to copy,” then model intelligence was never the actual missing piece."
+    },
+    {
+      text: "That the team's CI test suite was too weak to catch entropy — wrong because passing tests and having good architectural style are different properties; a PR that faithfully replicates an uneven or suboptimal pattern can still pass every functional test perfectly, since tests check behavior, not whether the code's shape matches the repo's best available convention.",
+      correct: false,
+      errorName: "scope creep misdiagnosis",
+      explanation: "This blames a real but different control — functional test coverage — instead of the actual gap, which was the absence of any mechanical check for architectural or stylistic consistency; strengthening functional tests would not have stopped a working-but-inconsistent pattern from spreading.",
+      scaffold: "Trace what CI tests actually check: does the code behave correctly. Entropy is about whether the code's style and pattern choices stay consistent with the repo's best practice — a property tests were never designed to verify."
+    },
+    {
+      text: "That the original assumption — uncontroversial at the time — was that periodic human review, even at a fixed weekly cadence, could keep pace with quality drift in a fully agent-written codebase; this was wrong because drift compounds with the volume of new code produced, so a fixed-size weekly review slot covers a shrinking share of the problem as throughput rises, which is exactly the mismatch OpenAI's own account describes.",
+      correct: true,
+      whyCorrect: "This names the actual assumption the team is described as having held and then abandoning: that a fixed periodic human check could scale with a compounding problem. OpenAI's own account of the Friday-cleanup era failing “unsurprisingly” as volume grew is direct evidence this assumption, not model capability or test coverage, was the one that broke.",
+      generalizes: "any plan to control a compounding, volume-linked problem (technical debt, data drift, security exposure) with a fixed-size periodic manual check rather than a mechanism that scales with the problem itself"
+    },
+    {
+      text: "That the entropy problem was caused entirely by the specific two golden principles OpenAI eventually wrote — shared utility packages over hand-rolled helpers, and never probing data “YOLO-style” — not existing yet, so simply publishing those two rules on day one would have prevented the failure regardless of whether any recurring cleanup process was ever built.",
+      correct: false,
+      errorName: "single-cause fallacy",
+      explanation: "This treats one contributing piece (the specific rules) as the whole fix, but OpenAI's account pairs the golden principles with a recurring, automated cleanup process that scans for deviations and opens refactoring PRs — rules alone, without an ongoing mechanism enforcing them, would not have closed the loop the way the combined fix did.",
+      scaffold: "Ask: if only the two rules existed, with no recurring process checking for violations, would entropy still creep in over time? If yes, the rules alone were never the complete explanation."
+    }
+  ];
+
+  return (
+    <section id="broke" style={{ paddingTop: 24 }}>
+      <SectionHeading id="broke">What Broke</SectionHeading>
+      <Callout kind="fail">
+        <p style={{ marginTop: 0 }}>Full agent autonomy introduced a real, named problem into OpenAI's five-month build: entropy. Codex replicates patterns that already exist in the repository — including uneven or suboptimal ones — and OpenAI states this "inevitably leads to drift" over time (OpenAI Engineering Blog, 2026). This did not surface on day one. It showed up only once the team's environment investment (RQ1) had removed the early under-specification problem and throughput started rising: the faster Codex shipped, the faster any slightly-worse pattern it copied became "normal" for the next piece of code to copy from.</p>
+        <p>The assumption the team held, apparently without stating it out loud at first, was that periodic human attention could keep this kind of drift under control the way code review has always kept human-written drift under control. It could not, for a specific, structural reason: a codebase where 100% of new code comes from an agent that copies whatever it sees nearby produces drift that scales with volume, not with time — more PRs per day means more chances for a slightly-worse pattern to spread, so a fixed weekly review slot covers a shrinking fraction of the problem as the team's own success (rising throughput) makes the problem grow faster.</p>
+        <p>The first fix cost the team directly and immediately: humans spent every Friday — 20% of the team's entire work week — manually cleaning up "AI slop" (OpenAI Engineering Blog, 2026). Losing a fifth of the week to cleanup is a real, ongoing tax on a team that had just proven it could multiply its own output by removing other bottlenecks — and OpenAI's own account states plainly that this approach "did not scale," calling the outcome unsurprising (OpenAI Engineering Blog, 2026). The team then replaced the manual sweep with a mechanical one: golden principles encoded directly in the repo, plus recurring background Codex cleanup tasks that scan for deviations, update quality grades, and open targeted refactoring pull requests — most of which are reviewable in under a minute and get auto-merged (OpenAI Engineering Blog, 2026). The unstated cost of building that mechanical fix is not published; what is published is that it replaced a standing, non-scaling 20%-of-the-week cost with a process the team no longer had to run by hand.</p>
+        <p style={{ marginBottom: 0 }}>The lesson, in OpenAI's own words, reframes what "technical debt" means once code volume is no longer limited by how fast a human can type: "This functions like garbage collection. Technical debt is like a high-interest loan: it's almost always better to pay it down continuously in small increments than to let it compound and tackle it in painful bursts" (OpenAI Engineering Blog, 2026). The failure here is not that OpenAI's approach doesn't work — it is that the version of "review" borrowed from human-authored codebases (a person periodically looks things over) does not survive contact with a system where the volume of new code is no longer bounded by human typing speed. A team adopting this pattern should expect to build the mechanical fix from the start, not discover, the way OpenAI did, that the human-shaped version of the fix runs out of scale first.</p>
+      </Callout>
+
+      <EntropyTimelineSVG />
+      <ChartInterp chartId="chart-broke" state={interp} setState={setInterp} prompts={[
+        { kind: "So-what / build-buy-partner (sacrifice ratio)", text: "Era 1 cost the team 20% of its week, every week, with no published end date until the switch to Era 2. Using a build/buy/partner framework and a sacrifice ratio, would you recommend a new team starting this kind of project build its own golden-principles-and-cleanup-agent system from day one, or start with manual review and only build the mechanical fix once volume makes it necessary — and what is the sacrifice ratio of choosing wrong in each direction?", authored: "Build the mechanical system from day one if at all possible: the sacrifice ratio of over-building early is small (some upfront engineering time on rules and a cleanup-agent cadence before volume strictly requires it), while the sacrifice ratio of under-building is a recurring 20%-of-the-week tax that, by OpenAI's own account, does not scale down on its own — waiting for pain before building the fix means paying the expensive, non-scaling cost for however long it takes to notice and rebuild, which is exactly the painful-burst pattern OpenAI's own garbage-collection framing warns against." },
+        { kind: "Qualitative / mechanism", text: "Era 2's fix (golden principles plus recurring cleanup agents) succeeded where Era 1's fix (a fixed weekly human slot) failed. What structural difference between “a person periodically looks things over” and “a mechanical rule plus an always-running background check” explains why one scales with rising PR volume and the other does not?", authored: "A fixed weekly human slot has a constant capacity — one day, one team's attention — no matter how many PRs get merged that week, so its coverage of the problem shrinks as volume rises. A mechanical rule plus a recurring automated task has no such fixed ceiling: the cleanup agent can, in principle, run as often as needed and check every new PR against the same rule, so its capacity scales along with the thing it's checking, rather than staying fixed while the workload around it grows." }
+      ]} />
+
+      <MCQ id="broke-fail" label="Failure-case reasoning" registerScore={registerScore}
+        prompt={"Given that OpenAI's account describes the manual Friday cleanup era failing to scale and being replaced by mechanically encoded golden principles plus a recurring automated cleanup process, which assumption in the original design was most likely held by the team as uncontroversial at the time — and why was it wrong?"}
+        options={failOptions} state={mcq} setState={setMcq} />
+
+      <Glossary items={[
+        { term: "“AI slop”", def: "OpenAI's own term for the uneven, suboptimal code patterns that spread through a repository once an agent starts copying its own earlier, imperfect work." },
+        { term: "Quality grade (per domain)", def: "a running score tracking how well a specific part of the codebase follows the team's encoded best practices, updated over time rather than checked only once." }
+      ]} />
+    </section>
+  );
+}
+
+/* --------------------------------------------------------------------------
+   SECTION: LEARNING SUMMARY
+   -------------------------------------------------------------------------- */
+function LearningSummary({ principle, mcq, tf, fermi, score, total, warmUpResult, insightSlot, setInsightSlot, insightRevealed, setInsightRevealed, applyPresent, setApplyPresent, apply2027, setApply2027, registerScore, onContinue }) {
+  const AUTHORED_PRINCIPLES = {
+    rq1: "Making an agent's environment legible — a table-of-contents AGENTS.md into a structured docs system, a mechanically enforced layered architecture, and a fully observable runtime — is what lets an agent operate reliably on ambiguous goals; anything it can't access in-context while running effectively doesn't exist for it.",
+    rq2: "Under-specification and entropy are different failure modes needing different fixes: build the missing capability once for the first, and encode mechanical, continuously-enforced rules (not periodic manual review) for the second, because manual review cannot keep pace with a problem that compounds with output volume.",
+    rq3: "Pushing review effort to agents reviewing agents, iterated until every reviewer is satisfied, plus a running quality scorecard, is a process-first bet that iteration catches problems — a genuinely different bet than instrumenting each specific failure mode separately, and it is what let a single prompt eventually drive an entire bug-fix lifecycle end to end."
+  };
+  const AUTHORED_INSIGHTS = [
+    "OpenAI's own AGENTS.md failure — one giant file that crowded out context, diluted guidance, rotted, and resisted mechanical verification — shows that legibility isn't the same as documentation volume; a 100-line table of contents into a structured, linted docs system beat an encyclopedia, because it matched how a model actually consumes context, not how a human skims a wiki.",
+    "The Friday-cleanup era proves that “add more human review” is not a safe default response to AI-driven quality drift once code volume is no longer bounded by human typing speed: a fixed 20%-of-the-week human slot failed specifically because it could not scale with the thing it was trying to control, while a mechanical rule plus an always-running cleanup agent could.",
+    "OpenAI's single-prompt, end-to-end bug-fix threshold is not evidence that a capable enough model automatically reaches this point — OpenAI's own explicit caveat is that it depends on this specific repository's five months of harness investment, meaning the achievement is a property of the environment built, not of the model alone."
+  ];
+
+  const missed = [];
+  Object.keys(mcq).forEach(id => {
+    const q = mcq[id];
+    if (q && q.submitted && q.options && q.selected != null && !q.options[q.selected].correct) missed.push({ id, error: q.options[q.selected].errorName });
+  });
+  Object.keys(tf || {}).forEach(id => {
+    const q = tf[id];
+    if (q && q.submitted && id === "rq2-tg" && q.choice === true) missed.push({ id, error: "confusing a metric for its cause" });
+  });
+
+  const applyPresentComplete = applyPresent.thesis.length > 10 && applyPresent.assumption.length > 10 && applyPresent.disconfirm.length > 10 && applyPresent.premortem.length > 10;
+
+  const te2027Options = [
+    { text: "The load-bearing assumption it replaces is that OpenAI needs three separate document owners (docs, architecture, quality) to maintain the system indefinitely, which 2027-era tooling would consolidate into one role regardless of model capability, freeing headcount without changing what the docs system or the layered architecture actually enforces.", correct: false, errorName: "scope creep misdiagnosis", explanation: "Document ownership structure is an organizational detail, not the load-bearing technical assumption a 2027-era reasoning improvement would actually replace — the argument is about diagnostic capability, not staffing." },
+    { text: "The load-bearing assumption it replaces is that mechanically enforced, external rules (golden principles, layer boundaries, lint checks) are the only reliable way to prevent drift — but if production-scale testing showed 2027-era models still confidently reproduced a subtly bad pattern they had judged as “good” under their own self-review, that finding would most directly weaken this article's governing principle, because it would show self-review still needs the same external, mechanical checks.", correct: true, whyCorrect: "This correctly names the load-bearing assumption a 2027-era self-review improvement would replace, and states a concrete, falsifying observation (confidently wrong self-judgment persisting despite better reasoning) as required.", generalizes: "any argument for replacing external, mechanical enforcement with a model's own improved self-review or self-judgment as models get better" },
+    { text: "The load-bearing assumption it replaces is that OpenAI's specific choice of tools — Victoria Logs, Victoria Metrics, Victoria Traces, and Vector — is the only observability stack capable of making a running application legible to an agent, so the argument depends specifically on those named tools rather than on the general idea of runtime legibility.", correct: false, errorName: "single-cause fallacy", explanation: "The argument about runtime legibility mattering doesn't depend on which specific named tools implement it — treating the tool brand names as the load-bearing piece conflates one implementation detail with the actual structural claim (that the running system must be observable to the agent) being tested." },
+    { text: "The load-bearing assumption it replaces is that OpenAI's tool catalog and codebase will simply stop growing once foundation models improve enough, removing the need for the layered architecture and Providers interface entirely and letting a future team skip the architectural enforcement this article's first research question described.", correct: false, errorName: "applying classical software assumptions to AI", explanation: "Codebase growth is unrelated to whether improved model reasoning would let a team drop mechanical architectural enforcement — a better model does not change how much code a growing product needs, so this option answers a question that wasn't asked." }
+  ];
+
+  return (
+    <section id="summary" style={{ paddingTop: 24 }}>
+      <SectionHeading id="summary">Learning Summary</SectionHeading>
+
+      <h3 style={{ fontSize: 18 }}>Score breakdown</h3>
+      <p>You answered {total} scored questions and got {score} correct.</p>
+      {missed.length > 0 ? (
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ fontWeight: 600, marginBottom: 6 }}>Reasoning errors to revisit:</div>
+          {missed.map((m, i) => <div key={i} style={{ fontSize: 14, marginBottom: 4 }}>• {m.error || "see explanation above"}</div>)}
+        </div>
+      ) : <p style={{ fontSize: 14, color: "#64748B" }}>No missed questions yet, or none answered.</p>}
+      <p style={{ fontSize: 14 }}>
+        Warm-up: {warmUpResult.skipped ? `Skipped — 3 prior principles not reviewed this session.` : `${warmUpResult.completed} of 3 prior principles reviewed.`}
+      </p>
+
+      <h3 style={{ fontSize: 18 }}>Principle production review</h3>
+      {["rq1", "rq2", "rq3"].map(id => (
+        <div key={id} style={{ border: "1px solid #E2E8F0", borderRadius: 8, padding: 14, marginBottom: 10 }}>
+          <div style={{ fontSize: 12, color: "#64748B", textTransform: "uppercase", fontWeight: 700 }}>{id.toUpperCase()}</div>
+          <div style={{ marginTop: 6 }}><strong>Your submission:</strong> {principle[id] || "(not submitted)"}</div>
+          <div style={{ marginTop: 6 }}><strong>Authored:</strong> {AUTHORED_PRINCIPLES[id]}</div>
+        </div>
+      ))}
+      <p style={{ fontSize: 14 }}>Which of your stated principles surprised you most compared to the authored version? Why?</p>
+
+      <h3 style={{ fontSize: 18 }}>Three insight slots</h3>
+      <p>You have seen evidence across three research questions and a real failure. Write the single most non-obvious insight you would defend to a skeptical CTO, before seeing the authored insights.</p>
+      {!insightRevealed ? (
+        <>
+          <textarea rows={3} value={insightSlot} onChange={e => setInsightSlot(e.target.value)}
+            placeholder="Your insight (min. 30 characters)..."
+            style={{ width: "100%", borderRadius: 6, border: "1px solid #CBD5E1", padding: 8, fontSize: 14, fontFamily: "inherit" }} />
+          <div style={{ marginTop: 8 }}>
+            <button disabled={insightSlot.length < 30} style={btnStyle(insightSlot.length < 30)} onClick={() => setInsightRevealed(true)}>
+              {insightSlot.length < 30 ? `Enter ${30 - insightSlot.length} more characters` : "Reveal authored insights"}
+            </button>
+          </div>
+        </>
+      ) : (
+        <div>
+          <div style={{ padding: 10, background: "#F8FAFC", borderRadius: 6, marginBottom: 10 }}><strong>Your insight:</strong> {insightSlot}</div>
+          <div style={{ fontWeight: 600, marginBottom: 6 }}>How your insight compares:</div>
+          {AUTHORED_INSIGHTS.map((a, i) => <div key={i} style={{ padding: 10, background: "#ECFDF5", borderRadius: 6, marginBottom: 8, fontSize: 14 }}>{a}</div>)}
+        </div>
+      )}
+
+      <h3 style={{ fontSize: 18 }}>Apply It</h3>
+      <Callout kind="note">
+        <div style={{ fontWeight: 600, marginBottom: 8 }}>Present-day variant</div>
+        <p style={{ marginTop: 0 }}>Apply the governing principle to a company or product you know. Fill in all four labeled parts.</p>
+        {["thesis", "assumption", "disconfirm", "premortem"].map((key, i) => {
+          const labels = ["One-sentence so-what thesis", "Load-bearing assumption", "Strongest disconfirming evidence from the article", "One-line pre-mortem: “If this fails in 12 months, the most likely reason is ___.”"];
+          return (
+            <div key={key} style={{ marginBottom: 10 }}>
+              <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 4 }}>{labels[i]}</div>
+              <input value={applyPresent[key]} onChange={e => setApplyPresent(prev => ({ ...prev, [key]: e.target.value }))}
+                disabled={applyPresent.submitted}
+                style={{ width: "100%", borderRadius: 6, border: "1px solid #CBD5E1", padding: 8, fontSize: 14 }} />
+            </div>
+          );
+        })}
+        {!applyPresent.submitted ? (
+          <button disabled={!applyPresentComplete} style={btnStyle(!applyPresentComplete)}
+            onClick={() => setApplyPresent(prev => ({ ...prev, submitted: true }))}>
+            {applyPresentComplete ? "Submit" : "Fill in all four parts to enable Submit"}
+          </button>
+        ) : (
+          <div style={{ padding: 10, background: "#ECFDF5", borderRadius: 6, marginTop: 8 }}>
+            Saved. A strong response climbs from observation ("OpenAI's agent writes a lot of code fast") to a quantified, decision-relevant implication — for example, naming the specific harness investment (docs restructuring, layered architecture, an observability stack, a review loop) your chosen company would still need to build, and what evidence would tell you it's missing.
+          </div>
+        )}
+      </Callout>
+
+      <Callout kind="note">
+        <div style={{ fontWeight: 600, marginBottom: 8 }}>2027 forward-looking variant (T-E, with falsification clause)</div>
+        <MCQ id="apply2027-te" label="Forward-looking implication" registerScore={registerScore}
+          prompt={"Given OpenAI's own case, but assuming 2027-era models can reliably self-review their own code well enough to catch subtly bad patterns without any external, mechanical rule — a capability that does not fully exist in the systems described in this article — which load-bearing assumption in OpenAI's current entropy-prevention design would this most directly replace, and what evidence would most change confidence in the article's governing principle?"}
+          options={te2027Options} state={apply2027} setState={setApply2027} />
+      </Callout>
+
+      <h3 style={{ fontSize: 18 }}>Return to section map — principles to revisit</h3>
+      {missed.length > 0 ? missed.map((m, i) => <div key={i} style={{ fontSize: 14 }}>• {m.id}: {m.error || "see explanation above"}</div>) : <p style={{ fontSize: 14, color: "#64748B" }}>Nothing missed to revisit yet.</p>}
+
+      <div style={{ textAlign: "center", margin: "30px 0" }}>
+        <button style={btnStyle(false)} onClick={onContinue}>Continue to Conclusion →</button>
+      </div>
+    </section>
+  );
+}
+
+/* --------------------------------------------------------------------------
+   SECTION: CONCLUSION
+   -------------------------------------------------------------------------- */
+function Conclusion({ ptf, setPtf }) {
+  return (
+    <section id="conclusion" style={{ paddingTop: 24 }}>
+      <SectionHeading id="conclusion">Conclusion</SectionHeading>
+      <p>The governing principle holds up well against both the success evidence and the failure case, with one honest amendment: designing the environment — legible docs, enforced architecture, observable runtime, agent-to-agent review — is what let three engineers, growing to seven, merge about 1,500 pull requests and roughly a million lines of code in five months with zero manually-written lines, and it is also what eventually stopped entropy, but only after a first, human-shaped fix (weekly manual cleanup) failed and cost 20% of the week. Partial failure of this principle looks exactly like OpenAI's Friday-cleanup era: a team with a genuinely well-designed environment for code generation still exposed at the one layer they had not yet made mechanical — catching drift in the patterns Codex was allowed to copy.</p>
+      <p>For an AI PM, this changes what "we've adopted AI-native development" should mean when a team claims it. The right follow-up question is not "how much of your code does the agent write" but "what have you made mechanically enforceable — your architecture's dependency rules, your data-boundary checks, your documentation's freshness — versus what are you still asking a human to remember to check periodically." A team that has delegated code-writing but still relies on a person's memory or a weekly meeting to catch drift has OpenAI's throughput without OpenAI's entropy fix, which is close to where OpenAI itself started.</p>
+      <p>For a future CTO, the platform implication is that harness investment — the docs system, the layered architecture and its linters, the runtime observability stack, the review loop, the quality scorecard — is not overhead you pay once and then move past. It is the actual product of the engineering organization once agents are doing the coding, and OpenAI's own account is explicit that this kind of architectural discipline is normally something companies postpone until they have hundreds of engineers, not something a 3-person team would usually build in month one. Building it early, before scale strictly requires it, is what let this team's throughput rise instead of fall as headcount grew.</p>
+      <p>The most important question this case does not answer is how architectural coherence, and the golden-principles-plus-cleanup-agent fix specifically, holds up over years rather than five months — OpenAI itself says plainly that it does not yet know how this evolves over a longer horizon, where human judgment adds the most leverage in a system like this, or how any of it changes as the underlying models keep improving. The team frames the work ahead not as writing better code, but as "designing environments, feedback loops, and control systems" — and no company, including OpenAI, has yet published what that discipline looks like at three or five years of compounding, rather than five months.</p>
+
+      <PatternTransferQ id="final-tf" state={ptf} setState={setPtf}
+        prompt={"Final pattern transfer. The article's governing principle is: when agents write all the code, the engineering team's job becomes designing the environment — repo-local legibility, mechanically enforced architecture, and full runtime observability — that lets an agent do reliable work, and that same full autonomy also produces new failure modes (like entropy) that need mechanical, not manual, fixes. Apply this to a regional public-transit agency building and maintaining its own real-time bus-tracking and rider-alert system entirely with a coding agent, with a small team of engineers steering it. Name the principle accurately, apply it to this new context in a genuinely non-trivial way (not a re-labeling of OpenAI's internal software product), and name a new failure mode that would not appear in any of this article's evidence."} />
+
+      <div style={{ marginTop: 40, borderTop: "1px solid #E2E8F0", paddingTop: 20 }}>
+        <div style={{ fontWeight: 700, marginBottom: 10 }}>Sources</div>
+        {SOURCES.map((s, i) => (
+          <div key={i} style={{ fontSize: 13, marginBottom: 10, lineHeight: 1.5 }}>
+            <a href={s.url} target="_blank" rel="noreferrer">{s.name}</a> ({s.year}) — <em>{s.tier}</em>. Used for: {s.use}
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+/* --------------------------------------------------------------------------
+   MOUNT
+   -------------------------------------------------------------------------- */
+const root = ReactDOM.createRoot(document.getElementById("root"));
+root.render(<App />);
+</script>
+</body>
+</html>

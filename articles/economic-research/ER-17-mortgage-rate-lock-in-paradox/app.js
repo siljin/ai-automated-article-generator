@@ -1,0 +1,1146 @@
+/* ============================================================================
+   Golden Handcuffs: The Mortgage Rate Lock-In Freezing the U.S. Housing Market
+   Domain: Economics & macro
+   ============================================================================ */
+
+const { useState, useEffect, useMemo } = React;
+const {
+  LineChart, Line, BarChart, Bar, ComposedChart, ScatterChart, Scatter,
+  XAxis, YAxis, ZAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
+  ReferenceLine, Cell, LabelList,
+} = Recharts;
+
+/* ----------------------------------------------------------------------------
+   SOURCES
+---------------------------------------------------------------------------- */
+const SOURCES = [
+  { id: "wolfstreet2026", label: "Wolf Street, “Sales of Existing Homes in 2025 Drop to Lowest since 1995, Sellers Massively Yank Listings off the Market, Waiting for Spring,” Jan. 14, 2026", url: "https://wolfstreet.com/2026/01/14/sales-of-existing-homes-in-2025-drop-to-lowest-since-1995-sellers-massively-yank-listings-off-the-market-waiting-for-spring/" },
+  { id: "hw2026", label: "HousingWire (Mike Simonsen, Compass), “When will home sales finally return to normal?,” Jun. 16, 2026", url: "https://www.housingwire.com/articles/when-will-existing-home-sales-finally-return-to-normal/" },
+  { id: "fhfa2024", label: "FHFA Working Paper 24-03 (Batzer, Coste, Doerner, Seiler), “The Lock-In Effect of Rising Mortgage Rates,” Mar. 18, 2024", url: "https://www.fhfa.gov/research/papers/wp2403" },
+  { id: "fed2024", label: "Federal Reserve Board, FEDS 2024-088 (Aladangady, Krimmel, Scharlemann), “Locked In: Mobility, Market Tightness, and House Prices,” Nov. 2024, rev. May 2025", url: "https://www.federalreserve.gov/econres/feds/locked-in-rate-hikes-housing-markets-and-mobility.htm" },
+  { id: "jof2024", label: "Fonseca & Liu, “Mortgage Lock-In, Mobility, and Labor Reallocation,” Journal of Finance, 2024", url: "https://onlinelibrary.wiley.com/doi/10.1111/jofi.13398" },
+  { id: "redfin2025", label: "Redfin, “More Homeowners Have a Rate Above 6% Than a Rate Below 3% For the First Time in 5 Years,” 2026", url: "https://www.redfin.com/news/mortgage-rates-q3-2025/" },
+  { id: "crblog2019", label: "Calculated Risk, “NAR: Existing-Home Sales Increased to 5.34 million in May,” Jun. 2019 (2019 annual context)", url: "https://www.calculatedriskblog.com/2019/06/nar-existing-home-sales-increased-to.html" },
+  { id: "nmp2022", label: "National Mortgage Professional, “Existing Home Sales in 2021 Hit Highest Level Since 2006,” Jan. 2022", url: "https://nationalmortgageprofessional.com/news/existing-home-sales-2021-hit-highest-level-2006" },
+  { id: "narstats", label: "National Association of Realtors, Existing-Home Sales statistics (2023 total: 4.09 million, lowest since 1995)", url: "https://www.nar.realtor/research-and-statistics/housing-statistics/existing-home-sales" },
+  { id: "tnd2026", label: "The National Desk (Cory Smith), “Record home prices aren't enough to bring more sellers to market,” Jul. 9, 2026", url: "https://thenationaldesk.com/news/americas-news-now/record-home-prices-arent-enough-to-bring-more-sellers-to-market-national-association-of-realtors-june-2026-existing-home-sales-report-housing-market-economy-inflation" },
+  { id: "freddiemac2026", label: "Freddie Mac, Primary Mortgage Market Survey, “Mortgage Rates Average 6.69%,” Aug. 6, 2026", url: "https://www.globenewswire.com/news-release/2026/08/06/3340559/0/en/mortgage-rates-average-6-69.html" },
+  { id: "coldwell2026", label: "Coldwell Banker, “Mortgage Rate 'Lock-In Effect' Eases; One in Three Home Sellers are Giving up a Sub-5% Rate to List this Spring,” 2026", url: "https://www.prnewswire.com/news-releases/coldwell-banker-mortgage-rate-lock-in-effect-eases-one-in-three-home-sellers-are-giving-up-a-sub-5-rate-to-list-this-spring-302751081.html" },
+  { id: "jchs2024", label: "Joint Center for Housing Studies, Harvard University, “Household Mobility Fell to Record Low in 2024”", url: "https://www.jchs.harvard.edu/blog/household-mobility-fell-record-low-2024" },
+  { id: "bankunderground2024", label: "Bank Underground (Bank of England), “Long-term fixed-rate mortgages through an international lens,” Oct. 9, 2024", url: "https://bankunderground.co.uk/2024/10/09/long-term-fixed-rate-mortgages-through-an-international-lens-could-they-lead-to-higher-home-ownership/" },
+  { id: "oecd2021", label: "OECD, “Mortgage finance across OECD countries,” 2021", url: "https://www.oecd.org/content/dam/oecd/en/publications/reports/2021/12/mortgage-finance-across-oecd-countries_3ea2ed89/f97d7fe0-en.pdf" },
+  { id: "msci2025", label: "MSCI / HedgeNordic, “Danish Mortgage Market: Flexibility for Borrowers, Complexity for Investors,” 2025", url: "https://hedgenordic.com/2025/11/danish-mortgage-market-flexibility-for-borrowers-complexity-for-investors/" },
+  { id: "mr2026", label: "Marginal Revolution (Tyler Cowen), “A Danish Fix for U.S. Mortgage Lock-in,” Mar. 2026", url: "https://marginalrevolution.com/marginalrevolution/2026/03/a-danish-fix-for-u-s-mortgage-lock-in.html" },
+  { id: "bpc", label: "Bipartisan Policy Center, “Can Assumable or Portable Mortgages Unlock the Housing Market?”", url: "https://bipartisanpolicy.org/explainer/can-assumable-or-portable-mortgages-unlock-the-housing-market/" },
+];
+
+const src = (id) => {
+  const s = SOURCES.find((x) => x.id === id);
+  return s ? s.label.split(",")[0].replace(/“.*/, "").trim() : id;
+};
+
+/* ----------------------------------------------------------------------------
+   GLOSSARY (per page)
+---------------------------------------------------------------------------- */
+const GLOSSARY = {
+  intro: [
+    { term: "Mortgage rate lock-in", def: "A homeowner avoiding a sale because selling means giving up a low fixed mortgage rate for a much higher one on the next home." },
+    { term: "Fixed-rate mortgage", def: "A home loan whose interest rate stays the same for the whole loan term, so the payment never changes because of market rates." },
+    { term: "Existing-home sales", def: "Sales of homes that were already built and lived in before, as opposed to brand-new construction — the measure most affected by lock-in." },
+  ],
+  background: [
+    { term: "Seasonally adjusted annual rate (SAAR)", def: "A monthly figure scaled up to show what the year's total would be if that month's pace continued, with normal seasonal swings removed." },
+    { term: "Outstanding mortgage rate", def: "The interest rate a homeowner is actually paying right now on an existing loan, as opposed to the rate offered to new borrowers today." },
+  ],
+  rq1: [
+    { term: "Household mobility", def: "How often people move to a different home, measured as the share of a population that relocates in a given year." },
+    { term: "Present value (PV)", def: "A future stream of costs or payments converted into one amount, showing what that stream is worth measured in today's dollars." },
+  ],
+  rq2: [
+    { term: "Assumable mortgage", def: "A home loan a buyer can take over from the seller, keeping the seller's original interest rate instead of getting a brand-new one." },
+    { term: "Callable bond", def: "A bond whose issuer, or in Denmark's system the borrower, has the right to buy it back before it matures, usually near its current market price." },
+    { term: "OECD", def: "The Organisation for Economic Co-operation and Development, a group of mostly high-income countries that compares economic policy and data across members." },
+  ],
+  rq3: [
+    { term: "Decay rate (economic)", def: "How fast a quantity shrinks each period through ordinary turnover, expressed as a percentage of what remains, like radioactive decay." },
+    { term: "Order-of-magnitude estimate", def: "A rough estimate meant to get the right general size of a number, such as thousands versus millions, not its exact value." },
+  ],
+};
+
+/* ----------------------------------------------------------------------------
+   SMALL SHARED UI PIECES
+---------------------------------------------------------------------------- */
+function FactTag({ tier }) {
+  const cls = tier === "FACT" ? "tag tag-fact" : tier === "ESTIMATE" ? "tag tag-estimate" : "tag tag-illustration";
+  return <span className={cls}>{tier}</span>;
+}
+
+function ChartNote({ children }) {
+  return <p className="chart-note">{children}</p>;
+}
+
+function GlossaryPanel({ pageKey }) {
+  const items = GLOSSARY[pageKey];
+  if (!items || items.length === 0) return null;
+  return (
+    <div className="glossary-panel">
+      <div className="glossary-label">Glossary</div>
+      {items.map((g, i) => (
+        <p key={i} className="glossary-item"><strong>{g.term}</strong> — {g.def}</p>
+      ))}
+    </div>
+  );
+}
+
+/* Chart interpretation: two gated free-text prompts beneath a chart */
+function ChartInterpretation({ chartId, prompts, state, onSubmit }) {
+  return (
+    <div className="interp-block">
+      {prompts.map((p, idx) => {
+        const key = `${chartId}-ip${idx}`;
+        const st = state[key] || { submitted: false, text: "" };
+        return (
+          <div className="interp-row" key={key}>
+            <div className="interp-kind">{p.kind}</div>
+            <p className="interp-prompt">{p.prompt}</p>
+            {!st.submitted && (
+              <InterpForm onSubmit={(text) => onSubmit(key, text)} />
+            )}
+            {st.submitted && (
+              <div className="interp-answer-box">
+                <p className="interp-yours"><strong>Your answer:</strong> {st.text}</p>
+                <div className="authored-answer">
+                  <div className="authored-label">Compare your answer to the authored one</div>
+                  <p>{p.authored}</p>
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function InterpForm({ onSubmit }) {
+  const [text, setText] = useState("");
+  const tooShort = text.trim().length < 15;
+  return (
+    <div className="interp-form">
+      <textarea
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        placeholder="Write at least 15 characters before the authored answer unlocks…"
+        rows={2}
+      />
+      <button className="btn-secondary" disabled={tooShort} onClick={() => onSubmit(text)}>
+        Submit answer
+      </button>
+    </div>
+  );
+}
+
+/* Multiple choice question (Types A/B/C/E and warm-up) */
+function MCQuestion({ q, state, onAnswer, consulting }) {
+  const st = state[q.id] || { selected: null, submitted: false };
+  const letters = ["A", "B", "C", "D"];
+  return (
+    <div className={consulting ? "question-card consulting-case" : "question-card"}>
+      {consulting && <div className="case-label">Case Prompt</div>}
+      <div className="q-type-tag">{q.typeLabel}</div>
+      <p className="q-prompt">{q.prompt}</p>
+      <div className="options">
+        {q.options.map((opt, i) => {
+          let cls = "option";
+          if (st.submitted) {
+            if (i === q.correct) cls += " option-correct";
+            else if (i === st.selected) cls += " option-wrong";
+          } else if (st.selected === i) {
+            cls += " option-selected";
+          }
+          return (
+            <div key={i} className={cls} onClick={() => !st.submitted && onAnswer(q.id, "select", i)}>
+              <span className="option-letter">{letters[i]}</span>
+              <span>{opt}</span>
+            </div>
+          );
+        })}
+      </div>
+      {!st.submitted && (
+        <button
+          className="btn-primary"
+          disabled={st.selected === null || st.selected === undefined}
+          onClick={() => onAnswer(q.id, "submit")}
+        >
+          Submit
+        </button>
+      )}
+      {st.submitted && (
+        <div className="explanation">
+          <p className={st.selected === q.correct ? "calib-correct" : "calib-wrong"}>
+            {st.selected === q.correct
+              ? "Correct — this confirms the transferable pattern below."
+              : `Incorrect — ${q.misconceptions[st.selected]}`}
+          </p>
+          <p className="explanation-body">{q.explanation}</p>
+          <p className="principle-tag">Principle: {q.principle}</p>
+          <p className="generalizes-tag">Where this generalizes: {q.generalizes}</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* Numeric (Type D) estimation question — optionally requires a one-line method statement,
+   and, on exactly ONE question in this article (bg-d1), an explicit confidence rating.
+   Note: per the article skill's default, no other question in this artifact captures
+   confidence — this single exception exists because the run instructions for this
+   article explicitly required capturing pre-reveal confidence on at least one question
+   and reporting its calibration in the Learning Summary. */
+function NumericQuestion({ q, state, onAnswer }) {
+  const st = state[q.id] || { value: "", submitted: false };
+  const [val, setVal] = useState(st.value || "");
+  const [method, setMethod] = useState(st.method || "");
+  const [confidence, setConfidence] = useState(st.confidence != null ? st.confidence : 50);
+  const isCorrect = (v) => {
+    const n = parseFloat(v);
+    if (isNaN(n)) return false;
+    if (q.toleranceType === "band" || q.low != null) return n >= q.low && n <= q.high;
+    return false;
+  };
+  const methodOk = !q.requireMethod || method.trim().length >= 10;
+  return (
+    <div className="question-card numeric-card">
+      <div className="q-type-tag">Type D — Quantitative Estimation {q.openEnded ? "(open-ended)" : ""}</div>
+      <p className="q-prompt">{q.prompt}</p>
+      <p className="tolerance-note">{q.toleranceNote}</p>
+      {!st.submitted && (
+        <React.Fragment>
+          {q.requireMethod && (
+            <div className="method-row">
+              <label className="method-label">Your method, in one line:</label>
+              <input
+                type="text"
+                className="method-input"
+                value={method}
+                onChange={(e) => setMethod(e.target.value)}
+                placeholder={q.methodPlaceholder}
+              />
+            </div>
+          )}
+          {q.withConfidence && (
+            <div className="method-row">
+              <label className="method-label">How confident are you in this estimate? ({confidence}%)</label>
+              <input
+                type="range"
+                min="0"
+                max="100"
+                value={confidence}
+                onChange={(e) => setConfidence(parseInt(e.target.value, 10))}
+              />
+            </div>
+          )}
+          <div className="numeric-input-row">
+            <input type="number" value={val} onChange={(e) => setVal(e.target.value)} placeholder={q.placeholder} />
+            <span className="numeric-unit">{q.unit}</span>
+            <button
+              className="btn-primary"
+              disabled={val === "" || !methodOk}
+              onClick={() => onAnswer(q.id, parseFloat(val), isCorrect(val), method, q.withConfidence ? confidence : undefined)}
+            >
+              Submit
+            </button>
+          </div>
+        </React.Fragment>
+      )}
+      {st.submitted && (
+        <div className="explanation">
+          {q.requireMethod && (
+            <p className="interp-yours"><strong>Your stated method:</strong> {st.method}</p>
+          )}
+          <p className={st.correct ? "calib-correct" : "calib-wrong"}>
+            Your estimate: {st.value} {q.unit}. Actual: {q.actualLabel}.{" "}
+            {st.correct ? "Within tolerance — correct." : "Outside tolerance — see the decomposition below."}
+          </p>
+          {q.withConfidence && (
+            <p className="interp-yours">
+              <strong>Your stated confidence:</strong> {st.confidence}%. {st.correct
+                ? (st.confidence >= 70 ? "Well-calibrated — you were confident and correct." : "Underconfident — you were right but rated your own odds low.")
+                : (st.confidence >= 70 ? "Overconfident — you rated this highly likely to be right, but the estimate missed the tolerance band." : "Roughly calibrated on this miss — your confidence was already modest.")}
+            </p>
+          )}
+          <div className="how-to-estimate">
+            <div className="hte-label">How to estimate this</div>
+            <p>{q.howTo}</p>
+          </div>
+          {q.principle && <p className="principle-tag">Principle: {q.principle}</p>}
+          {q.generalizes && <p className="generalizes-tag">Where this generalizes: {q.generalizes}</p>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ----------------------------------------------------------------------------
+   CHARTS
+---------------------------------------------------------------------------- */
+
+function ChartA_SalesLine() {
+  const data = [
+    { year: "2019", sales: 5.34 },
+    { year: "2021", sales: 6.12 },
+    { year: "2023", sales: 4.09 },
+    { year: "2024", sales: 4.06 },
+    { year: "2025", sales: 4.06 },
+    { year: "2026 (May, SAAR)", sales: 4.2 },
+  ];
+  return (
+    <div className="chart-wrap">
+      <div className="chart-title">The Sales That Didn't Happen: Existing-Home Sales vs. the Long-Run Norm, 2019–2026 <FactTag tier="FACT" /></div>
+      <ResponsiveContainer width="100%" height={320}>
+        <LineChart data={data} margin={{ top: 20, right: 30, left: 10, bottom: 10 }}>
+          <CartesianGrid strokeDasharray="3 3" stroke="#eee" />
+          <XAxis dataKey="year" tick={{ fontSize: 12 }} />
+          <YAxis domain={[0, 7]} label={{ value: "Millions of homes sold/yr", angle: -90, position: "insideLeft" }} />
+          <Tooltip formatter={(v) => `${v}M`} />
+          <ReferenceLine y={5.0} stroke="#dc2626" strokeDasharray="5 4" label={{ value: "15-yr average norm (~5.0M/yr)", position: "insideTopRight", fill: "#dc2626", fontSize: 11.5 }} />
+          <Line type="monotone" dataKey="sales" name="Existing-home sales" stroke="#1d4ed8" strokeWidth={3} dot={{ r: 5 }}>
+            <LabelList dataKey="sales" position="top" formatter={(v) => `${v}M`} />
+          </Line>
+        </LineChart>
+      </ResponsiveContainer>
+      <ChartNote>
+        2019, 2021, 2023, 2024, and 2025 are NAR calendar-year totals ({src("crblog2019")}, {src("nmp2022")}, {src("narstats")}, {src("wolfstreet2026")}); the 2026 point is a monthly seasonally adjusted annual rate (SAAR) for May 2026, a different, faster-moving version of the same underlying series ({src("hw2026")}). The 5.0M reference line is the trailing 15-year average annual pace cited by Compass's chief economist ({src("hw2026")}).
+      </ChartNote>
+    </div>
+  );
+}
+
+function ChartB_RateSlope() {
+  const data = [
+    { period: "Q1 2022", under3: 24.6, under4: 65.1 },
+    { period: "Q3 2025", under3: 20, under4: 51.5 },
+  ];
+  return (
+    <div className="chart-wrap">
+      <div className="chart-title">The Rate Trap Tightens: Share of Outstanding Mortgages by Rate Bucket, Q1 2022 → Q3 2025 <FactTag tier="FACT" /></div>
+      <ResponsiveContainer width="100%" height={320}>
+        <LineChart data={data} margin={{ top: 20, right: 40, left: 10, bottom: 10 }}>
+          <CartesianGrid strokeDasharray="3 3" stroke="#eee" horizontal={false} />
+          <XAxis dataKey="period" tick={{ fontSize: 12.5 }} />
+          <YAxis domain={[0, 75]} unit="%" />
+          <Tooltip formatter={(v) => `${v}%`} />
+          <Legend />
+          <ReferenceLine y={21.2} stroke="#dc2626" strokeDasharray="4 4" label={{ value: "Share ≥6%, Q3 2025 (21.2%) — now above the <3% line", position: "insideBottomRight", fill: "#dc2626", fontSize: 11 }} />
+          <Line type="monotone" dataKey="under3" name="Share of mortgages below 3%" stroke="#16a34a" strokeWidth={3} dot={{ r: 6 }}>
+            <LabelList dataKey="under3" position="top" formatter={(v) => `${v}%`} />
+          </Line>
+          <Line type="monotone" dataKey="under4" name="Share of mortgages below 4%" stroke="#1d4ed8" strokeWidth={3} dot={{ r: 6 }}>
+            <LabelList dataKey="under4" position="bottom" formatter={(v) => `${v}%`} />
+          </Line>
+        </LineChart>
+      </ResponsiveContainer>
+      <ChartNote>
+        Redfin/ICE-based analysis of outstanding mortgage rates ({src("redfin2025")}). The dashed reference line marks the Q3 2025 share of mortgages at 6% or higher (21.2%), which for the first time in about five years exceeds the share still below 3% (20%) ({src("redfin2025")}) — the crossover is not separately plotted as its own two-point line here because a directly comparable ≥6% figure for Q1 2022 was not found in the same series and is not shown.
+      </ChartNote>
+    </div>
+  );
+}
+
+function ChartC_MobilityWaterfall() {
+  const rows = [
+    { name: "Explained by mortgage rate lock-in", base: 0, value: 44, kind: "lockin" },
+    { name: "Other factors (remote-work relocation fading, demographics, etc.)", base: 44, value: 56, kind: "other" },
+    { name: "Total observed drop in mobility, 2021→2022", base: 0, value: 100, kind: "total" },
+  ];
+  const colors = { lockin: "#1d4ed8", other: "#9ca3af", total: "#111827" };
+  return (
+    <div className="chart-wrap">
+      <div className="chart-title">Decomposing the 2021→2022 Collapse in Homeowner Mobility <FactTag tier="FACT" /></div>
+      <ResponsiveContainer width="100%" height={360}>
+        <BarChart data={rows} margin={{ top: 20, right: 30, left: 10, bottom: 60 }}>
+          <CartesianGrid strokeDasharray="3 3" stroke="#eee" />
+          <XAxis dataKey="name" interval={0} tick={{ fontSize: 10 }} height={80} angle={-14} textAnchor="end" />
+          <YAxis domain={[0, 110]} unit="%" label={{ value: "% of the mobility drop", angle: -90, position: "insideLeft" }} />
+          <Tooltip formatter={(v) => `${v}%`} />
+          <Bar dataKey="base" stackId="a" fill="transparent" />
+          <Bar dataKey="value" stackId="a">
+            {rows.map((r, i) => <Cell key={i} fill={colors[r.kind]} />)}
+            <LabelList dataKey="value" position="top" formatter={(v) => `${v}%`} />
+          </Bar>
+        </BarChart>
+      </ResponsiveContainer>
+      <ChartNote>
+        Federal Reserve Board FEDS study ({src("fed2024")}): mortgage rate lock-in explains 44% of the drop in mortgage-borrower mobility from 2021 to 2022, after the authors' method isolates it from other confounders such as the fading remote-work relocation boom. The same paper finds the 2022 shock also raised prices 8% and cut time-on-market 29% — but only because the market was already historically tight; it estimates an identical shock in a balanced market like 2019's would have had little to no effect on prices or tightness.
+      </ChartNote>
+    </div>
+  );
+}
+
+function ChartD_CountryDotPlot() {
+  const rows = [
+    { country: "United States", years: 30, note: "30-yr fixed, no built-in exit ramp" },
+    { country: "Denmark", years: 30, note: "30-yr fixed, but a bond 'delivery option' lets borrowers exit near market price" },
+    { country: "Canada", years: 5, note: "5-yr fixed, then resets to the prevailing rate" },
+    { country: "United Kingdom", years: 2, note: "2-yr fixed is the most common product, then resets" },
+  ];
+  return (
+    <div className="chart-wrap">
+      <div className="chart-title">One Mortgage, Many Rules: Typical Fixed-Rate Period by Country <FactTag tier="FACT" /></div>
+      <ResponsiveContainer width="100%" height={260}>
+        <ComposedChart layout="vertical" data={rows} margin={{ top: 10, right: 60, left: 10, bottom: 10 }}>
+          <CartesianGrid strokeDasharray="3 3" stroke="#eee" />
+          <XAxis type="number" domain={[0, 34]} unit=" yrs" />
+          <YAxis type="category" dataKey="country" width={110} tick={{ fontSize: 12.5 }} />
+          <Tooltip formatter={(v) => `${v} years`} />
+          <Bar dataKey="years" fill="#cbd5e1" barSize={5} />
+          <Scatter dataKey="years" fill="#1d4ed8">
+            <LabelList dataKey="years" position="right" formatter={(v) => `${v} yrs`} />
+          </Scatter>
+        </ComposedChart>
+      </ResponsiveContainer>
+      <ChartNote>
+        Typical fixed-rate period by country ({src("bankunderground2024")}, {src("oecd2021")}); Denmark detail on the bond "delivery option" from {src("msci2025")} and {src("mr2026")}. The United States and Denmark are the only two countries where 30-year fixed-rate mortgages are common, but only the U.S. product leaves the borrower with no low-cost way to exit early when rates rise (see the interpretation prompts below).
+      </ChartNote>
+    </div>
+  );
+}
+
+function ChartE_ScenarioLine() {
+  const data = [
+    { year: "2026", baseline: 4.2, ratecut: 4.2 },
+    { year: "2027", baseline: 4.18, ratecut: 4.6 },
+    { year: "2028", baseline: 4.23, ratecut: 4.85 },
+    { year: "2029", baseline: 4.27, ratecut: 4.95 },
+    { year: "2030", baseline: 4.31, ratecut: 5.0 },
+    { year: "2031", baseline: 4.35, ratecut: 5.0 },
+    { year: "2032", baseline: 4.39, ratecut: 5.0 },
+  ];
+  return (
+    <div className="chart-wrap">
+      <div className="chart-title">When Does the Market Thaw? Modeled Sales-Recovery Paths Under Two Rate Scenarios <FactTag tier="ESTIMATE" /><FactTag tier="ILLUSTRATION" /></div>
+      <ResponsiveContainer width="100%" height={320}>
+        <LineChart data={data} margin={{ top: 20, right: 30, left: 10, bottom: 10 }}>
+          <CartesianGrid strokeDasharray="3 3" stroke="#eee" />
+          <XAxis dataKey="year" />
+          <YAxis domain={[4, 5.2]} label={{ value: "Millions of existing homes sold/yr", angle: -90, position: "insideLeft" }} />
+          <Tooltip formatter={(v) => `${v}M`} />
+          <Legend />
+          <ReferenceLine y={5.0} stroke="#9ca3af" strokeDasharray="4 4" />
+          <Line type="monotone" dataKey="baseline" name="Baseline: rates hold near 6.5%+ (natural decay only)" stroke="#1d4ed8" strokeWidth={3} dot={{ r: 4 }} />
+          <Line type="monotone" dataKey="ratecut" name="Rate-cut case: rates fall into the 5s" stroke="#16a34a" strokeWidth={3} dot={{ r: 4 }} strokeDasharray="6 3" />
+        </LineChart>
+      </ResponsiveContainer>
+      <ChartNote>
+        The baseline line is an ESTIMATE computed by this article from two FACTs: Coste's disclosed ~5.8%-per-year natural decay rate and the 870,000-sales-prevented anchor for 2026 ({src("hw2026")}), applied as sales = 5.0M norm − prevented sales, prevented sales shrinking 5.8%/yr. The rate-cut line is an ILLUSTRATION: a stylized path (not derived from a disclosed equation) built to match Simonsen's description that a fall into the 5s would "stimulate a lot more sales" and "effectively eliminate lock-in" ({src("hw2026")}) — its exact yearly values are for teaching how the two scenarios diverge, not a published forecast.
+      </ChartNote>
+    </div>
+  );
+}
+
+/* ----------------------------------------------------------------------------
+   QUESTION DATA
+---------------------------------------------------------------------------- */
+
+const WARMUP_QUESTIONS = [
+  {
+    id: "w1",
+    typeLabel: "Warm-Up — Type B (transfer)",
+    principle: "A move in an aggregate number never reveals the contribution of one specific piece within it — isolate the targeted subgroup before crediting a program, policy, or lever for the whole population's shift.",
+    prompt: "A national retailer announces that company-wide employee turnover fell from 38% to 31% last year, crediting a new 'stay bonus' program. An analyst points out the bonus applies only to the warehouse workforce, about 15% of headcount. Which conclusion is best supported?",
+    options: [
+      "The overall turnover drop does not by itself prove the stay bonus worked — a falling aggregate can hide a rising, falling, or flat rate within the specific bonus-eligible group; that group's own rate must be isolated and compared before crediting the bonus.",
+      "Since turnover is already a percentage, a 7-point drop is automatically also a 7% relative improvement.",
+      "The stay bonus must be working, since the aggregate number moved in the right direction the same year it launched.",
+      "Turnover programs never show results in their first year, so the analyst should wait another cycle before drawing any conclusion.",
+    ],
+    correct: 0,
+    misconceptions: [
+      null,
+      "this confuses percentage points with percent — a drop from 38% to 31% is 7 percentage points, not necessarily 7% — and it doesn't address the actual causal question either.",
+      "this is the same fallacy as the original case: crediting a program based on a same-year aggregate move without isolating the subgroup it targeted.",
+      "this is an unfounded categorical claim about program timelines, not a diagnosis of the actual reasoning gap.",
+    ],
+    explanation: "A move in an aggregate number never reveals the contribution of one specific piece within it; the warehouse subgroup's own turnover rate must be isolated and compared before crediting the bonus for the company-wide change.",
+    generalizes: "identical to the tariff case, where a falling AGGREGATE inflation rate did not disprove a rising CONTRIBUTION from tariffs specifically, and to the frequent-flyer percent-vs-percentage-point trap — always ask what specific slice is doing the moving inside an aggregate number.",
+  },
+  {
+    id: "w2",
+    typeLabel: "Warm-Up — Type B (transfer)",
+    principle: "An intervention can succeed completely on its own narrow terms while a related but distinct goal moves independently, driven by a different mechanism entirely.",
+    prompt: "A software company blocks a departing engineer from accessing its proprietary codebase the moment she resigns, successfully keeping that code from leaving with her. Six months later, a rival startup she joined ships a comparable product anyway, built from scratch by a small team using open-source components. Which statement best captures the situation?",
+    options: [
+      "Since the code was fully protected, the company's IP strategy was a complete failure of oversight elsewhere in the business.",
+      "The access-block succeeded completely on its own narrow goal — no proprietary code left with her — but that is a separate claim from whether the company stayed ahead of the rival, which depended on a different, independently moving factor: how easily a small team could rebuild similar functionality from open components.",
+      "The rival's success proves the original code was never actually valuable in the first place.",
+      "Blocking access to source code always backfires by motivating departing employees to rebuild it faster out of spite.",
+    ],
+    correct: 1,
+    misconceptions: [
+      "this treats two separate goals (protecting IP vs. staying ahead of rivals) as if a win on one implies failure on the other.",
+      null,
+      "this is an unwarranted inference — a rival's independent success doesn't retroactively prove the original asset was worthless; it may still have saved time or differentiated the product in other ways.",
+      "this invents an unsupported psychological claim about motivation with no basis in the scenario.",
+    ],
+    explanation: "An intervention can succeed completely on its own narrow terms (blocking one exit route for one asset) while a related but distinct goal (staying ahead of competition) moves independently, driven by a different mechanism the intervention never touched.",
+    generalizes: "identical to the chip-export case: restricting a rival's access to one input can work perfectly on its own terms while the rival's overall capability trajectory is governed by a separate factor, like open-source substitutes, that the restriction never addressed.",
+  },
+  {
+    id: "w3",
+    typeLabel: "Warm-Up — Type B (transfer)",
+    principle: "Whoever controls both the supply and the internal exchange rate of a token, credit, or points system can set that rate to its own advantage, and the resulting 'value' comparison lacks an independent, arm's-length check unless one is added from outside.",
+    prompt: "A university's dining-hall meal-swipe system lets students convert unused swipes into 'flex dollars' at a rate the university itself sets. A parent is comparing the university's advertised 'value' of a meal plan, based on this conversion rate, against what a swipe would cost if the student simply paid cash per meal. Which caution is most relevant?",
+    options: [
+      "The two numbers must always match exactly, since the university would not be allowed to set an unfavorable rate.",
+      "Because the university is a nonprofit institution, it has no incentive to set the conversion rate in its own favor.",
+      "The university controls both how many swipes are issued and the exchange rate for converting them, so it can set that rate to make the plan look more valuable on paper than a cash-cost comparison would suggest, with no independent market check on that specific number.",
+      "The comparison is meaningless because meal plans and cash purchases are regulated by completely different consumer protection laws.",
+    ],
+    correct: 2,
+    misconceptions: [
+      "this assumes a regulatory guarantee that doesn't exist in the scenario as described.",
+      "nonprofit status doesn't remove the incentive or ability to set an internal exchange rate in the institution's own favor — it only changes what the institution does with the resulting margin.",
+      null,
+      "this invents an unsupported legal claim rather than diagnosing the actual economic mechanism at play.",
+    ],
+    explanation: "Whoever controls both the supply and the internal exchange rate of a token can set that rate to its own advantage, and the resulting comparison lacks an independent, arm's-length check unless one is added from outside.",
+    generalizes: "identical to the frequent-flyer miles case — any advertised 'value' of an internal currency, from airline miles to campus flex dollars to gym class credits, deserves the same scrutiny before being taken as an objective price.",
+  },
+];
+
+const BG_QUESTIONS = {
+  mc: {
+    id: "bg-a1",
+    typeLabel: "Type A — Chart Reading and Implication",
+    principle: "A large decline that persists flat for multiple years, rather than mean-reverting once its apparent trigger stabilizes, is more consistent with a structural constraint than a temporary shock.",
+    prompt: "Using the chart above, compute the approximate percentage decline in existing-home sales from the 2021 peak (6.12M) to the 2025 total (4.06M). Then judge: does a decline of that size, holding flat for three straight years (2023–2025) rather than continuing to fall or quickly rebounding, look more like a temporary demand pause or a structural constraint?",
+    options: [
+      "About 15% decline; this modest a drop is well within normal year-to-year housing cyclicality and needs no special explanation.",
+      "About 50% decline; declines of this magnitude always signal an imminent price crash.",
+      "The percentage cannot be computed from annual totals; only monthly SAAR data can be used for this kind of comparison.",
+      "About 34% decline; a drop this large, that then holds flat for three years rather than continuing to fall or quickly rebounding, is more consistent with a structural constraint holding supply down than with an ordinary temporary demand dip, which would typically show more month-to-month recovery once rates stabilized.",
+    ],
+    correct: 3,
+    misconceptions: [
+      "this understates the actual arithmetic decline and would lead you to under-weight how unusual this period is.",
+      "this overstates the arithmetic decline and wrongly assumes a falling SALES volume mechanically predicts a falling PRICE — the article's own price data shows prices hit a record high over the same window, the opposite of what this option implies.",
+      "this is incorrect — annual totals are a valid, common basis for computing a percentage change; the SAAR is simply a different, monthly-frequency version of the same underlying series.",
+      null,
+    ],
+    explanation: "(6.12 − 4.06) / 6.12 ≈ 33.7%, roughly a third. A decline of this size that then goes flat rather than mean-reverting for three consecutive years is the signature of a persistent structural constraint (limited willing sellers), not a short-lived demand shock, which would typically show a bounce once mortgage rates leveled off.",
+    generalizes: "the same diagnostic works for judging whether a post-shock drop in any market — labor-force participation, restaurant bookings, ad spend — is temporary or structural: check whether it rebounds once conditions normalize or holds flat.",
+  },
+  numeric: {
+    id: "bg-d1",
+    prompt: "FHFA's research finds that each additional percentage point by which the market mortgage rate exceeds a homeowner's original rate cuts that homeowner's probability of selling by 18.1%. This effect compounds: it multiplies the remaining probability for each extra point of gap, rather than simply subtracting 18.1% per point. Suppose a homeowner's rate gap is 2.7 percentage points, roughly the gap between the 2022 average outstanding rate of 3.8% and a 6.5% market rate. Estimate: relative to an identical homeowner with NO rate gap, by what percentage is this homeowner's probability of selling reduced?",
+    toleranceNote: "Tolerance: tight, ±10 percentage points (accept roughly 32%–52%) — this is compounding arithmetic from a stated FACT and a stated assumption, not a Fermi guess. Scaffold: remaining probability = (1 − 0.181)^2.7; the reduction is 100% minus that.",
+    unit: "% reduction in sale probability",
+    placeholder: "e.g., 42",
+    low: 32,
+    high: 52,
+    toleranceType: "band",
+    actual: 41.7,
+    actualLabel: "≈42% reduction (remaining probability ≈ 0.819^2.7 ≈ 58%, so the reduction is about 100% − 58% = 42%)",
+    withConfidence: true,
+    howTo: "Decomposition: remaining probability = (1 − 0.181)^gap = 0.819^2.7. Using logs: ln(0.819) ≈ −0.1997; × 2.7 ≈ −0.539; e^−0.539 ≈ 0.583. So about 58% of the baseline sale probability remains, meaning a reduction of about 42%. The trap this teaches: repeated percentage effects compound MULTIPLICATIVELY, not additively — naively multiplying 18.1% × 2.7 ≈ 49% overstates the true reduction (42%), because each additional point of gap chips away at an already-shrunken base, not the original one.",
+    principle: "Repeated percentage effects compound multiplicatively, like compound interest, not additively — multiplying a per-unit rate by the number of units overstates the true combined effect.",
+    generalizes: "the same logic applies to compounding discount rates, compounding failure probabilities across a supply chain, or compounding annual inflation over several years — never just multiply a per-period rate by the number of periods.",
+  },
+};
+
+const RQ1_QUESTIONS = {
+  mc: {
+    id: "rq1-b1",
+    typeLabel: "Type B — Trend Reasoning (causal distinction)",
+    principle: "A causal share below 50% is not evidence against a real, large causal effect — check whether the identification strategy actually addresses the specific confounder you're worried about, rather than just comparing percentage sizes.",
+    prompt: "The chart shows mortgage rate lock-in explaining 44% of the 2021→2022 drop in homeowner mobility, leaving 56% to other factors. A commentator argues that since lock-in is 'less than half' the story, mortgage rates probably aren't a major cause of the frozen market — the 2020–2021 remote-work relocation boom likely explains most of the drop instead, as people finished moving and then simply stopped. What is the strongest reason to doubt this argument?",
+    options: [
+      "The 56% 'other factors' share is likely dominated by the remote-work relocation boom fading out on its own, a real confounder — but the paper's 44% is what remains AFTER researchers explicitly isolated the lock-in mechanism from confounders like the WFH wave, using variation across otherwise similar households with different rate gaps; a 44% share isolated this way is direct evidence of a large causal effect, not a residual leftover from a shrinking share.",
+      "Since 44% is less than 50%, mortgage rates mathematically cannot be the primary driver of anything related to housing mobility.",
+      "The remote-work relocation boom and mortgage-rate lock-in must be the same phenomenon, since both happened in the same years.",
+      "56% is a bigger number than 44%, so whatever caused the 56% portion must be the true cause of the entire mobility drop, including the 44% part.",
+    ],
+    correct: 0,
+    misconceptions: [
+      null,
+      "this treats a share below 50% as automatically disqualifying, which confuses relative attribution among several causes with a claim about being 'the' single cause — multiple factors can each be real, substantial, non-majority contributors.",
+      "this conflates temporal overlap (same years) with being the same underlying mechanism — the paper's method isolates lock-in's effect using variation IN rate gaps across households, which a pure WFH-timing story couldn't explain.",
+      "this incorrectly assumes causes must be ranked by their numeric share and that a larger residual share must 'cause' the smaller one — the two shares are separate contributions to one outcome, not a hierarchy.",
+    ],
+    explanation: "The 44% figure isn't a raw leftover guess; the researchers designed their method specifically to separate the lock-in mechanism, measured through rate-gap variation, from other explanations like remote-work relocation. A confounder argument would need to show that rate-gap variation itself doesn't predict mobility once you control for the alternative explanation, and the paper's identification strategy is built to test exactly that.",
+    generalizes: "the same test applies to any 'X only explains Y%, so X can't be the main story' argument — the right question is whether Y% was measured by isolating X from likely confounders, not whether Y% clears an arbitrary 50% bar.",
+  },
+  numeric: {
+    id: "rq1-d2",
+    prompt: "Fonseca and Liu (Journal of Finance, 2024) find that a homeowner facing a 1-percentage-point larger mortgage rate gap faces roughly $27,000 or more in extra present-value mortgage cost from moving. First, in one line, state the simplest method you would use to extend this to a homeowner facing a 3-percentage-point gap. Then enter your dollar estimate.",
+    toleranceNote: "Tolerance: moderate, ±20% relative (accept roughly $65,000–$100,000) — this uses a stated simple linear-scaling assumption, which the article flags as a rough approximation, not a precisely tested relationship.",
+    unit: "$ extra PV mortgage cost from moving, at a 3pp gap",
+    placeholder: "e.g., 81000",
+    requireMethod: true,
+    methodPlaceholder: "e.g., multiply the $27,000 by the ratio of the two gaps",
+    low: 65000,
+    high: 100000,
+    toleranceType: "band",
+    actual: 81000,
+    actualLabel: "≈$81,000 (a simple linear scaling: $27,000 × 3)",
+    howTo: "Decomposition: if $27,000 of extra cost is associated with 1 percentage point of gap, a simple, admittedly rough, linear scaling gives $27,000 × 3 ≈ $81,000 for a 3-point gap. Caveat this teaches: the paper's underlying relationship need not be perfectly linear — payment increases compound over a loan's remaining term and could plausibly accelerate at wider gaps, so treat a linear scaling as a first-pass estimate, not a precise forecast, and always state that assumption explicitly.",
+    principle: "When extending a single data point to a different scale, state the simplest scaling assumption explicitly, usually linear, and flag it as a rough approximation, since the true relationship may not stay linear across the full range.",
+    generalizes: "the same discipline applies whenever you scale a single observed unit effect — cost per employee, cost per customer, cost per percentage point — to a different multiple: name the linear assumption and its risk before trusting the output.",
+  },
+};
+
+const RQ2_QUESTIONS = {
+  mc1: {
+    id: "rq2-b1",
+    typeLabel: "Type B — Trend Reasoning (mechanism)",
+    principle: "The same headline feature, like a 30-year fixed rate, can produce very different real-world consequences depending on a second, easy-to-overlook design detail: how expensive it is to exit the contract early.",
+    prompt: "Denmark also gives homeowners 30-year fixed-rate mortgages, exactly like the United States, yet Denmark does not show the same severe lock-in problem. What is the best explanation for this apparent contradiction?",
+    options: [
+      "Danish incomes are simply much higher, so Danish homeowners can absorb a higher payment without needing to move.",
+      "Danish homeowners rarely move in the first place, so the lock-in mechanism never has a chance to bind.",
+      "Denmark's central bank caps mortgage rates by law, so Danish market rates never rise far enough above origination rates to create a gap.",
+      "Denmark's mortgage system pairs the fixed rate with a 'delivery option': each mortgage is matched to a tradable bond, and a borrower can exit by buying back that specific bond at its current market price rather than its original face value — and because a bond's market price falls when interest rates rise, exiting becomes cheaper, not more expensive, in exactly the high-rate environment that creates lock-in elsewhere.",
+    ],
+    correct: 3,
+    misconceptions: [
+      "this is an unsupported claim about relative income levels and doesn't address the actual mechanical difference in how the two mortgage systems are structured.",
+      "this reverses cause and effect and is not the documented explanation — the structural design (the delivery option) is what removes the penalty for moving, not a pre-existing low desire to move.",
+      "this invents a rate cap that isn't part of the actual Danish system as described — the mechanism is the bond buy-back option, not a regulated rate ceiling.",
+      null,
+    ],
+    explanation: "A long fixed term by itself isn't what creates lock-in; it's a fixed term combined with no cheap way to exit early. Denmark keeps the long fixed term but removes the exit penalty by tying the mortgage to a bond whose price moves inversely with rates, so a rising-rate environment makes exiting cheaper, canceling out the very gap that traps U.S. borrowers.",
+    generalizes: "the same lesson applies to any long-term consumer contract, from a cell-phone plan to a gym membership to a corporate bond: the length of the commitment matters less than the cost of breaking it early.",
+  },
+  case: {
+    id: "rq2-c1",
+    typeLabel: "Type C — Consulting Case",
+    principle: "The weakest link in a recommendation is the assumption the whole plan depends on that has the thinnest support in the available evidence, not just any assumption that sounds uncertain.",
+    prompt: "A state housing finance agency, HomeBridge State HFA, is considering a pilot 'assumable mortgage marketplace': a website letting a home seller advertise their existing low mortgage rate to buyers, who could take over (assume) that rate and loan balance instead of originating a brand-new mortgage at the current market rate, paying the seller cash for the difference in home equity. The agency's pitch deck claims this would 'unlock hundreds of thousands of stuck sellers overnight.' Which of the following identifies the weakest link in that claim, using evidence from this article?",
+    options: [
+      "The assumption that sellers actually want to sell at all — but the article's own evidence, rising median prices and building equity, shows sellers have every financial incentive to sell if they could do so without losing their rate, so seller willingness is not the thin assumption here.",
+      "The assumption that buyers would want an assumable rate — but the article shows buyers overwhelmingly prefer lower rates, and a rate below the current 6%-plus market average is, by definition, something almost every buyer would want, so this is not the weakest link either.",
+      "The assumption that most existing mortgages are legally and financially assumable at scale — but the article's own numbers show only about half of outstanding mortgages carry a rate below 4%, a shrinking and unevenly distributed pool, and most conventional U.S. mortgages, unlike FHA or VA loans, are not assumable under their original terms without lender approval, which the pitch deck never addresses; this is the thinnest, least-tested assumption behind the 'hundreds of thousands, overnight' claim.",
+      "The assumption that home prices would keep rising — but the article's evidence on prices is irrelevant to whether an assumable-mortgage marketplace would work operationally.",
+    ],
+    correct: 2,
+    misconceptions: [
+      "this correctly rules itself out but doesn't identify the actual weakest link — it's a decoy that sounds plausible, but the article gives no reason to doubt seller willingness.",
+      "this also correctly rules itself out but similarly fails to identify the real gap — buyer demand for a lower rate is the least doubtful part of the whole proposal.",
+      null,
+      "this picks an assumption that, while real, is not actually load-bearing for the specific claim being tested, an assumable-mortgage marketplace unlocking sellers — price trends matter to the broader housing market but not to whether assumption itself is legally and operationally feasible at scale.",
+    ],
+    explanation: "The load-bearing assumption is the one the whole plan depends on but that has the thinnest support in the evidence: whether most existing mortgages can actually be assumed at scale. Implementation risk: most conventional U.S. mortgages contain a due-on-sale clause requiring the lender's consent or full payoff on transfer, and lenders that no longer profit from an old, low-rate loan being carried forward have little incentive to approve mass assumption, a legal and incentive barrier the pitch deck's 'hundreds of thousands, overnight' framing ignores entirely.",
+    generalizes: "before endorsing any plan to 'unlock' a stuck asset, from frozen mortgages to illiquid private-fund stakes to untraded loyalty points, check whether the mechanism for unlocking it is actually permitted and incentive-compatible for every party involved, not just wanted by the end beneficiary.",
+  },
+};
+
+const RQ3_QUESTIONS = {
+  mc1: {
+    id: "rq3-b1",
+    typeLabel: "Type B — Trend Reasoning (extrapolation risk)",
+    principle: "A rate estimated from a short, recent window carries real uncertainty when extrapolated many years forward — check what could make the underlying process speed up or slow down before trusting a straight-line projection.",
+    prompt: "The baseline scenario line assumes lock-in decays at a constant 5.8% per year forever, based on Coste's estimate of how fast locked-in homes turn over through ordinary life events. What is the biggest risk in extrapolating this constant rate several years into the future?",
+    options: [
+      "The rate is measured in percentage points, not percent, so it should not be applied repeatedly at all.",
+      "A turnover rate driven by demographic and economic events, such as death, divorce, job change, and family growth, measured over a couple of recent years, may not hold steady for a decade — extrapolating a short observed trend in a straight line ignores the risk that the rate itself could speed up, such as a wave of retirements, or slow down, such as an aging homeowner population increasingly aging in place, which the model does not capture.",
+      "Decay rates are never applicable to housing markets, only to radioactive materials and financial depreciation schedules.",
+      "Since the rate-cut scenario reaches the norm faster, the baseline scenario must be measuring something different from actual home sales.",
+    ],
+    correct: 1,
+    misconceptions: [
+      "this misapplies the percent-vs-percentage-point distinction to a rate that is legitimately expressed and appropriately compounded as a percentage each year — the issue here is extrapolation risk, not a unit-labeling error.",
+      null,
+      "this is a false categorical claim; decay-style modeling is a standard, legitimate technique across many fields including demography and housing turnover.",
+      "this misreads the chart — both scenario lines model the same actual-sales concept under different rate assumptions; reaching the norm at different speeds doesn't imply they are tracking different metrics.",
+    ],
+    explanation: "Any model that assumes a recently observed rate holds constant for many years is exposed to the classic trap of extrapolating a short trend — a small, recently measured rate can look precise while resting on only a few years of data covering one specific economic environment.",
+    generalizes: "the same caution applies to extrapolating a recent user-growth rate, a recent default rate, or a recent productivity trend a decade into a financial model.",
+  },
+  mc2: {
+    id: "rq3-b2",
+    typeLabel: "Type B — Trend Reasoning (statistical trap: real vs. nominal)",
+    principle: "Nominal figures need deflation before being called 'real,' but a gap between two nominal growth rates over an identical window is still informative directional evidence, not worthless.",
+    prompt: "A June 2026 NAR-linked report notes home prices rose 50% over six years while wages rose 28% over the same period, both nominal, not inflation-adjusted, figures. Is it correct to conclude from these two numbers alone that housing became unambiguously less affordable in inflation-adjusted, 'real,' terms?",
+    options: [
+      "Not directly — you cannot label the comparison 'real' without deflating both series by the same inflation rate first; however, because both nominal figures would be deflated by roughly the same inflation factor, the roughly 22-point gap between them is a far more reliable real-terms signal than either raw nominal number alone, and that gap would not disappear after deflating, even though both individual growth rates would shrink.",
+      "Yes, automatically — any time a nominal price grows faster than nominal wages, real affordability must have worsened by exactly the same 22-percentage-point gap.",
+      "No — since both figures are nominal, they are equally unreliable and neither can be used for any comparison until each is separately adjusted for inflation.",
+      "No — nominal wage and nominal price figures can never be meaningfully compared to each other under any circumstances.",
+    ],
+    correct: 0,
+    misconceptions: [
+      null,
+      "this correctly senses that prices outpaced wages but wrongly claims the exact percentage-point gap survives deflation unchanged and automatically equals the 'real' affordability loss — deflating shrinks both numbers, even if it doesn't erase the gap between them.",
+      "this over-corrects into treating nominal figures as entirely useless, when in fact a gap between two nominal growth rates measured over the identical window is still informative, just not identical to a fully deflated real comparison.",
+      "this is an unfounded blanket rejection; nominal series covering the same time window are frequently and usefully compared, especially when the interest is in the gap between two rates rather than either rate's absolute real value.",
+    ],
+    explanation: "Nominal figures must be deflated by a common price index before being labeled 'real,' but a large, persistent gap between two nominal growth rates measured over the same window is still meaningful directional evidence, since inflation affects both series similarly. The correct move is neither to treat the nominal numbers as fully real nor to throw them out, but to use the gap as a directional signal while flagging that a precise real-terms number requires the extra deflation step.",
+    generalizes: "the same discipline applies to comparing nominal GDP growth to nominal debt growth, or nominal rent growth to nominal income growth: deflate before making a real-terms claim, but don't discard a persistent nominal gap as meaningless in the meantime.",
+  },
+  numeric: {
+    id: "rq3-d3",
+    prompt: "Using Coste's estimate that lock-in-suppressed sales shrink by about 5.8% per year through natural turnover alone, with no rate cuts assumed, and starting from the 870,000 sales prevented estimated for 2026: name your decomposition method in one line, then estimate in approximately what year the annual number of lock-in-prevented sales would first fall under 400,000, assuming market rates never move at all from today's level.",
+    toleranceNote: "Tolerance: WIDE — open-ended order-of-magnitude estimate (accept roughly 2035–2043) — this is a genuine multi-step Fermi extrapolation with no scaffold provided; you must set up the exponential-decay framework yourself.",
+    unit: "year prevented-sales first falls under 400,000",
+    placeholder: "e.g., 2039",
+    requireMethod: true,
+    methodPlaceholder: "e.g., set up 870,000 × (0.942)^n < 400,000 and solve for n",
+    openEnded: true,
+    low: 2035,
+    high: 2043,
+    toleranceType: "band",
+    actual: 2039,
+    actualLabel: "≈2039 (about 13 years after 2026)",
+    howTo: "Decomposition: set 870,000 × (1 − 0.058)^n < 400,000, i.e., 0.942^n < 0.460. Taking logs: n > ln(0.460) / ln(0.942) ≈ (−0.777) / (−0.0598) ≈ 13. So n ≈ 13 years after 2026, landing around 2039. Anchor facts: the 870,000-sales-prevented figure for 2026 and the 5.8%-per-year decay rate are both FACTs from Coste's published estimate; the exponential-decay setup is the decomposition path you had to supply. Bounds: since decay could run a little faster or slower than exactly 5.8% in any given year, a reasonable band spans the high 2030s to the early 2040s. The main teaching point: even a seemingly fast-sounding 5.8%-per-year improvement takes over a decade to cut the problem by more than half, because it compounds off a shrinking base each year, not the original 870,000.",
+    principle: "A percentage decay rate applied repeatedly takes far longer to meaningfully shrink a quantity than the same percentage applied once, because each year's decline is computed off an already-smaller base — always set up the compounding equation explicitly rather than eyeballing how 'a few percent a year' should feel.",
+    generalizes: "the same setup works for estimating how long it takes a radioactive-style decay, a shrinking backlog, or a churn-driven customer base to fall by half: always solve n from base × (1−rate)^n = target, don't guess.",
+  },
+};
+
+const CONCLUSION_QUESTION = {
+  id: "concl-e1",
+  typeLabel: "Type E — Implication Bridge (with falsification)",
+  principle: "Distinguish a claim that a process is slowly self-correcting from a claim that it is permanently broken, and state the specific, observable signal that would tell you the self-correction has stopped, rather than picking a falsification condition so extreme it could never realistically occur.",
+  prompt: "Given everything in this article — record home prices, an 18.1%-per-point drop in sale probability from FHFA, a Fed estimate that lock-in explains 44% of the 2021–2022 mobility collapse (but would have had little effect in a balanced 2019-style market), Fonseca and Liu's finding that a 1-point rate gap cuts moving by 9–16%, Denmark's contrasting 'delivery option' design, and 2026 signs that the share of mortgages above 6% now exceeds the share below 3% — which real-world decision is most directly supported by this evidence, and what single observation over the next 2–3 years would most undermine it?",
+  options: [
+    "Decision: The Federal Reserve should cut rates immediately and dramatically, since any rate cut will proportionally unlock a matching share of frozen supply. This would be undermined only if the Fed refused to cut rates at all for the next decade.",
+    "Decision: Mortgage lenders, homebuilders, and policymakers should treat the freeze as a slow, self-correcting supply constraint that will keep easing on its own timeline as the low-rate loan pool naturally shrinks, roughly 5.8% per year on Coste's estimate, and should prioritize policies, like portable or assumable mortgages, that speed up that natural turnover, rather than policies aimed only at overall affordability. This would be most undermined by an observation that the outstanding average mortgage rate stops rising, or that the share of mortgages at 6%-plus stalls or reverses even while market rates stay elevated, which would mean the pool of unlockable low-rate loans has stopped shrinking and the freeze has hit a genuine floor rather than continuing to thaw.",
+    "Decision: Since a large rate cut into the 5s would 'basically eliminate' lock-in per the article's own scenario modeling, policymakers should treat a return to sub-5% rates as the only real fix and should not bother with any structural mortgage-design reform. This would be undermined only if mortgage rates rose forever and never fell again.",
+    "Decision: Because Denmark's mortgage design avoids lock-in, the United States should require every mortgage lender to switch to the Danish callable-bond system within one year. This would be undermined only if a single Danish homeowner ever reported dissatisfaction with their mortgage.",
+  ],
+  correct: 1,
+  misconceptions: [
+    "this assumes the relationship between a rate cut and unlocked supply is proportional and immediate, but the article's own evidence shows the effect is nonlinear and grows with the size of the shock — a small cut does little, and the falsification condition proposed (the Fed never cutting for a decade) is such an extreme, unlikely scenario that it doesn't function as a real test of the claim.",
+    null,
+    "this treats one modeled scenario line, the rate-cut path, as the only acceptable solution and dismisses the natural-decay mechanism and structural reforms the article's evidence supports as running in parallel; its proposed falsification condition, rates never falling again, is also so extreme it can't meaningfully test the claim.",
+    "this proposes an unrealistic, all-or-nothing policy timeline the article never supports, and its falsification condition, a single dissatisfied homeowner, sets an absurdly low bar that could trivially 'disprove' almost any policy, making it useless as a real test.",
+  ],
+  explanation: "The strongest-supported decision treats the lock-in freeze as a real, quantifiable, but temporary and self-correcting phenomenon rooted in a shrinking pool of old low-rate loans, not a permanent structural break, and points toward accelerant policies, like removing the practical and legal barriers to mortgage assumability, rather than betting everything on a large rate cut that may or may not happen. It is falsified by evidence that the shrinking-pool mechanism itself has stalled.",
+  generalizes: "the same test applies to any 'this will fix itself over time' claim, from student-loan repayment backlogs to supply-chain shortages: name the mechanism doing the fixing, and the observable sign that would tell you the mechanism itself has broken down.",
+};
+
+/* ----------------------------------------------------------------------------
+   SECTION METADATA
+---------------------------------------------------------------------------- */
+const NAV_SECTIONS = [
+  { id: "sec-warmup", label: "Warm-Up" },
+  { id: "sec-intro", label: "Introduction" },
+  { id: "sec-background", label: "Background" },
+  { id: "sec-rq1", label: "RQ1: How Big, How Causal?" },
+  { id: "sec-rq2", label: "RQ2: Why America?" },
+  { id: "sec-rq3", label: "RQ3: Is It Thawing?" },
+  { id: "sec-summary", label: "Learning Summary" },
+  { id: "sec-conclusion", label: "Conclusion" },
+];
+
+/* ----------------------------------------------------------------------------
+   MAIN APP
+---------------------------------------------------------------------------- */
+function App() {
+  const [activeSection, setActiveSection] = useState("sec-warmup");
+  const [questionState, setQuestionState] = useState({});
+  const [interpState, setInterpState] = useState({});
+  const [navVisible, setNavVisible] = useState(window.innerWidth >= 1160);
+  const [governingInsight, setGoverningInsight] = useState("");
+  const [governingRevealed, setGoverningRevealed] = useState(false);
+  const [applyA, setApplyA] = useState("");
+  const [applyB, setApplyB] = useState("");
+  const [applyEvaluated, setApplyEvaluated] = useState(false);
+  const [applyGaps, setApplyGaps] = useState([]);
+
+  useEffect(() => {
+    const onResize = () => setNavVisible(window.innerWidth >= 1160);
+    window.addEventListener("resize", onResize);
+    const onScroll = () => {
+      let current = NAV_SECTIONS[0].id;
+      for (const s of NAV_SECTIONS) {
+        const el = document.getElementById(s.id);
+        if (el && el.getBoundingClientRect().top - 120 <= 0) current = s.id;
+      }
+      setActiveSection(current);
+    };
+    window.addEventListener("scroll", onScroll);
+    onScroll();
+    return () => {
+      window.removeEventListener("resize", onResize);
+      window.removeEventListener("scroll", onScroll);
+    };
+  }, []);
+
+  const scrollTo = (id) => {
+    const el = document.getElementById(id);
+    if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+
+  const activeIdx = NAV_SECTIONS.findIndex((s) => s.id === activeSection);
+  const prevSection = NAV_SECTIONS[(activeIdx - 1 + NAV_SECTIONS.length) % NAV_SECTIONS.length];
+  const nextSection = NAV_SECTIONS[(activeIdx + 1) % NAV_SECTIONS.length];
+
+  const handleAnswer = (id, action, value) => {
+    setQuestionState((prev) => {
+      const cur = prev[id] || { selected: null, submitted: false };
+      if (action === "select") return { ...prev, [id]: { ...cur, selected: value } };
+      if (action === "submit") return { ...prev, [id]: { ...cur, submitted: true } };
+      return prev;
+    });
+  };
+
+  const handleNumeric = (id, value, correct, method, confidence) => {
+    setQuestionState((prev) => ({ ...prev, [id]: { value, correct, submitted: true, method, confidence } }));
+  };
+
+  const handleInterp = (key, text) => {
+    setInterpState((prev) => ({ ...prev, [key]: { submitted: true, text } }));
+  };
+
+  const allMC = [
+    ...WARMUP_QUESTIONS,
+    BG_QUESTIONS.mc,
+    RQ1_QUESTIONS.mc,
+    RQ2_QUESTIONS.mc1,
+    RQ2_QUESTIONS.case,
+    RQ3_QUESTIONS.mc1,
+    RQ3_QUESTIONS.mc2,
+    CONCLUSION_QUESTION,
+  ];
+  const allNumeric = [BG_QUESTIONS.numeric, RQ1_QUESTIONS.numeric, RQ3_QUESTIONS.numeric];
+
+  const mcAnswered = allMC.filter((q) => questionState[q.id]?.submitted);
+  const mcCorrect = mcAnswered.filter((q) => questionState[q.id].selected === q.correct);
+  const numAnswered = allNumeric.filter((q) => questionState[q.id]?.submitted);
+  const numCorrect = numAnswered.filter((q) => questionState[q.id].correct);
+  const totalScore = mcCorrect.length + numCorrect.length;
+  const totalAnswered = mcAnswered.length + numAnswered.length;
+
+  const scoreByType = useMemo(() => {
+    const groups = {};
+    allMC.forEach((q) => {
+      const t = q.typeLabel.split(" — ")[0];
+      if (!groups[t]) groups[t] = { correct: 0, total: 0 };
+      if (questionState[q.id]?.submitted) {
+        groups[t].total += 1;
+        if (questionState[q.id].selected === q.correct) groups[t].correct += 1;
+      }
+    });
+    allNumeric.forEach(() => {
+      if (!groups["Type D — Quantitative Estimation"]) groups["Type D — Quantitative Estimation"] = { correct: 0, total: 0 };
+    });
+    allNumeric.forEach((q) => {
+      if (questionState[q.id]?.submitted) {
+        groups["Type D — Quantitative Estimation"].total += 1;
+        if (questionState[q.id].correct) groups["Type D — Quantitative Estimation"].correct += 1;
+      }
+    });
+    return groups;
+  }, [questionState]);
+
+  const missedPrinciples = useMemo(() => {
+    const mc = allMC
+      .filter((q) => questionState[q.id]?.submitted && questionState[q.id].selected !== q.correct)
+      .map((q) => q.principle);
+    const num = allNumeric
+      .filter((q) => questionState[q.id]?.submitted && !questionState[q.id].correct)
+      .map((q) => q.principle);
+    return [...mc, ...num];
+  }, [questionState]);
+
+  const numericBias = useMemo(() => {
+    const done = allNumeric.filter((q) => questionState[q.id]?.submitted && typeof q.actual === "number");
+    if (done.length === 0) return null;
+    const pctErrors = done.map((q) => {
+      const yourVal = questionState[q.id].value;
+      return ((yourVal - q.actual) / q.actual) * 100;
+    });
+    const avg = pctErrors.reduce((a, b) => a + b, 0) / pctErrors.length;
+    return { avg, n: pctErrors.length };
+  }, [questionState]);
+
+  const confidenceCalibration = useMemo(() => {
+    const q = BG_QUESTIONS.numeric;
+    const st = questionState[q.id];
+    if (!st || !st.submitted || st.confidence == null) return null;
+    return { confidence: st.confidence, correct: st.correct };
+  }, [questionState]);
+
+  // ------------------------------------------------------------------------
+  // Apply-It evaluator: a LOCAL, RULE-BASED heuristic placeholder only.
+  // This is not a language model. It exists so the artifact works fully
+  // offline/self-contained. A future version should replace this function
+  // with a single call to a secure, server-side LLM evaluation endpoint
+  // (never call a third-party API key directly from this static, client-only
+  // artifact). Keep the interface the same: take the reader's free text,
+  // return a gap list naming which of the four required parts is weakest
+  // or missing, never a bare pass/fail score and never keyword-only matching.
+  // ------------------------------------------------------------------------
+  const evaluateApplyIt = () => {
+    const text = applyA;
+    const gaps = [];
+    if (text.trim().length < 40) gaps.push("The response overall is too short to contain four substantive parts.");
+    if (!/1[\).:]|thesis|so-what/i.test(text)) gaps.push("No clearly labeled so-what thesis found (part 1).");
+    if (!/2[\).:]|assum/i.test(text)) gaps.push("No clearly labeled load-bearing assumption found (part 2).");
+    if (!/3[\).:]|disconfirm|undermine|against/i.test(text)) gaps.push("No clearly labeled disconfirming evidence found (part 3).");
+    if (!/4[\).:]|pre-mortem|fails|fail in/i.test(text)) gaps.push("No clearly labeled pre-mortem found (part 4).");
+    if (!/\bso\b.*(should|must|would)|decision|recommend/i.test(text)) {
+      gaps.push("Your thesis reads more like an observation ('X happens') than an implication ('X happens, so a decision-maker should do Y') — try climbing one level higher.");
+    }
+    if (gaps.length === 0) gaps.push("All four parts appear present — check that each climbs from observation to a quantified, decision-relevant implication, not just a labeled restatement.");
+    setApplyEvaluated(true);
+    return gaps;
+  };
+
+  return (
+    <div className="app-root">
+      <div className="progress-bar" style={{ width: `${Math.min(100, (NAV_SECTIONS.findIndex((s) => s.id === activeSection) + 1) / NAV_SECTIONS.length * 100)}%` }} />
+      <div className="score-badge">Score: {totalScore} / {totalAnswered || "–"} answered</div>
+
+      <div className="back-next-bar">
+        <button className="btn-navctrl" onClick={() => scrollTo(prevSection.id)}>← Back</button>
+        <span className="back-next-label">{NAV_SECTIONS[activeIdx] ? NAV_SECTIONS[activeIdx].label : ""}</span>
+        <button className="btn-navctrl" onClick={() => scrollTo(nextSection.id)}>Next →</button>
+      </div>
+
+      {navVisible && (
+        <nav className="left-nav">
+          {NAV_SECTIONS.map((s) => (
+            <div key={s.id} className={"nav-item" + (activeSection === s.id ? " nav-active" : "")} onClick={() => scrollTo(s.id)}>
+              {s.label}
+            </div>
+          ))}
+        </nav>
+      )}
+
+      <main className="prose-column">
+        {/* ============================= WARM-UP ============================= */}
+        <section id="sec-warmup" className="page-section">
+          <h1>Warm-Up: What Stuck?</h1>
+          <p className="lede">Before today's case: three quick questions pulled from the last few notes. None of them are about housing — the point is to test whether the underlying reasoning transfers to a new setting, not to recall the original topic.</p>
+          {WARMUP_QUESTIONS.map((q) => (
+            <MCQuestion key={q.id} q={q} state={questionState} onAnswer={handleAnswer} />
+          ))}
+        </section>
+
+        {/* ============================= INTRODUCTION ============================= */}
+        <section id="sec-intro" className="page-section">
+          <h1>Golden Handcuffs: The Mortgage Rate Lock-In Freezing the U.S. Housing Market</h1>
+          <p className="lede">In June 2026 the median price of an existing U.S. home hit an all-time high of $440,600 (<FactTag tier="FACT" /> {src("tnd2026")}) — exactly the signal that should pull owners off the sidelines to cash out. Instead, Americans sold existing homes at close to a 30-year low: just 4.06 million in 2025, tying 2024 as the weakest year since 1995 (<FactTag tier="FACT" /> {src("wolfstreet2026")}).</p>
+          <p>Scale the gap against the market's own recent normal. Existing-home sales averaged close to 5.0 million a year over the last 15 years and peaked at 6.12 million in 2021, the highest since 2006, as pandemic-era buyers rushed in on sub-3% mortgage rates (<FactTag tier="FACT" /> {src("nmp2022")}, {src("hw2026")}). By May 2026 the seasonally adjusted annual pace was still only 4.2 million, roughly a fifth below that 15-year norm (<FactTag tier="FACT" /> {src("hw2026")}). Home construction, mortgage lending, moving companies, title insurers, and furniture retailers are all paid when a home changes hands, not when an owner simply stays put, so this gap is not an abstract statistic; it is a specific, missing slice of economic activity.</p>
+          <p>Conventional theory says rising prices should draw out more sellers, since a higher price means a bigger payday for whoever sells. That story has broken down. Millions of owners refinanced or bought during the ultra-low-rate years of 2020 and 2021, locking in fixed mortgage rates near 3%. Today's market rate sits near 6.5% to 6.7% (<FactTag tier="FACT" /> {src("freddiemac2026")}). For these owners, selling does not just mean giving up a house; it means giving up a cheap loan and taking on an expensive new one, even to buy an identically priced home. Economists call this mortgage rate lock-in: the tendency to stay put not because you don't want to move, but because moving means trading a cheap, fixed monthly payment for a much more expensive one.</p>
+          <p>This is a largely American problem by design, not an unavoidable law of interest rates. The United States is one of only two countries, alongside Denmark, that commonly offers a mortgage with a rate fixed for as long as 30 years (<FactTag tier="FACT" /> {src("bankunderground2024")}). Most of the rest of the world resets a mortgage's rate every two to five years, so a homeowner elsewhere is never sitting on as large a gap between their old rate and today's rate. The 30-year fixed-rate mortgage was built to protect American borrowers from ever having their own payment shoot up. It has also, as a side effect, made it expensive for millions of them to ever move again.</p>
+          <p>This note addresses three questions. First, how large is the mortgage rate lock-in effect, and how do we know it is a genuine cause of the frozen market rather than just a symptom of high rates making housing less affordable for everyone? Second, why is lock-in largely a problem the United States built for itself, and who ends up bearing its cost? Third, is the freeze actually thawing in 2026, as some new data suggests, and what would it take to fully unlock the market?</p>
+          <GlossaryPanel pageKey="intro" />
+        </section>
+
+        {/* ============================= BACKGROUND ============================= */}
+        <section id="sec-background" className="page-section">
+          <h1>Background: Trajectory and Structural Context</h1>
+          <h2>Trajectory and baseline conditions</h2>
+          <p>Existing-home sales are not new to swings, but the shape of the current one is unusual. Sales ran at 5.34 million in 2019, a normal pre-pandemic year (<FactTag tier="FACT" /> {src("crblog2019")}), then spiked to 6.12 million in 2021 as remote work, historically low rates, and pandemic savings pulled forward years of demand (<FactTag tier="FACT" /> {src("nmp2022")}). From there sales fell hard: 4.09 million in 2023, then 4.06 million in both 2024 and 2025, each year tying or setting a new low since 1995 (<FactTag tier="FACT" /> {src("narstats")}, {src("wolfstreet2026")}). By May 2026 the pace had ticked up only slightly, to a 4.2-million annual rate (<FactTag tier="FACT" /> {src("hw2026")}).</p>
+          <p>The tailwind behind the eventual recovery, whenever it fully arrives, is demographic: the U.S. population keeps growing and aging into the years when people typically trade up, downsize, or relocate for work, none of which has gone away. The headwind is that the pandemic years did something unusual to the mortgage book itself. Thanks to two years of historically cheap borrowing, thirty million-plus mortgages were refinanced or originated at rates under 4%, and many under 3% (<FactTag tier="FACT" /> {src("redfin2025")}). Those owners are not gone from the housing stock; they are simply not selling, which is exactly what shows up as a missing chunk of "existing-home sales" even while the number of people who might otherwise want to move keeps growing.</p>
+          <p>The chart below plots the full run of annual sales against the market's own 15-year average, so the size of the shortfall is visible directly, not just implied by a string of individual record-low headlines.</p>
+          <ChartA_SalesLine />
+          <ChartInterpretation
+            chartId="chartA"
+            state={interpState}
+            onSubmit={handleInterp}
+            prompts={[
+              { kind: "Quantitative reasoning (predict first)", prompt: "Before computing anything, predict: by roughly what percent are 2025's sales (4.06M) below the 5.0M reference line on the chart? Then compute the actual percentage gap.", authored: "4.06M is about 19% below the 5.0M norm: (5.0 − 4.06) / 5.0 ≈ 18.8%. If lock-in mostly explains the shortfall, closing even half that gap would mean roughly 470,000 more transactions a year, enough to matter to every business, from real-estate agents to moving companies to appliance retailers, that gets paid only when a transaction happens, not when someone simply refinances or stays put." },
+              { kind: "Causal / comparative", prompt: "Existing-home sales fell over the same years that mortgage rates rose. Does that alone prove rate lock-in, specifically the GAP between an old rate and a new one, rather than just the higher LEVEL of today's rate making housing less affordable for everyone, is the mechanism holding sales down? What additional evidence would you need?", authored: "No — a simple before/after comparison can't separate 'rates are higher, so fewer people can afford to buy' from 'rates are higher than MY OLD rate, so I personally lose by selling.' To isolate the lock-in-specific mechanism, you need evidence that households with a bigger GAP between their old and new rate move less than otherwise-similar households with a smaller gap, holding the current market rate level fixed for everyone — which is exactly the kind of variation the FHFA and Federal Reserve research in the next section is built to isolate." },
+            ]}
+          />
+
+          <h2>Structural transformation</h2>
+          <p>The mortgage book itself has been quietly reshaping the market's structure ever since rates began rising in 2022. In the first quarter of 2022, 24.6% of all outstanding U.S. mortgages carried a rate below 3%, and 65.1% carried a rate below 4% (<FactTag tier="FACT" /> {src("redfin2025")}). By the third quarter of 2025, the share below 3% had fallen to 20% and the share below 4% had fallen to 51.5% (<FactTag tier="FACT" /> {src("redfin2025")}) — not because those owners refinanced UP to a worse rate, which almost nobody does voluntarily, but because a slice of them eventually sold, moved, or passed the home on despite the rate penalty, while nearly every new purchase and refinance since 2022 has landed above 4%, diluting the low-rate pool from below.</p>
+          <p>That same slow dilution produced a genuine milestone. By the third quarter of 2025, 21.2% of outstanding mortgages carried a rate of 6% or higher, for the first time exceeding the 20% share still below 3% (<FactTag tier="FACT" /> {src("redfin2025")}). This is the structural gap at the heart of the paradox: a housing stock increasingly split between a shrinking pool of owners who would lose heavily by selling and a growing pool of owners already paying something close to today's market rate, who face no such penalty and can move freely.</p>
+          <ChartB_RateSlope />
+          <ChartInterpretation
+            chartId="chartB"
+            state={interpState}
+            onSubmit={handleInterp}
+            prompts={[
+              { kind: "Qualitative / mechanism", prompt: "Compute the percentage-point decline in the share of mortgages below 4% from Q1 2022 to Q3 2025. Is this decline explained mainly by homeowners refinancing UP to a higher rate (unlikely), or by a different mechanism — what is it?", authored: "The share below 4% fell 65.1% to 51.5%, a decline of 13.6 percentage points. Almost none of that is homeowners choosing a worse rate; the real mechanism is turnover and dilution: some of those below-4% loans naturally exit the pool as their owners eventually sell, move, or pass the home on despite the rate penalty, while essentially every new purchase or refinance originated since 2022 lands above 4%, adding to the denominator without adding to the below-4% numerator." },
+              { kind: "So-what / decision implication", prompt: "If the crossover trend, the ≥6% share now exceeding the <3% share, continues at a similar pace, what should mortgage lenders and title companies plan for regarding transaction volume over the next two to three years?", authored: "Lock-in mathematically must keep easing as the vintage of ultra-low-rate loans keeps shrinking through ordinary turnover, so lenders and title companies should expect transaction volume to grind higher even without rates falling — but slowly. Capacity planning should assume a gradual, multi-year normalization, not a sudden snap-back, unless mortgage rates fall sharply from today's level." },
+            ]}
+          />
+          <MCQuestion q={BG_QUESTIONS.mc} state={questionState} onAnswer={handleAnswer} />
+          <NumericQuestion q={BG_QUESTIONS.numeric} state={questionState} onAnswer={handleNumeric} />
+          <GlossaryPanel pageKey="background" />
+        </section>
+
+        {/* ============================= RQ1 ============================= */}
+        <section id="sec-rq1" className="page-section">
+          <h1>RQ1: How Big Is Lock-In, and How Do We Know It's Causal?</h1>
+          <p>The thesis under test: mortgage rate lock-in is not just a label economists put on "rates are higher so fewer people buy." It is a specific, measurable brake tied to the GAP between an owner's old rate and today's rate, and researchers have found ways to isolate that gap's effect from the general drag of higher rates on affordability.</p>
+          <p>The clearest evidence comes from the Federal Housing Finance Agency, the regulator that oversees Fannie Mae and Freddie Mac. Its 2024 working paper finds that for every additional percentage point by which the market rate exceeds a homeowner's original rate, that homeowner's probability of selling falls by 18.1% (<FactTag tier="FACT" /> {src("fhfa2024")}). Applied across the market, the same paper estimates lock-in cut fixed-rate-mortgage home sales by 57% in the fourth quarter of 2023 alone and prevented 1.33 million sales between the second quarter of 2022 and the fourth quarter of 2023 (<FactTag tier="FACT" /> {src("fhfa2024")}). The resulting supply squeeze raised home prices by 5.7%, more than offsetting the 3.3% price-dampening effect of higher rates making housing less affordable on its own (<FactTag tier="FACT" /> {src("fhfa2024")}) — in other words, restricting supply pushed prices up by more than expensive financing pushed them down.</p>
+          <p>A separate Federal Reserve Board study takes a different angle, isolating lock-in's effect on how often people move rather than on sale probability directly. It finds that mortgage rate lock-in explains 44% of the drop in mortgage-borrower mobility between 2021 and 2022, after the authors' method strips out other explanations like the fading remote-work relocation boom (<FactTag tier="FACT" /> {src("fed2024")}). Crucially, the same 2022 shock also raised prices 8% and cut the average time a home sat on the market by 29%, but the paper finds these price and tightness effects depended entirely on how tight the market already was: an identical rate shock landing on a looser, more balanced market like 2019's would have had little to no effect on prices or how quickly homes sold (<FactTag tier="FACT" /> {src("fed2024")}).</p>
+          <p>The waterfall below turns the Federal Reserve's own decomposition into a single picture: of the full 2021-to-2022 collapse in homeowner mobility, how much is lock-in, and how much is everything else.</p>
+          <ChartC_MobilityWaterfall />
+          <ChartInterpretation
+            chartId="chartC"
+            state={interpState}
+            onSubmit={handleInterp}
+            prompts={[
+              { kind: "Causal / comparative", prompt: "The chart shows lock-in explaining 44% of the mobility drop. If the SAME 2022 rate shock had hit a housing market as loose and balanced as 2019's, the paper finds the price and tightness effects would have been 'little to no impact.' Given that, is 44% a fixed, universal multiplier, or a conditional one? Explain using both pieces of evidence.", authored: "It's explicitly conditional, not a fixed law. The 44% mobility share and the +8% price effect were both measured in a historically tight 2022 market; the paper's own counterfactual shows that an identical lock-in shock landing on a balanced market, like 2019's, would have produced little to no price or tightness effect. So 44% describes one specific historical episode under specific starting conditions, not a constant, portable elasticity that would apply the same way in every housing market at every point in the cycle." },
+              { kind: "So-what / decision implication", prompt: "A Fed policymaker sees this decomposition and is deciding whether cutting interest rates would 'unlock' the housing market. What does the waterfall imply about how large a rate cut would need to be to meaningfully shrink the 44% lock-in share?", authored: "Because the Federal Reserve's own paper finds the effect of lock-in grows nonlinearly with the size of the rate shock, a small, quarter-point cut is unlikely to meaningfully shrink the 44% share; the effect only becomes large when the cut meaningfully closes the gap between old and new rates for a large share of borrowers. That matches Compass's own modeling elsewhere in this article, which finds a roughly 2.5-percentage-point drop from today's rate would be needed to effectively eliminate lock-in altogether." },
+            ]}
+          />
+          <MCQuestion q={RQ1_QUESTIONS.mc} state={questionState} onAnswer={handleAnswer} />
+          <NumericQuestion q={RQ1_QUESTIONS.numeric} state={questionState} onAnswer={handleNumeric} />
+          <p>A third strand of research, from Fonseca and Liu, ties the same mechanism directly to household finances and even to the labor market. Households facing a 1-percentage-point larger rate gap move about 9% less overall, rising to roughly 16% less in the 2022-to-2024 period specifically, and face $27,000 or more in extra present-value mortgage cost simply from moving (<FactTag tier="FACT" /> {src("jof2024")}). The same lock-in effect dampens how often people flow into and out of self-employment and how responsive they are to job opportunities that would require relocating (<FactTag tier="FACT" /> {src("jof2024")}) — meaning the freeze is not confined to the housing market alone; it slows how the whole labor market reallocates.</p>
+          <p>Three independent research teams, using three different methods (sale-probability regressions, mobility decompositions, and labor-market matching), converge on the same structural story: a specific, measurable gap between an old locked-in rate and today's market rate, not merely "rates are higher," is doing real, quantifiable work in freezing the market. The open question is why the United States built a mortgage system so exposed to this specific failure mode in the first place.</p>
+          <GlossaryPanel pageKey="rq1" />
+        </section>
+
+        {/* ============================= RQ2 ============================= */}
+        <section id="sec-rq2" className="page-section">
+          <h1>RQ2: Why Is This Largely an American Problem, and Who Pays for It?</h1>
+          <p>The obstacle to treating lock-in as an unavoidable fact of interest-rate cycles is that most of the rest of the world does not experience it nearly as severely, even though every country's central bank raised rates over the same 2022-to-2023 window. The difference is not the rate cycle; it is mortgage design.</p>
+          <p>France, Germany, the United Kingdom, and the United States all rely mostly on fixed-rate mortgage contracts, but the length of that fix varies enormously (<FactTag tier="FACT" /> {src("bankunderground2024")}). The most common product in the United Kingdom fixes for about two years before resetting to the prevailing rate; in Canada, the most common term is about five years (<FactTag tier="FACT" /> {src("bankunderground2024")}). Across the OECD as a whole, the median share of mortgages with an adjustable rate, one that moves with the market on a regular schedule, was around 45% as of 2020, and adjustable-rate products account for more than 80% of mortgages in the Baltic states and several Nordic and Eastern European countries (<FactTag tier="FACT" /> {src("oecd2021")}). A homeowner in most of these countries is, by design, never sitting on a multi-decade-old rate that is dramatically below today's; their payment resets to something close to the current rate every few years regardless of whether they move.</p>
+          <p>Only the United States and Denmark commonly offer a mortgage with a rate fixed for as long as 30 years (<FactTag tier="FACT" /> {src("bankunderground2024")}). If a long fixed term were the whole story, Denmark should show the same severe lock-in problem the United States does. It largely does not, and the reason is a design detail buried in how Danish mortgages are financed. Every Danish mortgage is matched one-for-one to a bond sold to investors, and Danish law gives the borrower a "delivery option": the right to cancel the mortgage early by buying back that specific bond at its current market price, rather than at its original face value (<FactTag tier="FACT" /> {src("msci2025")}, {src("mr2026")}). Because a bond's market price falls when interest rates rise, exiting the mortgage becomes cheaper, not more expensive, in exactly the high-rate environment that creates lock-in everywhere else. The United States, by contrast, gives the borrower no equivalent low-cost exit; the only way out of a low-rate loan is to sell the house and originate an entirely new mortgage at whatever the market charges that day.</p>
+          <ChartD_CountryDotPlot />
+          <ChartInterpretation
+            chartId="chartD"
+            state={interpState}
+            onSubmit={handleInterp}
+            prompts={[
+              { kind: "Qualitative / mechanism", prompt: "Why does the same interest-rate cycle that freezes the U.S. housing market barely register as a 'lock-in' problem in Canada or the United Kingdom?", authored: "Because Canadian and UK mortgages reset every five or two years respectively, homeowners there are already paying something close to the current market rate at nearly all times, so a rate hike doesn't create a large, one-time gap between an old locked rate and today's rate. The lock-in gap the U.S. experiences is a direct product of promising a rate fixed for up to 30 years with no automatic reset in between." },
+              { kind: "So-what / decision implication", prompt: "Denmark also offers 30-year fixed mortgages, like the U.S., but is far less prone to lock-in. Given the article's description of Denmark's delivery option, what should a U.S. policymaker designing a lock-in fix borrow from Denmark's design, specifically?", authored: "The transferable design feature isn't the 30-year term itself; it's the callable-bond delivery option that lets a borrower exit near the loan's current market price rather than its face value, which becomes cheap exactly when rates have risen. A U.S. 'portable' or assumable-mortgage proposal aims at a similar underlying goal, letting a buyer take over the seller's existing low rate, but through a different mechanism, since the U.S. does not fund mortgages through the same bond-matching structure Denmark uses." },
+            ]}
+          />
+          <MCQuestion q={RQ2_QUESTIONS.mc1} state={questionState} onAnswer={handleAnswer} />
+          <p>Who bears the cost of the American design choice? FHFA's own research is explicit that the burden is not evenly spread: certain borrower groups with lower wealth accumulation are less able to strategically time a sale around rate conditions, worsening housing-related inequality (<FactTag tier="FACT" /> {src("fhfa2024")}). Wealthier, longer-tenured owners can more easily absorb the cost of "buying up" into a higher rate, or can pay cash for a second property while waiting to sell the first; owners with less flexibility are more likely to simply stay put, whether or not staying put fits their actual housing needs. Meanwhile, Coldwell Banker's spring 2026 agent survey found that one in three home sellers were giving up a sub-5% rate to list anyway, and that 61% of agents still call lock-in a major or moderate factor in seller decisions, versus 39% who call it minor or irrelevant (<FactTag tier="FACT" /> {src("coldwell2026")}) — a sign that the freeze is real but not absolute, and that a meaningful share of owners are beginning to accept the cost of exiting.</p>
+          <p>Proposals exist to import something closer to the Danish or portable-mortgage idea into the U.S. market, most notably assumable mortgages, which let a buyer take over a seller's existing loan and rate instead of originating a new one (<FactTag tier="FACT" /> {src("bpc")}). The next section's consulting case tests how far such a proposal could realistically go, given the legal and incentive structure of the existing U.S. mortgage market.</p>
+          <MCQuestion q={RQ2_QUESTIONS.case} state={questionState} onAnswer={handleAnswer} consulting />
+          <p>The American lock-in problem is a specific, traceable consequence of a specific design choice: a very long fixed rate with no cheap, built-in way to exit early. Denmark shows that the fixed-rate term itself is not the culprit; the missing exit ramp is. And the U.S. system's own research shows the resulting freeze does not fall evenly across households, which sets up the final question: given all of this, is anything actually changing?</p>
+          <GlossaryPanel pageKey="rq2" />
+        </section>
+
+        {/* ============================= RQ3 ============================= */}
+        <section id="sec-rq3" className="page-section">
+          <h1>RQ3: Is the Freeze Actually Thawing, and What Would Fully Unlock It?</h1>
+          <p>The thesis under test here is narrower and more optimistic than the first two sections: even without a large rate cut, the pool of ultra-low-rate mortgages keeps shrinking every year through ordinary turnover, so the freeze should be easing on its own, slowly, even if nothing else changes.</p>
+          <p>Compass's chief economist, Jonah Coste, who co-authored the original FHFA lock-in paper, has since built a simple decay model of exactly this process. He estimates the average outstanding U.S. mortgage rate has already climbed from 3.8% in the second quarter of 2022 to 4.5% as of 2026, purely as the low-rate loans that make up that average keep getting diluted by higher-rate originations and by ordinary sales (<FactTag tier="FACT" /> {src("hw2026")}). By his estimate, lock-in is preventing about 870,000 home sales in 2026 that would otherwise occur, and that number decays by roughly 5.8% a year as more of the low-rate pool naturally turns over, implying about 820,000 prevented sales in 2027 (<FactTag tier="FACT" /> {src("hw2026")}).</p>
+          <p>The chart below turns that decay math into two scenario paths for when annual sales might return to the 5.0-million norm: one assuming rates hold near today's level, relying purely on this natural decay, and one assuming rates fall meaningfully, into the 5% range.</p>
+          <ChartE_ScenarioLine />
+          <ChartInterpretation
+            chartId="chartE"
+            state={interpState}
+            onSubmit={handleInterp}
+            prompts={[
+              { kind: "Quantitative reasoning (predict first)", prompt: "Before checking the box below, estimate: using ONLY the 5.8%-per-year natural-decay mechanism, roughly how many years would it take for the number of lock-in-prevented sales to fall by half, if rates never move at all?", authored: "Using the decay formula, 0.942 raised to the n-th power equals 0.5 when n is about 11.5 years. So even with no rate movement whatsoever, it takes roughly a decade or more for the annual drag to fall by half — which is why this article treats 'waiting it out' as a slow, multi-year process, not something that resolves in one or two years." },
+              { kind: "So-what / decision implication", prompt: "Given both scenario lines converge toward the 5-million norm only quickly under the rate-cut case, what does this imply for a homebuilder deciding whether to expand new-construction supply now, rather than waiting?", authored: "New construction is not subject to lock-in; there is no existing low rate for a builder to give up. The model implies homebuilders can capture demand that resale sellers currently cannot supply, and that this new-construction advantage persists for years under the baseline, slow-decay scenario, shrinking quickly only if rates actually fall into the 5s. Builders effectively have a multi-year window in which their unlocked supply substitutes for frozen resale inventory." },
+            ]}
+          />
+          <MCQuestion q={RQ3_QUESTIONS.mc1} state={questionState} onAnswer={handleAnswer} />
+          <NumericQuestion q={RQ3_QUESTIONS.numeric} state={questionState} onAnswer={handleNumeric} />
+          <p>There is also direct evidence the freeze is already easing at the margins, not just in a model. By the third quarter of 2025, the share of outstanding mortgages at 6% or higher, 21.2%, exceeded the share still below 3%, 20%, for the first time in about five years (<FactTag tier="FACT" /> {src("redfin2025")}). Household mobility overall, not limited to homeowners, fell to a record low of 11.2% in 2024, down from around 20% in the 1950s and 1960s (<FactTag tier="FACT" /> {src("jchs2024")}), showing the freeze sits inside a much longer decline in how often Americans move for any reason, only part of which mortgage lock-in can explain. And prices are still climbing, if more slowly: June 2026's $440,600 median was 50% above June 2020's $294,400, while wages rose about 28% over the same six-year window, both nominal, not inflation-adjusted, figures (<FactTag tier="FACT" /> {src("tnd2026")}).</p>
+          <MCQuestion q={RQ3_QUESTIONS.mc2} state={questionState} onAnswer={handleAnswer} />
+          <p>The freeze is thawing, but on a timeline measured in years, not months, unless mortgage rates fall substantially. The natural-decay mechanism is real and already visible in the crossover of the outstanding-rate distribution, but it is slow by construction, since it depends on ordinary life events, not policy, to move each locked-in household. That leaves open exactly how much faster a deliberate policy intervention, rather than simply waiting, could move the timeline.</p>
+          <GlossaryPanel pageKey="rq3" />
+        </section>
+
+        {/* ============================= LEARNING SUMMARY ============================= */}
+        <section id="sec-summary" className="page-section">
+          <h1>Learning Summary</h1>
+          <h2>Score breakdown</h2>
+          <div className="score-table">
+            {Object.entries(scoreByType).map(([type, v]) => (
+              <div key={type} className="score-row">
+                <span>{type}</span>
+                <span>{v.correct} / {v.total}</span>
+              </div>
+            ))}
+          </div>
+          <p className="numeric-bias-note">
+            Numeric (Type D) questions: {numAnswered.length} of 3 answered, {numCorrect.length} within declared tolerance.
+            {numericBias && (
+              <> On average, your estimates were {numericBias.avg >= 0 ? "above" : "below"} the actual value by about {Math.abs(numericBias.avg).toFixed(0)}%
+              {numericBias.avg >= 0 ? " (an over-estimation bias)" : " (an under-estimation bias)"} across {numericBias.n} numeric question{numericBias.n === 1 ? "" : "s"}.</>
+            )}
+            {numAnswered.length > 0 && " Review each question's “How to estimate this” box above if your estimate landed outside the band — it names the decomposition and bounds for a typical miss."}
+            {" "}No confidence rating is captured anywhere else in this artifact — this report is otherwise score and direction of bias only.
+          </p>
+          {confidenceCalibration && (
+            <p className="numeric-bias-note">
+              <strong>Confidence calibration (Question bg-d1 only):</strong> you rated your confidence at {confidenceCalibration.confidence}% and your estimate was {confidenceCalibration.correct ? "within" : "outside"} the declared tolerance band.
+              {" "}{confidenceCalibration.correct
+                ? (confidenceCalibration.confidence >= 70 ? " That is well-calibrated: high confidence paired with a correct estimate." : " That is underconfident: you were right but rated your own odds modestly.")
+                : (confidenceCalibration.confidence >= 70 ? " That is overconfident: high stated confidence paired with an estimate outside the tolerance band — a useful signal to double-check compounding-style calculations before trusting a first instinct." : " Your confidence was already modest, so this miss is roughly consistent with your own stated uncertainty.")}
+              {" "}This is the only question in the article where confidence was captured.
+            </p>
+          )}
+
+          <h2>Your governing insight</h2>
+          <p>You saw five charts spanning a 15-year sales trajectory, a mortgage-rate distribution crossover, a Federal Reserve mobility decomposition, a four-country design comparison, and a modeled recovery timeline. Write the single most non-obvious insight you would defend to a skeptical mortgage-industry executive.</p>
+          <textarea
+            className="governing-input"
+            rows={3}
+            value={governingInsight}
+            onChange={(e) => setGoverningInsight(e.target.value)}
+            placeholder="Your one-sentence governing insight…"
+          />
+          {!governingRevealed && (
+            <button className="btn-primary" disabled={governingInsight.trim().length < 15} onClick={() => setGoverningRevealed(true)}>
+              Reveal the article's three insights
+            </button>
+          )}
+          {governingRevealed && (
+            <div className="insight-cards">
+              <div className="insight-yours"><strong>Yours:</strong> {governingInsight}</div>
+              <div className="how-your-insight-label">How your insight compares to the article's three:</div>
+              <div className="insight-card">1. Rising prices and frozen sales are not a contradiction once you separate the incentive to sell (the price) from the cost of buying again (the new mortgage rate); when the second cost swamps the first, sellers stay put even at record prices.</div>
+              <div className="insight-card">2. Lock-in is a specific, measured, and conditional causal effect, not just a synonym for "rates are high" — three independent research methods isolate a gap-driven mechanism, but its size depends heavily on how tight the housing market already is, so the same rate shock does not produce the same effect twice.</div>
+              <div className="insight-card">3. The same 30-year fixed-rate feature that creates lock-in in the United States barely registers in Denmark, because the real culprit is not the length of the fix but the absence of a cheap way to exit it early — a design detail, not an unavoidable law of interest-rate cycles.</div>
+            </div>
+          )}
+
+          <h2>Apply It</h2>
+          <div className="apply-it-block">
+            <p><strong>(a) Your context.</strong> Think of a situation, outside housing, where someone is "locked in" to an old commitment because the cost of switching to a currently available alternative has grown too large: a fixed-rate student loan versus refinancing options, a long-term enterprise software contract, a fixed-price energy contract, or a vested-but-illiquid equity grant. Write four labeled parts: (1) a one-sentence so-what thesis about that situation, (2) the single load-bearing assumption that must hold for your thesis to be true, (3) the evidence that would most undermine it (disconfirming evidence), (4) a one-line pre-mortem: "If this fails in 12 months, the most likely reason is ___."</p>
+            <textarea className="apply-input" rows={6} value={applyA} onChange={(e) => setApplyA(e.target.value)} placeholder={"1) Thesis: …\n2) Load-bearing assumption: …\n3) Disconfirming evidence: …\n4) Pre-mortem: …"} />
+            <p><strong>(b) Cross-link.</strong> Name one prior article's principle, from the Warm-Up or your own memory of past notes, that either reinforces or conflicts with today's principle about a design detail, not the headline feature, determining whether a lock-in problem actually binds. Explain the connection in 2–3 sentences.</p>
+            <textarea className="apply-input" rows={3} value={applyB} onChange={(e) => setApplyB(e.target.value)} placeholder="Your cross-link…" />
+            <button className="btn-primary" onClick={() => setApplyGaps(evaluateApplyIt())}>Check my response</button>
+            {applyEvaluated && (
+              <div className="apply-feedback">
+                <div className="apply-feedback-label">Structural check (not a keyword match — confirms all four labeled parts are present and substantive, then flags what's missing or weak):</div>
+                <ul>{applyGaps.map((g, i) => <li key={i}>{g}</li>)}</ul>
+                <p className="apply-note">Note: this is a local, evidence-based fallback check (no secure server-side model evaluation is wired into this static artifact — see the code comment above evaluateApplyIt). It verifies structure and length, not the quality of your reasoning — re-read your four parts against the article's evidence yourself: does each climb from observation to a quantified, decision-relevant implication?</p>
+              </div>
+            )}
+          </div>
+
+          <h2>Return to Section: Principles to Revisit</h2>
+          {missedPrinciples.length === 0 ? (
+            <p>No missed questions yet — or none answered. Answer questions throughout the article to populate this list.</p>
+          ) : (
+            <ul className="principles-list">
+              {missedPrinciples.map((p, i) => <li key={i}>{p}</li>)}
+            </ul>
+          )}
+        </section>
+
+        {/* ============================= CONCLUSION ============================= */}
+        <section id="sec-conclusion" className="page-section">
+          <h1>Conclusion</h1>
+          <p>The central challenge is that the United States built a mortgage system that protects individual borrowers from ever seeing their own payment rise, and in doing so built in a specific failure mode: freezing the broader market's supply exactly when rates rise fastest. The most likely path forward, under partial success, is not a sudden thaw but a slow one, paced by how quickly the shrinking pool of ultra-low-rate loans naturally turns over, unless mortgage rates fall substantially from today's level.</p>
+          <p>For lenders, homebuilders, and investors, the lesson is to treat the freeze as a real but temporary supply constraint rather than a permanent break in how the housing market works, and to size any recovery bet against the specific, disclosed decay rate of the locked-in pool rather than against hope for a large rate cut that may not arrive. For policymakers, the Danish contrast shows that fixing lock-in does not require abandoning long, fixed-rate mortgages, the very feature that protects borrowers from payment shocks in the first place; it requires adding a cheaper way to exit one early, whether through a Danish-style bond mechanism or a workable assumable-mortgage market, and either path has to clear real legal and incentive hurdles that go well beyond simply wanting the market to unfreeze.</p>
+          <p>For households themselves, the practical implication is that a record-high sale price is not, by itself, evidence that selling makes financial sense; the size of the gap between an old locked-in rate and today's market rate can easily outweigh even a substantial price gain, and any decision to move should weigh both sides of that ledger explicitly, not just the sale price on its own.</p>
+          <MCQuestion q={CONCLUSION_QUESTION} state={questionState} onAnswer={handleAnswer} />
+          <p className="final-question">The most important unresolved question is whether the natural decay of the low-rate mortgage pool, on its own, will unlock the market fast enough to matter to the next generation of buyers and sellers, or whether a specific policy intervention, modeled on Denmark's exit mechanism or a workable assumable-mortgage market, will prove necessary to meaningfully speed up a process that, left alone, is measured in over a decade.</p>
+
+          <h2>Sources</h2>
+          <ul className="sources-list">
+            {SOURCES.map((s) => (
+              <li key={s.id}>
+                <a href={s.url} target="_blank" rel="noopener noreferrer">{s.label}</a>
+              </li>
+            ))}
+          </ul>
+        </section>
+      </main>
+    </div>
+  );
+}
+
+const root = ReactDOM.createRoot(document.getElementById("root"));
+root.render(<App />);

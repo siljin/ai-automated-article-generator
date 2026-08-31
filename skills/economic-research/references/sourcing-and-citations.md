@@ -11,6 +11,7 @@ Before choosing the final thesis, search the user's topic plus outlet names and 
 - Popular and business sources: The Economist, New York Times, Washington Post, Wall Street Journal, Financial Times, Bloomberg, Business Insider, STAT, Axios, and similar reputable outlets.
 - Consulting and market sources: McKinsey, BCG, Bain, Deloitte, PwC, CB Insights, PitchBook, Rock Health, Gartner, IDC, and industry reports when relevant.
 - Academic and science sources: JAMA, NEJM, Health Affairs, Nature, Science, The Lancet, BMJ, NBER, Brookings, IMF, World Bank, OECD, Federal Reserve, and government agencies.
+- Healthcare AI–focused sources: npj Digital Medicine (Nature's peer-reviewed journal dedicated to digital health and clinical AI), plus outlets like Fierce Healthcare, MedCity News, and Healthcare IT News for industry/deployment coverage.
 
 Use these sources to identify:
 

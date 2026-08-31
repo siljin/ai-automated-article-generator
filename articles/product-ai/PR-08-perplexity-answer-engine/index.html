@@ -1,0 +1,1687 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Perplexity's Answer Engine: Why Retrieval Is the Product, Not the Model</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: #ffffff;
+    color: #111111;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    line-height: 1.7;
+    font-size: 16px;
+  }
+  h2 { font-size: 24px; margin-top: 8px; }
+  h4 { font-size: 16px; }
+  a { text-decoration: none; }
+  button { font-family: inherit; }
+  textarea, input { font-family: inherit; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script crossorigin src="https://unpkg.com/react@18.3.1/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/prop-types@15.8.1/prop-types.min.js"></script>
+<script crossorigin src="https://unpkg.com/recharts@2.12.7/umd/Recharts.js"></script>
+<script src="https://unpkg.com/@babel/standalone@7.24.7/babel.min.js"></script>
+<script type="text/babel" data-presets="env,react">
+/* ============================================================================
+   Perplexity's Answer Engine: Why Retrieval Is the Product, Not the Model
+   AI Product Teardown (Type 2) — Technical Product Intelligence series, PR-08
+   ============================================================================ */
+
+const { useState, useEffect, useRef, useContext, createContext } = React;
+const { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, LabelList } = Recharts;
+
+/* ---------------------------------------------------------------------------
+   DATA
+--------------------------------------------------------------------------- */
+
+const ARTICLE_META = {
+  title: "Perplexity's Answer Engine: Why Retrieval Is the Product, Not the Model",
+  type: "AI Product Teardown (Type 2)",
+  lifecyclePhases: ["Build", "Scale"],
+  governingPrinciple:
+    "In an AI answer engine, the retrieval system is the product. The language model on top is a thin, swappable layer; what a user actually experiences as quality, speed, and trustworthy answers is decided almost entirely by the search infrastructure built long before a single token gets generated.",
+};
+
+const PRIOR_ARTICLES = [
+  {
+    slug: "PR-05-airbnb-model-vs-heuristic",
+    title: "When a Problem Warrants a Model, Not a Heuristic: Airbnb's Climb from Rules to Reinforcement Learning",
+    principle:
+      "A model is warranted only where the problem has context a rule cannot use AND the data to learn that context exists; a deployed model also censors its own future training data, so exploration has to be scoped into v1 on purpose.",
+    lifecycle: "Feasibility",
+  },
+  {
+    slug: "PR-06-cursor-architecture-teardown",
+    title: "How Cursor Actually Works: The Architecture Is the Product",
+    principle:
+      "Partition an AI product by latency budget first, then choose models and retrieval per lane — and at scale, cut redundant work (caching, cross-user reuse) before shopping for a faster model.",
+    lifecycle: "Build, Scale",
+  },
+  {
+    slug: "PR-07-github-copilot-architecture-teardown",
+    title: "How GitHub Copilot Actually Works: Context Assembly, the Filter Gate, and a Reward Function Rebuilt Twice",
+    principle:
+      "A model's context window is a scarce resource, so the algorithms deciding what fills it matter more than the model's raw intelligence — and quality metrics must be tracked separately from serving-efficiency metrics, never blended into one score.",
+    lifecycle: "Build, Evaluate, Scale",
+  },
+];
+
+const WARMUPS = [
+  {
+    id: "wu1",
+    source: PRIOR_ARTICLES[0],
+    prompt:
+      "A logistics startup wants to add a route-optimization model to its delivery app. Its engineers already have a rule-based routing system that works reasonably well. Using the principle from a prior article, what is the first question they should answer before building a model — not 'can a model do this,' but what — and why does that question matter more than model accuracy?",
+  },
+  {
+    id: "wu2",
+    source: PRIOR_ARTICLES[1],
+    prompt:
+      "A note-taking app wants to add both an instant 'finish my sentence' feature and a slower 'summarize everything I wrote this year' feature. Using a prior article's principle, how should the team decide what governs the architecture split between these two features, before they pick any model?",
+  },
+  {
+    id: "wu3",
+    source: PRIOR_ARTICLES[2],
+    prompt:
+      "A team just shipped a model update to their AI writing assistant that improved both response speed and a user-satisfaction score in the same release. Using a prior article's principle, what should they check before crediting the speed improvement for the satisfaction improvement?",
+  },
+];
+
+// ---- Chart data (all FACT unless noted) ----
+
+const LATENCY_DATA = [
+  { name: "p50", Perplexity: 358, Exa: 1375, Brave: 513, "SERP-based": 1342 },
+  { name: "p75", Perplexity: 443, Exa: 1499, Brave: 637, "SERP-based": 1586 },
+  { name: "p90", Perplexity: 604, Exa: 1798, Brave: 728, "SERP-based": 1743 },
+  { name: "p95", Perplexity: 763, Exa: 2188, Brave: 808, "SERP-based": 1790 },
+];
+const LATENCY_SERIES = [
+  { key: "Perplexity", label: "Perplexity", color: "#2563eb" },
+  { key: "Exa", label: "Exa", color: "#f59e0b" },
+  { key: "Brave", label: "Brave", color: "#10b981" },
+  { key: "SERP-based", label: "SERP-based (Tavily)", color: "#94a3b8" },
+];
+
+const QUALITY_DATA = [
+  { name: "SimpleQA", Perplexity: 0.93, Exa: 0.781, Brave: 0.822, "SERP-based": 0.89 },
+  { name: "FRAMES", Perplexity: 0.453, Exa: 0.399, Brave: 0.32, "SERP-based": 0.437 },
+  { name: "BrowseComp", Perplexity: 0.371, Exa: 0.265, Brave: 0.221, "SERP-based": 0.348 },
+  { name: "HLE", Perplexity: 0.288, Exa: 0.242, Brave: 0.191, "SERP-based": 0.248 },
+];
+
+const CITATION_DATA = [
+  { name: "Perplexity", errorRate: 37 },
+  { name: "ChatGPT Search", errorRate: 57 },
+  { name: "Copilot (of answered)", errorRate: 69 },
+  { name: "Grok-3 Search", errorRate: 94 },
+];
+
+const COST_DATA = [
+  { name: "Sonar (low ctx)", cost: 0.0057 },
+  { name: "Sonar (high ctx)", cost: 0.0127 },
+  { name: "Deep Research (low)", cost: 0.409 },
+  { name: "Deep Research (med)", cost: 1.19 },
+  { name: "Deep Research (high)", cost: 1.32 },
+];
+
+const CRAWLER_DATA = [
+  { name: "Declared crawler", low: 20, high: 25 },
+  { name: "Undeclared / stealth", low: 3, high: 6 },
+];
+
+const PRINCIPLE_LABELS = {
+  "mcq-arch": "Architecture: the most expensive, deliberately-last pipeline stage — not the widest first stage — is usually the scaling bottleneck.",
+  "case-medibrief": "Product decisions: a passage-level citation is a UI signal, not a correctness guarantee — the two must be measured separately.",
+  "th-cost": "Cost control: 'rationing expensive work' is only a real cost-control mechanism if the expensive stage's cost actually shrinks with a smaller candidate set.",
+  "failure-mcq": "What Broke: a documented policy describes the primary path, not the fallback path — that gap needs an enforced, code-level invariant.",
+  "te-conclusion": "Falsification: the retrieval-architecture principle would be weakened by evidence that quality converges across providers regardless of retrieval investment.",
+  "tg-citation": "Product decisions: necessary infrastructure (passage-level scoring) is not the same as a sufficient guarantee (accurate citations).",
+  "fermi1": "Cost control: sizing the counterfactual cost of renting retrieval at scale is what made owning it existential, not optional.",
+  "fermi2": "Cost control: build the cost decomposition (tokens + request fee) yourself before trusting a monthly estimate.",
+};
+
+/* ---------------------------------------------------------------------------
+   CONTEXT for score + answer registry
+--------------------------------------------------------------------------- */
+const AppCtx = createContext(null);
+function useAppCtx() { return useContext(AppCtx); }
+
+/* ---------------------------------------------------------------------------
+   SMALL PRESENTATIONAL HELPERS
+--------------------------------------------------------------------------- */
+
+function ProvenanceTag({ tier }) {
+  const color = tier === "FACT" ? "#065f46" : tier === "ESTIMATE" ? "#92400e" : "#6b7280";
+  const bg = tier === "FACT" ? "#d1fae5" : tier === "ESTIMATE" ? "#fef3c7" : "#f3f4f6";
+  return (
+    <span style={{ fontSize: 11, fontWeight: 700, color, background: bg, padding: "2px 8px", borderRadius: 4, letterSpacing: 0.4 }}>
+      {tier}
+    </span>
+  );
+}
+
+function SourceNote({ children }) {
+  return <div style={{ fontSize: 13, color: "#6b7280", marginTop: 6 }}>{children}</div>;
+}
+
+function SimpleBarChart({ data, series, yLabel, height = 300, valueFormatter }) {
+  return (
+    <div style={{ width: "100%", height }}>
+      <ResponsiveContainer width="100%" height="100%">
+        <BarChart data={data} margin={{ top: 24, right: 16, left: 8, bottom: 8 }}>
+          <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+          <XAxis dataKey="name" tick={{ fontSize: 12 }} />
+          <YAxis tick={{ fontSize: 12 }} label={{ value: yLabel, angle: -90, position: "insideLeft", fontSize: 12 }} />
+          <Tooltip formatter={valueFormatter} />
+          <Legend wrapperStyle={{ fontSize: 12 }} />
+          {series.map((s) => (
+            <Bar key={s.key} dataKey={s.key} name={s.label} fill={s.color}>
+              <LabelList dataKey={s.key} position="top" fontSize={10} formatter={valueFormatter} />
+            </Bar>
+          ))}
+        </BarChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
+/* ---------------------------------------------------------------------------
+   Interpretation prompt (chart-attached, two per chart, gated reveal)
+--------------------------------------------------------------------------- */
+let uidCounter = 0;
+function InterpretationPrompt({ id, kind, prompt, authored, minLen = 15 }) {
+  const [text, setText] = useState("");
+  const [submitted, setSubmitted] = useState(false);
+  return (
+    <div style={{ border: "1px solid #e5e7eb", borderRadius: 10, padding: 16, marginTop: 12 }}>
+      <div style={{ fontSize: 11, fontWeight: 700, color: "#2563eb", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>
+        {kind}
+      </div>
+      <div style={{ marginBottom: 10 }}>{prompt}</div>
+      {!submitted && (
+        <>
+          <textarea
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            rows={3}
+            style={{ width: "100%", boxSizing: "border-box", padding: 8, borderRadius: 6, border: "1px solid #d1d5db", fontFamily: "inherit", fontSize: 14 }}
+            placeholder={`Write your answer (min ${minLen} characters)...`}
+          />
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 6 }}>
+            <span style={{ fontSize: 12, color: "#9ca3af" }}>
+              {text.length < minLen ? `Enter at least ${minLen} characters to enable Submit (${text.length}/${minLen})` : "Ready to submit"}
+            </span>
+            <button
+              disabled={text.length < minLen}
+              onClick={() => setSubmitted(true)}
+              style={btnStyle(text.length < minLen)}
+            >
+              Submit
+            </button>
+          </div>
+        </>
+      )}
+      {submitted && (
+        <>
+          <div style={{ background: "#f9fafb", borderRadius: 6, padding: 10, marginBottom: 8, fontSize: 14 }}>
+            <strong>Your answer:</strong> {text}
+          </div>
+          <div style={{ background: "#eff6ff", borderRadius: 6, padding: 10, fontSize: 14 }}>
+            <strong>Compare your answer to the authored one:</strong> {authored}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function btnStyle(disabled) {
+  return {
+    background: disabled ? "#e5e7eb" : "#111827",
+    color: disabled ? "#9ca3af" : "#fff",
+    border: "none",
+    borderRadius: 6,
+    padding: "8px 16px",
+    fontSize: 14,
+    cursor: disabled ? "not-allowed" : "pointer",
+  };
+}
+
+/* ---------------------------------------------------------------------------
+   ChartBlock — chart + two gated interpretation prompts + optional magnitude ask
+--------------------------------------------------------------------------- */
+function ChartBlock({ title, tier, sourceNote, chart, q1, q2, magnitudeAsk }) {
+  const [magText, setMagText] = useState("");
+  const [magSubmitted, setMagSubmitted] = useState(false);
+  return (
+    <div style={{ margin: "28px 0" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 6 }}>
+        <h4 style={{ margin: 0, fontSize: 16 }}>{title}</h4>
+        <ProvenanceTag tier={tier} />
+      </div>
+      {chart}
+      <SourceNote>{sourceNote}</SourceNote>
+      {magnitudeAsk && (
+        <div style={{ marginTop: 10, fontSize: 13, color: "#6b7280", fontStyle: "italic" }}>
+          Before reading the questions below, jot a quick prediction: {magnitudeAsk}
+          {!magSubmitted ? (
+            <div style={{ marginTop: 6 }}>
+              <input
+                value={magText}
+                onChange={(e) => setMagText(e.target.value)}
+                placeholder="Your quick prediction..."
+                style={{ padding: 6, borderRadius: 6, border: "1px solid #d1d5db", fontSize: 13, width: "60%" }}
+              />
+              <button style={{ ...btnStyle(false), marginLeft: 8, padding: "6px 12px" }} onClick={() => setMagSubmitted(true)}>
+                Lock it in
+              </button>
+            </div>
+          ) : (
+            <div style={{ marginTop: 6 }}>Locked in: “{magText || "(no prediction entered)"}” — now compare it against the data above.</div>
+          )}
+        </div>
+      )}
+      <InterpretationPrompt {...q1} />
+      <InterpretationPrompt {...q2} />
+    </div>
+  );
+}
+
+/* ---------------------------------------------------------------------------
+   Multiple choice (also used for T-A / T-B / T-H critical reasoning)
+--------------------------------------------------------------------------- */
+function MCQ({ id, subFormLabel, prompt, options, correctIndex, explanations, whereGeneralizes, style }) {
+  const ctx = useAppCtx();
+  const [selected, setSelected] = useState(null);
+  const [submitted, setSubmitted] = useState(false);
+  const [attempt, setAttempt] = useState(1);
+  const [showScaffold, setShowScaffold] = useState(false);
+  const isCorrect = selected === correctIndex;
+
+  function submit() {
+    setSubmitted(true);
+    if (!ctx.answered.current[id]) {
+      ctx.registerAnswer(id, { correct: isCorrect, type: subFormLabel ? "T-H" : "MCQ" });
+    }
+  }
+  function tryAgain() {
+    setAttempt(attempt + 1);
+    setShowScaffold(true);
+    setSubmitted(false);
+    setSelected(null);
+  }
+
+  const cardStyle = style || {};
+  return (
+    <div style={{ border: "1px solid #e5e7eb", borderRadius: 10, padding: 18, margin: "18px 0", ...cardStyle }}>
+      {subFormLabel && (
+        <div style={{ fontSize: 11, fontWeight: 700, color: "#7c3aed", textTransform: "uppercase", marginBottom: 6 }}>
+          Critical reasoning — {subFormLabel}
+        </div>
+      )}
+      <div style={{ marginBottom: 12, fontWeight: 500 }}>{prompt}</div>
+      {showScaffold && !submitted && attempt === 2 && (
+        <div style={{ background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 8, padding: 12, marginBottom: 12, fontSize: 14 }}>
+          <strong>Hint before you try again:</strong> {explanations.scaffold}
+        </div>
+      )}
+      <div style={{ display: "grid", gap: 8 }}>
+        {options.map((opt, i) => {
+          let bg = "#fff", border = "#d1d5db";
+          if (submitted) {
+            if (i === correctIndex) { bg = "#ecfdf5"; border = "#10b981"; }
+            else if (i === selected) { bg = "#fef2f2"; border = "#f87171"; }
+          } else if (selected === i) { border = "#111827"; }
+          return (
+            <div
+              key={i}
+              onClick={() => !submitted && setSelected(i)}
+              style={{ border: `1px solid ${border}`, background: bg, borderRadius: 8, padding: "10px 12px", cursor: submitted ? "default" : "pointer", fontSize: 14 }}
+            >
+              <strong>{String.fromCharCode(65 + i)}.</strong> {opt}
+            </div>
+          );
+        })}
+      </div>
+      {!submitted && (
+        <div style={{ marginTop: 12 }}>
+          <button disabled={selected === null} onClick={submit} style={btnStyle(selected === null)}>
+            Submit
+          </button>
+        </div>
+      )}
+      {submitted && (
+        <div style={{ marginTop: 14 }}>
+          <div style={{ fontWeight: 600, marginBottom: 6, color: isCorrect ? "#065f46" : "#991b1b" }}>
+            {isCorrect
+              ? `Correct — this reasoning pattern generalizes to ${whereGeneralizes}.`
+              : `Incorrect — this is ${explanations.reasoningError[selected]}`}
+          </div>
+          <div style={{ fontSize: 14, marginBottom: 8 }}>{explanations.correct}</div>
+          <div style={{ fontSize: 13, color: "#6b7280" }}>
+            <strong>Where this generalizes:</strong> {whereGeneralizes}
+          </div>
+          {!isCorrect && attempt === 1 && (
+            <button style={{ ...btnStyle(false), marginTop: 12 }} onClick={tryAgain}>
+              Try again
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ---------------------------------------------------------------------------
+   True/False with justification (T-G)
+--------------------------------------------------------------------------- */
+function TrueFalseQ({ id, prompt, correctAnswer, authoredJustification, reasoningErrorIfWrong }) {
+  const ctx = useAppCtx();
+  const [choice, setChoice] = useState(null);
+  const [justification, setJustification] = useState("");
+  const [submitted, setSubmitted] = useState(false);
+  const isCorrect = choice === correctAnswer;
+  const canSubmit = choice !== null && justification.length >= 15;
+
+  function submit() {
+    setSubmitted(true);
+    if (!ctx.answered.current[id]) ctx.registerAnswer(id, { correct: isCorrect, type: "T-G" });
+  }
+
+  return (
+    <div style={{ border: "1px solid #e5e7eb", borderRadius: 10, padding: 18, margin: "18px 0" }}>
+      <div style={{ fontSize: 11, fontWeight: 700, color: "#0891b2", textTransform: "uppercase", marginBottom: 6 }}>
+        True / False — justification required
+      </div>
+      <div style={{ marginBottom: 12 }}>{prompt}</div>
+      <div style={{ display: "flex", gap: 10, marginBottom: 10 }}>
+        {[true, false].map((v) => {
+          let bg = "#fff", border = "#d1d5db";
+          if (submitted) {
+            if (v === correctAnswer) { bg = "#ecfdf5"; border = "#10b981"; }
+            else if (v === choice) { bg = "#fef2f2"; border = "#f87171"; }
+          } else if (choice === v) border = "#111827";
+          return (
+            <div
+              key={String(v)}
+              onClick={() => !submitted && setChoice(v)}
+              style={{ flex: 1, textAlign: "center", border: `1px solid ${border}`, background: bg, borderRadius: 8, padding: "12px", cursor: submitted ? "default" : "pointer", fontWeight: 600 }}
+            >
+              {v ? "True" : "False"}
+            </div>
+          );
+        })}
+      </div>
+      {!submitted && (
+        <>
+          <textarea
+            value={justification}
+            onChange={(e) => setJustification(e.target.value)}
+            rows={2}
+            placeholder="Justify your answer in one sentence, naming the specific evidence (min 15 characters)..."
+            style={{ width: "100%", boxSizing: "border-box", padding: 8, borderRadius: 6, border: "1px solid #d1d5db", fontSize: 14 }}
+          />
+          <div style={{ marginTop: 8 }}>
+            <button disabled={!canSubmit} onClick={submit} style={btnStyle(!canSubmit)}>
+              Submit
+            </button>
+            <span style={{ marginLeft: 10, fontSize: 12, color: "#9ca3af" }}>
+              {choice === null ? "Select True or False, and " : ""}justification needs {Math.max(0, 15 - justification.length)} more characters
+            </span>
+          </div>
+        </>
+      )}
+      {submitted && (
+        <div style={{ marginTop: 10 }}>
+          <div style={{ fontWeight: 600, color: isCorrect ? "#065f46" : "#991b1b", marginBottom: 6 }}>
+            {isCorrect ? "Correct." : `Incorrect — this is ${reasoningErrorIfWrong}`}
+          </div>
+          <div style={{ background: "#f9fafb", borderRadius: 6, padding: 10, fontSize: 14, marginBottom: 8 }}>
+            <strong>Your justification:</strong> {justification}
+          </div>
+          <div style={{ background: "#eff6ff", borderRadius: 6, padding: 10, fontSize: 14 }}>
+            <strong>Authored justification:</strong> {authoredJustification}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ---------------------------------------------------------------------------
+   Fermi / numeric estimation (T-D)
+--------------------------------------------------------------------------- */
+function FermiQ({ id, prompt, tolerance, unit, correctValue, scaffold, decomposition, bounds, mostSensitive, openEnded }) {
+  const ctx = useAppCtx();
+  const [value, setValue] = useState("");
+  const [decompText, setDecompText] = useState("");
+  const [submitted, setSubmitted] = useState(false);
+  const num = parseFloat(value);
+  const withinTol = !isNaN(num) && Math.abs(num - correctValue) / correctValue <= tolerance;
+  const canSubmit = value !== "" && !isNaN(num) && (!openEnded || decompText.length >= 15);
+
+  function submit() {
+    setSubmitted(true);
+    if (!ctx.answered.current[id]) ctx.registerAnswer(id, { correct: withinTol, type: "T-D", signedError: (num - correctValue) / correctValue });
+  }
+
+  return (
+    <div style={{ border: "1px solid #e5e7eb", borderRadius: 10, padding: 18, margin: "18px 0" }}>
+      <div style={{ fontSize: 11, fontWeight: 700, color: "#b45309", textTransform: "uppercase", marginBottom: 6 }}>
+        Engineering estimation (Fermi) {openEnded ? "— open-ended" : "— scaffolded"}
+      </div>
+      <div style={{ marginBottom: 8 }}>{prompt}</div>
+      <div style={{ fontSize: 13, color: "#6b7280", marginBottom: 10 }}>
+        Tolerance: within {Math.round(tolerance * 100)}% counts as correct ({tolerance <= 0.15 ? "tight arithmetic band, since the inputs are cited facts" : "order-of-magnitude Fermi band"}).
+      </div>
+      {openEnded && !submitted && (
+        <textarea
+          value={decompText}
+          onChange={(e) => setDecompText(e.target.value)}
+          rows={2}
+          placeholder="First, name your decomposition path (e.g., X per Y × Z = ...) before entering a number..."
+          style={{ width: "100%", boxSizing: "border-box", padding: 8, borderRadius: 6, border: "1px solid #d1d5db", fontSize: 14, marginBottom: 8 }}
+        />
+      )}
+      {!submitted && (
+        <>
+          <input
+            type="number"
+            value={value}
+            onChange={(e) => setValue(e.target.value)}
+            placeholder={`Your estimate (${unit})`}
+            style={{ padding: 8, borderRadius: 6, border: "1px solid #d1d5db", fontSize: 14, width: 220 }}
+          />
+          <div style={{ marginTop: 8 }}>
+            <button disabled={!canSubmit} onClick={submit} style={btnStyle(!canSubmit)}>
+              Submit
+            </button>
+            {openEnded && decompText.length < 15 && <span style={{ marginLeft: 10, fontSize: 12, color: "#9ca3af" }}>Name your decomposition path first ({decompText.length}/15 chars)</span>}
+          </div>
+        </>
+      )}
+      {submitted && (
+        <div style={{ marginTop: 10 }}>
+          <div style={{ fontWeight: 600, color: withinTol ? "#065f46" : "#991b1b", marginBottom: 8 }}>
+            {withinTol ? "Within tolerance — correct." : "Outside tolerance — this is extrapolating without checking the anchor facts first."}
+          </div>
+          <div style={{ fontSize: 14, marginBottom: 6 }}>
+            Your estimate: <strong>{value} {unit}</strong> — Actual: <strong>{correctValue.toLocaleString()} {unit}</strong>
+          </div>
+          <div style={{ background: "#f9fafb", borderRadius: 6, padding: 12, fontSize: 14 }}>
+            <div style={{ marginBottom: 6 }}><strong>Decomposition path:</strong> {decomposition}</div>
+            <div style={{ marginBottom: 6 }}><strong>Bounds:</strong> {bounds}</div>
+            <div><strong>Most sensitive assumption:</strong> {mostSensitive}</div>
+          </div>
+          {Math.abs(num - correctValue) / correctValue > 3 && (
+            <div style={{ background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 8, padding: 12, marginTop: 10, fontSize: 14 }}>
+              You were off by more than 3x — the most likely misjudged factor is: {mostSensitive}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ---------------------------------------------------------------------------
+   Consulting case (T-C) — amber styling
+--------------------------------------------------------------------------- */
+function ConsultingCase(props) {
+  return (
+    <MCQ
+      {...props}
+      style={{ background: "#fffbeb", borderLeft: "3px solid #d97706", borderColor: "#fde68a" }}
+    />
+  );
+}
+
+/* ---------------------------------------------------------------------------
+   Principle-in-one-sentence gate (never blocks navigation)
+--------------------------------------------------------------------------- */
+function PrincipleGate({ authored }) {
+  const [text, setText] = useState("");
+  const [submitted, setSubmitted] = useState(false);
+  return (
+    <div style={{ background: "#f9fafb", border: "1px solid #e5e7eb", borderRadius: 10, padding: 16, margin: "22px 0" }}>
+      <div style={{ fontWeight: 600, marginBottom: 8 }}>Principle in one sentence</div>
+      <div style={{ fontSize: 14, marginBottom: 10, color: "#4b5563" }}>
+        In one sentence, state the transferable principle from this section — something a PM or CTO at a different company could apply tomorrow. (Not scored — an encouraged step, not a requirement to continue.)
+      </div>
+      {!submitted ? (
+        <>
+          <textarea
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            rows={2}
+            style={{ width: "100%", boxSizing: "border-box", padding: 8, borderRadius: 6, border: "1px solid #d1d5db", fontSize: 14 }}
+            placeholder="Minimum 20 characters..."
+          />
+          <div style={{ marginTop: 8 }}>
+            <button disabled={text.length < 20} onClick={() => setSubmitted(true)} style={btnStyle(text.length < 20)}>
+              Submit
+            </button>
+            <span style={{ marginLeft: 10, fontSize: 12, color: "#9ca3af" }}>{text.length}/20 characters</span>
+          </div>
+        </>
+      ) : (
+        <>
+          <div style={{ background: "#fff", borderRadius: 6, padding: 10, marginBottom: 8, fontSize: 14 }}>
+            <strong>Your principle:</strong> {text}
+          </div>
+          <div style={{ background: "#eff6ff", borderRadius: 6, padding: 10, fontSize: 14 }}>
+            <strong>Authored principle:</strong> {authored}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+/* ---------------------------------------------------------------------------
+   Pattern transfer (T-F) — free text, self-eval checklist
+--------------------------------------------------------------------------- */
+function PatternTransfer({ id, prompt, minLen = 50 }) {
+  const ctx = useAppCtx();
+  const [text, setText] = useState("");
+  const [submitted, setSubmitted] = useState(false);
+  const [checks, setChecks] = useState([false, false, false]);
+
+  function submit() {
+    setSubmitted(true);
+    if (ctx && !ctx.answered.current[id]) ctx.registerAnswer(id, { correct: null, type: "T-F", skipped: false });
+  }
+
+  return (
+    <div style={{ border: "1px solid #e5e7eb", borderRadius: 10, padding: 18, margin: "18px 0", background: "#fafafa" }}>
+      <div style={{ fontSize: 11, fontWeight: 700, color: "#be185d", textTransform: "uppercase", marginBottom: 6 }}>
+        Pattern transfer (highest-order question)
+      </div>
+      <div style={{ marginBottom: 10 }}>{prompt}</div>
+      {!submitted ? (
+        <>
+          <textarea
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            rows={4}
+            style={{ width: "100%", boxSizing: "border-box", padding: 8, borderRadius: 6, border: "1px solid #d1d5db", fontSize: 14 }}
+            placeholder={`Minimum ${minLen} characters — name the principle, apply it non-trivially, and name a new failure mode...`}
+          />
+          <div style={{ marginTop: 8 }}>
+            <button disabled={text.length < minLen} onClick={submit} style={btnStyle(text.length < minLen)}>
+              Submit
+            </button>
+            <span style={{ marginLeft: 10, fontSize: 12, color: "#9ca3af" }}>{text.length}/{minLen} characters</span>
+          </div>
+        </>
+      ) : (
+        <>
+          <div style={{ background: "#fff", borderRadius: 6, padding: 10, marginBottom: 10, fontSize: 14 }}>
+            <strong>Your answer:</strong> {text}
+          </div>
+          <div style={{ fontWeight: 600, marginBottom: 8 }}>Self-evaluation checklist</div>
+          {[
+            "Did I name the principle accurately?",
+            "Is my application genuinely different from the original case (not just a re-labeling)?",
+            "Is my failure mode new — not one already covered in this article?",
+          ].map((c, i) => (
+            <label key={i} style={{ display: "block", fontSize: 14, marginBottom: 6 }}>
+              <input
+                type="checkbox"
+                checked={checks[i]}
+                onChange={() => setChecks(checks.map((v, idx) => (idx === i ? !v : v)))}
+                style={{ marginRight: 8 }}
+              />
+              {c}
+            </label>
+          ))}
+        </>
+      )}
+    </div>
+  );
+}
+
+/* ---------------------------------------------------------------------------
+   Glossary
+--------------------------------------------------------------------------- */
+function Glossary({ terms }) {
+  if (!terms || terms.length === 0) return null;
+  return (
+    <div style={{ background: "#f9fafb", borderRadius: 10, padding: 16, marginTop: 28, fontSize: 14 }}>
+      <div style={{ fontWeight: 700, marginBottom: 8, fontSize: 13, textTransform: "uppercase", color: "#6b7280" }}>Glossary</div>
+      {terms.map((t, i) => (
+        <div key={i} style={{ marginBottom: 6 }}>
+          <strong>{t.term}</strong> — {t.def}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/* ---------------------------------------------------------------------------
+   SVG Architecture diagram
+--------------------------------------------------------------------------- */
+function ArchitectureDiagram() {
+  const box = (x, y, w, h, label, sub, fill) => (
+    <g>
+      <rect x={x} y={y} width={w} height={h} rx="8" fill={fill} stroke="#111827" strokeWidth="1" />
+      <text x={x + w / 2} y={y + h / 2 - (sub ? 6 : 0)} textAnchor="middle" fontSize="12" fontWeight="700" fill="#111827">{label}</text>
+      {sub && <text x={x + w / 2} y={y + h / 2 + 12} textAnchor="middle" fontSize="10" fill="#374151">{sub}</text>}
+    </g>
+  );
+  const arrow = (x1, y1, x2, y2) => (
+    <line x1={x1} y1={y1} x2={x2} y2={y2} stroke="#6b7280" strokeWidth="2" markerEnd="url(#arrow)" />
+  );
+  return (
+    <svg viewBox="0 0 680 320" style={{ width: "100%", maxWidth: 680, height: "auto", display: "block", margin: "0 auto" }}>
+      <defs>
+        <marker id="arrow" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+          <path d="M0,0 L0,6 L6,3 z" fill="#6b7280" />
+        </marker>
+      </defs>
+      {box(10, 20, 110, 50, "User query", "", "#eff6ff")}
+      {arrow(120, 45, 160, 45)}
+      {box(160, 10, 130, 34, "Lexical (BM25)", "keyword match", "#f0fdf4")}
+      {box(160, 56, 130, 34, "Dense / vector", "semantic match", "#f0fdf4")}
+      {arrow(290, 27, 330, 45)}
+      {arrow(290, 73, 330, 45)}
+      {box(330, 20, 130, 50, "Hybrid merge", "comprehensiveness first", "#fefce8")}
+      {arrow(460, 45, 500, 45)}
+      {box(500, 20, 170, 50, "Prefilter", "drop stale / non-responsive", "#fefce8")}
+      {arrow(585, 70, 585, 110)}
+      {box(500, 110, 170, 50, "Multi-stage ranking", "fast scorers → cross-encoder", "#fff7ed")}
+      {arrow(500, 135, 340, 135)}
+      {box(170, 110, 170, 50, "Passage selection", "sub-document / span-level", "#fdf2f8")}
+      {arrow(255, 160, 255, 200)}
+      {box(70, 200, 370, 50, "LLM generation", "answer + inline numbered citations", "#eef2ff")}
+      {arrow(255, 250, 255, 280)}
+      {box(70, 280, 370, 34, "Perplexity Search API — same layer, external", "", "#f3f4f6")}
+    </svg>
+  );
+}
+
+function CrawlerDiagram() {
+  return (
+    <svg viewBox="0 0 680 210" style={{ width: "100%", maxWidth: 680, height: "auto", display: "block", margin: "0 auto" }}>
+      <defs>
+        <marker id="arrow2" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+          <path d="M0,0 L0,6 L6,3 z" fill="#6b7280" />
+        </marker>
+      </defs>
+      <rect x="10" y="20" width="150" height="50" rx="8" fill="#eff6ff" stroke="#111827" />
+      <text x="85" y="40" textAnchor="middle" fontSize="12" fontWeight="700">Declared crawler</text>
+      <text x="85" y="56" textAnchor="middle" fontSize="10">PerplexityBot / Perplexity-User</text>
+      <line x1="160" y1="45" x2="230" y2="45" stroke="#6b7280" strokeWidth="2" markerEnd="url(#arrow2)" />
+      <rect x="230" y="20" width="150" height="50" rx="8" fill="#fef2f2" stroke="#b91c1c" />
+      <text x="305" y="40" textAnchor="middle" fontSize="12" fontWeight="700">robots.txt block</text>
+      <text x="305" y="56" textAnchor="middle" fontSize="10">or WAF rule fires</text>
+      <line x1="305" y1="70" x2="305" y2="110" stroke="#6b7280" strokeWidth="2" markerEnd="url(#arrow2)" />
+      <rect x="150" y="110" width="310" height="60" rx="8" fill="#fff7ed" stroke="#b45309" />
+      <text x="305" y="135" textAnchor="middle" fontSize="12" fontWeight="700">Undeclared fallback crawler</text>
+      <text x="305" y="152" textAnchor="middle" fontSize="10">rotates IP / ASN, spoofs Chrome-on-Mac UA</text>
+      <line x1="460" y1="45" x2="530" y2="45" stroke="#6b7280" strokeWidth="2" strokeDasharray="4 3" />
+      <line x1="530" y1="45" x2="530" y2="135" stroke="#6b7280" strokeWidth="2" strokeDasharray="4 3" />
+      <line x1="530" y1="135" x2="465" y2="135" stroke="#6b7280" strokeWidth="2" markerEnd="url(#arrow2)" />
+      <rect x="150" y="185" width="310" height="20" rx="4" fill="none" />
+      <text x="305" y="200" textAnchor="middle" fontSize="10" fill="#6b7280">Both paths still reach the page content, per Cloudflare's Aug 2025 test</text>
+    </svg>
+  );
+}
+
+/* ---------------------------------------------------------------------------
+   Header, progress bar, nav
+--------------------------------------------------------------------------- */
+const SECTIONS = [
+  { id: "warmup", label: "Warm-up" },
+  { id: "intro", label: "Introduction" },
+  { id: "landscape", label: "Landscape" },
+  { id: "architecture", label: "1. The Architecture" },
+  { id: "product", label: "2. Product Decisions" },
+  { id: "cost", label: "3. Cost & Latency" },
+  { id: "whatbroke", label: "What Broke" },
+  { id: "summary", label: "Learning Summary" },
+  { id: "conclusion", label: "Conclusion" },
+];
+
+function LifecycleBadge() {
+  const phases = ["Feasibility", "Design", "Build", "Evaluate", "Deploy", "Scale", "Govern"];
+  return (
+    <div style={{ display: "flex", gap: 4, marginTop: 8, flexWrap: "wrap" }}>
+      {phases.map((p) => {
+        const active = ARTICLE_META.lifecyclePhases.includes(p);
+        return (
+          <span
+            key={p}
+            style={{
+              fontSize: 11,
+              padding: "3px 8px",
+              borderRadius: 999,
+              background: active ? "#111827" : "#f3f4f6",
+              color: active ? "#fff" : "#9ca3af",
+              fontWeight: active ? 700 : 400,
+            }}
+          >
+            {p}
+          </span>
+        );
+      })}
+    </div>
+  );
+}
+
+function Header() {
+  return (
+    <div style={{ borderBottom: "1px solid #e5e7eb", padding: "14px 20px", background: "#fff" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 10 }}>
+        <div>
+          <div style={{ fontSize: 12, fontWeight: 700, color: "#2563eb", textTransform: "uppercase", letterSpacing: 0.5 }}>{ARTICLE_META.type}</div>
+          <div style={{ fontSize: 20, fontWeight: 700, marginTop: 2, maxWidth: 620 }}>{ARTICLE_META.title}</div>
+          <LifecycleBadge />
+        </div>
+        <div style={{ fontSize: 13, textAlign: "right" }}>
+          <div>
+            Prev:{" "}
+            <a href="../when-not-to-use-ai/index.html" style={{ color: "#2563eb" }}>
+              AI Feasibility &amp; Technical Scoping (Type 1)
+            </a>
+          </div>
+          <div style={{ color: "#9ca3af" }}>Next: Agentic System Architecture (Type 3) — not yet published</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ProgressBar({ pct }) {
+  return (
+    <div style={{ position: "fixed", top: 0, left: 0, height: 4, width: "100%", background: "#e5e7eb", zIndex: 50 }}>
+      <div style={{ height: "100%", width: `${pct}%`, background: "#2563eb", transition: "width .2s" }} />
+    </div>
+  );
+}
+
+function ScoreBadge({ score, total }) {
+  return (
+    <div style={{ position: "fixed", top: 10, right: 16, background: "#111827", color: "#fff", borderRadius: 999, padding: "6px 14px", fontSize: 13, fontWeight: 600, zIndex: 60 }}>
+      Score: {score}/{total}
+    </div>
+  );
+}
+
+function SectionNav({ active, onNav, narrow }) {
+  if (narrow) return null;
+  return (
+    <div style={{ position: "fixed", top: 70, left: 0, width: 210, padding: "10px 14px", fontSize: 13 }}>
+      {SECTIONS.map((s) => (
+        <div
+          key={s.id}
+          onClick={() => onNav(s.id)}
+          style={{
+            padding: "8px 10px",
+            marginBottom: 2,
+            borderRadius: 6,
+            cursor: "pointer",
+            borderLeft: active === s.id ? "3px solid #2563eb" : "3px solid transparent",
+            background: active === s.id ? "#eff6ff" : "transparent",
+            fontWeight: active === s.id ? 700 : 400,
+            color: active === s.id ? "#111827" : "#4b5563",
+          }}
+        >
+          {s.label}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/* ---------------------------------------------------------------------------
+   Warm-up screen
+--------------------------------------------------------------------------- */
+function WarmupSection({ onSkip, skipped, setSkipped }) {
+  const [answers, setAnswers] = useState({});
+  const [submitted, setSubmitted] = useState({});
+
+  return (
+    <section id="warmup" style={{ background: "#f8fafc", borderRadius: 12, padding: 24, marginBottom: 40 }}>
+      <h2 style={{ marginTop: 0 }}>Before you begin — recall from your prior reading</h2>
+      <p style={{ color: "#4b5563" }}>
+        Three questions below apply principles from earlier articles in this series to new situations. This is retrieval practice, not a test — nothing here is scored, and you can skip it with one click.
+      </p>
+      {WARMUPS.map((w) => (
+        <div key={w.id} style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 10, padding: 16, marginBottom: 14 }}>
+          <div style={{ marginBottom: 10 }}>{w.prompt}</div>
+          {!submitted[w.id] ? (
+            <>
+              <textarea
+                rows={3}
+                value={answers[w.id] || ""}
+                onChange={(e) => setAnswers({ ...answers, [w.id]: e.target.value })}
+                placeholder="Minimum 25 characters..."
+                style={{ width: "100%", boxSizing: "border-box", padding: 8, borderRadius: 6, border: "1px solid #d1d5db", fontSize: 14 }}
+              />
+              <div style={{ marginTop: 8 }}>
+                <button
+                  disabled={(answers[w.id] || "").length < 25}
+                  onClick={() => setSubmitted({ ...submitted, [w.id]: true })}
+                  style={btnStyle((answers[w.id] || "").length < 25)}
+                >
+                  Submit
+                </button>
+                <span style={{ marginLeft: 10, fontSize: 12, color: "#9ca3af" }}>{(answers[w.id] || "").length}/25 characters</span>
+              </div>
+            </>
+          ) : (
+            <div style={{ background: "#eff6ff", borderRadius: 6, padding: 10, fontSize: 14 }}>
+              <div style={{ marginBottom: 6 }}><strong>Source article:</strong> {w.source.title} ({w.source.lifecycle})</div>
+              <div><strong>Principle it tests:</strong> {w.source.principle}</div>
+            </div>
+          )}
+        </div>
+      ))}
+      <button
+        onClick={() => setSkipped(!skipped)}
+        style={{ background: "none", border: "1px solid #d1d5db", borderRadius: 6, padding: "8px 14px", fontSize: 13, color: "#6b7280", cursor: "pointer" }}
+      >
+        {skipped ? "Undo skip" : "Skip warm-up"}
+      </button>
+      <span style={{ marginLeft: 12, fontSize: 12, color: "#9ca3af" }}>
+        {skipped ? "Marked as skipped — this will show in your Learning Summary." : "Skipping is fine; it's just noted in your Learning Summary."}
+      </span>
+    </section>
+  );
+}
+
+/* ---------------------------------------------------------------------------
+   SECTIONS OF THE ARTICLE
+--------------------------------------------------------------------------- */
+
+function IntroSection() {
+  return (
+    <section id="intro" style={{ marginBottom: 48 }}>
+      <div style={{ fontSize: 18, lineHeight: 1.7, fontWeight: 500, marginBottom: 24, borderLeft: "3px solid #2563eb", paddingLeft: 16 }}>
+        In an AI answer engine, the retrieval system is the product. The language model on top is a thin, swappable layer — what a user actually experiences as “quality,” “speed,” and “trustworthy answers” is decided almost entirely by the search infrastructure built long before a single token gets generated.
+      </div>
+      <h2>Introduction</h2>
+      <p>
+        Perplexity is the clearest evidence for this principle, because the company has published its own account of the decision. In September 2025, Perplexity's research team explained why it stopped renting search APIs and built its own retrieval engine, and it benchmarked the result directly against three named competitors (Perplexity Research, Sept 2025). That is a rare thing in this industry: a company showing its work on why architecture, not model choice, won it the lead. Most "AI search" write-ups describe the chatbot on top; this one is about the plumbing underneath, because the plumbing is what actually decided the outcome.
+      </p>
+      <p>
+        The company was founded in 2022 and by September 2025 was processing 200 million queries a day against a self-built index of more than 200 billion unique URLs (Perplexity Research, Sept 2025). Its valuation reached $20 billion that same month, after a $200 million raise, with annualized revenue approaching $200 million (TechCrunch, 2025). Yet in its earliest days, Perplexity paid a leading commercial search API roughly $200 for every 1,000 queries it sent — pricing pulled from an archived 2023 Bing API rate card that Perplexity's own engineers cite as the reason renting stopped being viable (Perplexity Research, Sept 2025). At any real scale, that price made owning retrieval a matter of survival, not preference.
+      </p>
+      <p>
+        The gap Perplexity found in rented search APIs was structural, not just expensive. Those APIs were built for a world where a human clicks a blue link, so they returned whole documents, not the short, precise passages a language model actually needs; they were also either stale (cheap, static indexes) or slow (real-time scraping of another engine's results), and the industry had split into systems that were good at keyword matching or good at semantic matching, never both at once (Perplexity Research, Sept 2025). Building one system that was fresh, fast, and both lexically and semantically precise was the actual engineering problem — and it is the same problem any AI-native retrieval product has to solve today.
+      </p>
+      <p>
+        This article addresses three questions. First, what actually runs when a user asks Perplexity something — what is the real retrieval and ranking architecture behind the answer box? Second, what product decisions — inline citations, passage-level results, a public Search API — followed from that architecture, and where did those decisions create new risk? Third, how does Perplexity manage the economics of an AI answer at scale, and what does its own pricing reveal about where the real cost sits?
+      </p>
+    </section>
+  );
+}
+
+function LandscapeSection() {
+  return (
+    <section id="landscape" style={{ marginBottom: 48 }}>
+      <h2>Technical and Product Landscape</h2>
+      <p>
+        Before large language models, web search optimized for one thing: ranking whole documents so a human would click the best one. An AI answer engine has a different job. It has to hand a language model a small number of the most relevant passages, because the model's context window is limited and its accuracy degrades when that window fills with irrelevant text. That shift — from ranking documents for a human to curating passages for a model — is why Perplexity treats "individual sections and spans of documents as first-class units in their own right," not just an implementation detail of an old search stack (Perplexity Research, Sept 2025).
+      </p>
+      <p>
+        Perplexity benchmarked its own Search API directly against three categories of alternative: Exa, a semantic-search-first API; Brave, a general web search API; and a representative SERP-scraping API (using Tavily as the stand-in), which works by scraping Google's own search results pages (Perplexity Research, Sept 2025). All three represent real paths other teams take when they don't want to build retrieval in-house, and the chart below shows Perplexity's own reported comparison across all four systems.
+      </p>
+      <p>
+        The two charts below are Perplexity's own self-reported benchmark, published alongside an open-source evaluation framework called <em>search_evals</em> so outside teams could reproduce it (Perplexity Research, Sept 2025). That transparency is worth noting explicitly: these are not independently audited numbers from a neutral third party, they are the vendor's own measurements — a normal and useful data point, but one that should be read as "here is what we measured and how," not as an independently verified ranking.
+      </p>
+      <ChartBlock
+        title="Search API latency by percentile, four providers"
+        tier="FACT"
+        sourceNote="Perplexity Research, 'Architecting and Evaluating an AI-First Search API,' Sept 25, 2025 — requests initiated from AWS us-east-1."
+        chart={<SimpleBarChart data={LATENCY_DATA} series={LATENCY_SERIES} yLabel="Milliseconds" valueFormatter={(v) => `${v}ms`} />}
+        magnitudeAsk="which provider do you expect crosses the 1-second mark first, and at which percentile?"
+        q1={{
+          id: "chart1-q1",
+          kind: "So-what / decision implication",
+          prompt:
+            "A common UX rule of thumb treats about 1,000ms as the point where a response stops feeling instant. Looking at the p90 column (604ms Perplexity, 1,798ms Exa, 728ms Brave, 1,743ms SERP-based), which of these four backends would you rule out for a synchronous, non-streaming AI search feature, and what decision rule are you applying?",
+          authored:
+            "Rule out Exa and SERP-based — both are already past 1,000ms at the 90th percentile (1,798ms and 1,743ms), so roughly 1 in 10 real queries would feel like a stall rather than a wait. Perplexity (604ms) and Brave (728ms) both stay under that line even at p90. The decision rule: judge a backend by its p90 or p95, not its median, because the median hides exactly how often real users hit the slow tail.",
+        }}
+        q2={{
+          id: "chart1-q2",
+          kind: "Quantitative reasoning",
+          prompt:
+            "Perplexity's p95 (763ms) is 2.13x its own p50 (358ms). Exa's p95 (2,188ms) is only 1.59x its own p50 (1,375ms). Which system has the more predictable tail, and what does a smaller p95/p50 multiple — despite much higher absolute latency — suggest about where that system spends its time?",
+          authored:
+            "Exa has the more predictable, tighter tail (1.59x) even though it is far slower in absolute terms (2.13x for Perplexity). A small multiple suggests Exa's latency is dominated by a fixed, roughly constant cost — such as a steady external model or network call — rather than variable work that balloons on harder queries. Perplexity's larger multiple suggests the opposite: its multi-stage ranking pipeline (Section 1) adds proportionally more time exactly when a query is hard enough to reach the expensive reranking stage. Absolute speed and tail predictability are two different engineering properties, and a system can win one while losing the other.",
+        }}
+      />
+      <ChartBlock
+        title="Search quality benchmark scores, four providers"
+        tier="FACT"
+        sourceNote="Perplexity Research, Sept 25, 2025 — SimpleQA and FRAMES test single-step search; BrowseComp and HLE (Humanity's Last Exam) test deep, multi-step research."
+        chart={<SimpleBarChart data={QUALITY_DATA} series={LATENCY_SERIES} yLabel="Score (0–1)" valueFormatter={(v) => v.toFixed(3)} />}
+        q1={{
+          id: "chart2-q1",
+          kind: "Qualitative / mechanism",
+          prompt:
+            "Perplexity's lead over the next-best provider is +4.0 points on SimpleQA (.930 vs .890) and +4.0 points on HLE (.288 vs .248), but only +1.6 points on FRAMES (.453 vs .437). SimpleQA is single-fact lookup and HLE is expert-level reasoning, while FRAMES needs multi-hop reasoning across several retrieved documents. What does the retrieval architecture explain about why the lead shrinks specifically on the multi-hop benchmark?",
+          authored:
+            "A large, high-completeness index (200 billion-plus URLs, hybrid lexical-plus-semantic retrieval) helps most when the task is finding one needle in a huge haystack — that's exactly what SimpleQA and expert-style HLE questions reward. FRAMES needs the model to correctly stitch several retrieved passages into one coherent multi-hop answer; once the right passages are found, the bottleneck shifts from retrieval completeness to the generation model's own reasoning — a Sonar-model capability, not a retrieval-layer one. A better index cannot buy back a multi-hop reasoning gap the way it buys back a needle-in-haystack gap.",
+        }}
+        q2={{
+          id: "chart2-q2",
+          kind: "Causal / comparative",
+          prompt:
+            "The SERP-based approach (scraping Google's results) scores second-best on three of the four benchmarks, despite Perplexity's own engineering post calling SERP-scraping 'unacceptably high latency' (1,342ms median, see the chart above). What does this strong-quality-but-slow profile suggest about whether quality and latency come from the same design choice, or two separate ones?",
+          authored:
+            "They are separable. SERP-based quality is largely inherited for free from decades of Google's own human-tuned ranking work, so a scraper can piggyback on that quality without having built any ranking system itself. But scraping a third party's rendered results page is inherently latency-bound by network hops and page-render overhead that has nothing to do with ranking quality. A team chasing 'our answers are wrong' and a team chasing 'our answers are slow' are solving genuinely different engineering problems, even when one competitor happens to score well on one and poorly on the other.",
+        }}
+      />
+      <Glossary
+        terms={[
+          { term: "RAG (Retrieval-Augmented Generation)", def: "An AI design where the system first searches for relevant information, then gives that information to a language model to write the answer, instead of relying only on what the model memorized during training." },
+          { term: "Hybrid retrieval", def: "Searching with two methods at once — keyword matching and meaning-based (semantic) matching — and combining both sets of results." },
+          { term: "p50 / p90 / p95 (percentile latency)", def: "The response time that this percentage of requests finishes within; p95 of 763ms means 95 out of 100 requests finished in 763ms or less." },
+          { term: "Benchmark (SimpleQA, FRAMES, BrowseComp, HLE)", def: "A standardized test used to compare AI systems on a specific skill, such as looking up one fact (SimpleQA) or multi-step research (BrowseComp)." },
+        ]}
+      />
+    </section>
+  );
+}
+
+function ArchitectureSection() {
+  return (
+    <section id="architecture" style={{ marginBottom: 48 }}>
+      <h2>1. The Architecture: What Actually Runs Behind an Answer</h2>
+      <p>
+        <strong>Claim to defend: </strong>What runs behind a Perplexity answer is not one model call — it is a multi-stage retrieval and ranking pipeline, and that pipeline, not the language model, is what most determines answer quality.
+      </p>
+      <p>
+        The obstacle this pipeline has to solve is a tension between completeness and freshness under a hard latency budget: a fixed crawling budget means every hour spent re-checking an old page is an hour not spent discovering a new one, yet an AI answer engine cannot afford either a stale index or a slow one (Perplexity Research, Sept 2025). Perplexity's crawling and indexing fleet runs "tens of thousands of CPUs and hundreds of terabytes of RAM," performing "tens of thousands of indexing operations per second," and uses a trained model to decide which of its 200-billion-plus tracked URLs are worth re-indexing and when (Perplexity Research, Sept 2025).
+      </p>
+      <p>
+        The retrieval pipeline itself runs in three stages. First, a query is sent to both a lexical index (keyword-based ranking, in the tradition of BM25) and a dense, vector-based index (meaning-based matching) at the same time, and the two result sets are merged into one hybrid candidate set — deliberately prioritizing comprehensiveness over precision at this stage, because "subsequent stages of the pipeline will optimize for precision" (Perplexity Research, Sept 2025). Second, cheap heuristic prefiltering removes clearly stale or non-responsive candidates. Third, the surviving candidates go through "multiple stages of progressively advanced ranking": fast lexical and embedding-based scorers narrow the set first, and only the smaller, harder-to-rank remainder reaches "more powerful cross-encoder reranker models" for final ranking (Perplexity Research, Sept 2025).
+      </p>
+      <p>
+        Rather than stitching together a separate vector database, a separate lexical search engine, and a separate reranking service, Perplexity built this pipeline on Vespa, a single engine that performs retrieval, ranking, real-time indexing, and machine-learning inference together (Vespa case study, 2025–2026). Both Perplexity's consumer answer engine and its externally sold Search API run on this exact same retrieval layer — "one retrieval layer, two front doors," in Vespa's phrasing (Vespa case study, 2025–2026) — which is why the Section 2 latency and quality benchmarks describe the same infrastructure a user experiences inside the Perplexity app.
+      </p>
+      <p>
+        This is worth reading with one caveat. Both of the sources behind this section have a stake in the story: Perplexity is describing its own engineering choices in its own words, and Vespa is a vendor publishing a customer's success story. No independent, third-party audit of Perplexity's internal latency or architecture was found. The specific numbers in Section 2 are Perplexity's own self-reported benchmark against three named competitors, not results verified by a neutral outside party — a normal limitation for a company blog post, but one a reader should keep in view before treating "sets a new state of the art" as an independently confirmed fact rather than a self-reported one.
+      </p>
+      <p>
+        A second, less obvious capability sits alongside this pipeline: a self-improving content-understanding system that uses frontier language models to keep rewriting the rules Perplexity uses to parse messy web pages into clean, structured passages (Perplexity Research, Sept 2025). This is a different capability class from the retrieval-and-ranking pipeline itself — it is AI used to maintain the AI infrastructure's own data quality over time, continuously re-grading and revising parsing rules as websites change, rather than a fixed extraction script written once and left alone. A reader building any large-scale web-facing AI system should recognize this as a separate investment decision from retrieval architecture, even though the two compound on each other.
+      </p>
+      <ChartBlock
+        title="Architecture pipeline: from query to cited answer"
+        tier="ILLUSTRATION"
+        sourceNote="Illustrative structural diagram, simplified from Perplexity's own architecture description (Perplexity Research, Sept 2025) for teaching purposes — not a verbatim internal engineering diagram, and stage boundaries are simplified."
+        chart={<ArchitectureDiagram />}
+        q1={{
+          id: "chart3-q1",
+          kind: "So-what / decision implication",
+          prompt:
+            "If you had to protect only ONE stage of this five-stage pipeline from a strict new latency budget before it blew the whole 358ms median, which stage would you protect first — and how would you segment queries (say, simple factual vs. multi-hop) to route only some of them through the full cost of that stage?",
+          authored:
+            "Protect the cross-encoder reranking stage — it is described as the slowest, most computationally expensive step, deliberately held until last so it only ever runs on an already-narrowed set. Segment queries by predicted difficulty (a cheap upstream classifier flags likely-simple factual lookups) and skip or shrink reranking for those, reserving the full expensive path for queries where the earlier, cheaper stages leave a lower-confidence candidate set — the same rationing idea the pipeline already applies to candidates, just applied one level up to whole queries.",
+        }}
+        q2={{
+          id: "chart3-q2",
+          kind: "Qualitative / mechanism",
+          prompt:
+            "Stage one is deliberately tuned for comprehensiveness, not precision, even though precision would seem like the more useful goal to chase first. Why would optimizing the very first retrieval step for precision actually hurt the pipeline's final answer quality, rather than help it?",
+          authored:
+            "If stage one filters too aggressively for precision, it can permanently discard a correct-but-unusually-worded passage before any ranking model ever gets a chance to see it — a keyword match might miss a valid semantic match, or vice versa, and a passage dropped at stage one can never be recovered downstream. Because every later stage can only re-rank what stage one hands it, an overly precise first pass silently caps the ceiling of the entire pipeline; comprehensiveness first preserves options that a precision-first design would destroy irreversibly.",
+        }}
+      />
+      <MCQ
+        id="mcq-arch"
+        prompt="Perplexity's retrieval pipeline runs hybrid retrieval, then prefiltering, then multi-stage ranking that ends in a cross-encoder reranker. As query volume grows 10x, which stage is most likely to become the bottleneck first, and why?"
+        options={[
+          "The cross-encoder reranker stage, because it is the most computationally expensive step per candidate and is deliberately applied last to a still-large narrowed set, so its cost does not shrink as fast as traffic grows tenfold.",
+          "The initial hybrid retrieval stage, because searching a 200-billion-URL index must be the slowest step in any pipeline, the same way a full-table database scan is always the slowest query a system can run.",
+          "The citation-rendering interface shown to users, because displaying more numbered footnotes as answer volume grows will overload the frontend rendering layer before any backend system feels the strain.",
+          "The crawling and indexing fleet, because keeping a 200-billion-URL index fresh at 10x the query volume requires 10x more crawling capacity, and crawling is described as the least horizontally scalable part of the system.",
+        ]}
+        correctIndex={0}
+        explanations={{
+          correct:
+            "The cross-encoder reranker is explicitly the most expensive per-candidate computation in the pipeline, and it is applied last on purpose — but 'last' does not mean 'small.' As traffic grows, the absolute number of queries reaching that final, expensive stage grows too, and unlike the earlier lexical/embedding scorers (built to be fast at scale), cross-encoders trade speed for accuracy on purpose. That tradeoff is exactly what tends to buckle first under 10x growth.",
+          reasoningError: [
+            null,
+            "applying a classical software assumption to an AI-native system: assuming the biggest index must be the slowest query, when the architecture explicitly rations cheap operations to the largest candidate sets and expensive ones to the smallest.",
+            "a single-cause / surface-level misdiagnosis: this confuses a frontend rendering concern with the backend scaling bottleneck the question is actually asking about.",
+            "misreading the source evidence: the article explicitly describes the crawling fleet as built to 'scale horizontally with both size and query volume' and having 'considerable headroom for further scaling' — the opposite of what this option claims.",
+          ],
+          scaffold:
+            "Re-read which stage the source explicitly calls 'more powerful' and note that 'applied last' in a pipeline does not mean 'cheap' or 'small' — think about which stage's cost per query is hardest to shrink as volume grows.",
+        }}
+        whereGeneralizes="any staged AI pipeline where cost is deliberately backloaded onto a smaller, harder set of candidates — the expensive final stage, not the wide first stage, is usually the one to watch as volume scales."
+      />
+      <PatternTransfer
+        id="pt-arch"
+        prompt="The principle from this section is: what runs behind an AI answer is a multi-stage retrieval-and-ranking pipeline, and that pipeline — not the model — decides most of what users perceive as quality. Apply this to a different AI product you have not seen discussed in this article, such as an AI email-drafting assistant that searches a company's internal documents before writing a reply. What would a PM or CTO build or decide differently because of this principle, and what new failure mode would they face that is different from anything in this section?"
+      />
+      <PrincipleGate authored="Judge and invest in an AI answer product by its retrieval-and-ranking pipeline first — the stage boundaries, what gets rationed to the cheap early stages versus the expensive late ones — because that architecture, not the model wrapped around it, decides most of what users will call 'quality.'" />
+      <Glossary
+        terms={[
+          { term: "Cross-encoder reranker", def: "A slower, more accurate model that re-scores a short list of already-narrowed candidates by reading the query and each candidate together, rather than scoring them independently." },
+          { term: "Vespa", def: "A single search-and-AI-serving engine that Perplexity uses to do retrieval, ranking, real-time updates, and machine-learning scoring together, instead of running four separate systems." },
+          { term: "Prefiltering", def: "A fast, cheap first pass that removes obviously irrelevant or outdated candidates before any expensive ranking model runs." },
+          { term: "Passage / sub-document indexing", def: "Storing and ranking small sections of a page (a paragraph or a few sentences) as their own searchable unit, instead of only ranking whole pages." },
+        ]}
+      />
+    </section>
+  );
+}
+
+function ProductSection() {
+  return (
+    <section id="product" style={{ marginBottom: 48 }}>
+      <h2>2. The Product Decisions the Architecture Forced</h2>
+      <p>
+        <strong>Claim to defend: </strong>Perplexity's most visible product decisions — inline numbered citations, passage-level results, and a public Search API business — are downstream of the retrieval architecture in Section 1, not independent UX choices made in isolation.
+      </p>
+      <p>
+        Because the retrieval pipeline already scores and ranks content at the passage level for the language model's benefit, the product team could expose that same internal data structure to the human reader "for free," as a numbered citation next to each claim. The September 2025 decision to sell this retrieval layer directly to developers as a Search API was possible for the same reason: Perplexity's consumer answer engine and its Search API are "not separate systems" — both query the identical Vespa-based retrieval layer (Vespa case study, 2025–2026). A monetization decision that looks like a new product line is really a decision to expose infrastructure that already existed.
+      </p>
+      <p>
+        But exposing a citation is not the same as guaranteeing it is correct, and the evidence here is less flattering. In a March 2025 study, the Tow Center for Digital Journalism at Columbia University tested eight AI search engines on 1,600 queries, asking each one to correctly identify a news article's title, publisher, date, and URL from a quoted excerpt (Tow Center/CJR, March 2025). Perplexity had the lowest error rate of the eight — but that rate was still 37%, meaning more than one in three of its citation-identification answers were wrong (Tow Center/CJR, March 2025). In one specific test, Perplexity's free tier correctly answered all ten questions about paywalled National Geographic articles, even though National Geographic had explicitly disallowed Perplexity's crawler in its robots.txt file — behavior the researchers noted was hard to reconcile with Perplexity's own public claim that it "respects robots.txt directives" (Tow Center/CJR, March 2025).
+      </p>
+      <p>
+        The tension is a design one, not just a bug: a numbered citation reads to a user as "this claim was checked against a real source," but the underlying passage-ranking system was built to make the language model more useful, not to make a human auditor's trust judgment easy or reliable. A citation is a UI signal borrowed from an architecture optimized for a different audience.
+      </p>
+      <p>
+        Other AI search products handle this same tension with a different philosophy. In the same Tow Center study, Microsoft's Copilot declined to answer 104 of 200 test queries outright, and among the 96 it did answer, 66 were completely wrong — roughly 69% of its answered queries (Tow Center/CJR, March 2025). ChatGPT Search, by contrast, answered all 200 queries and was completely wrong on 57% of them (Tow Center/CJR, March 2025). Where Perplexity and ChatGPT lean toward "always answer, sometimes wrong," Copilot leans toward "decline often, but still get most attempted answers wrong" — a genuinely different product philosophy this article's central case does not fully explore, and one worth knowing exists as a design alternative.
+      </p>
+      <ChartBlock
+        title="Citation-identification error rate, four AI search engines (200 test queries each)"
+        tier="FACT"
+        sourceNote="Tow Center for Digital Journalism / Columbia Journalism Review, 'AI Search Has a Citation Problem,' March 6, 2025. Copilot's figure is the error rate among the 96 of 200 queries it chose to answer (it declined the other 104); the other three figures are of all 200 queries."
+        chart={<SimpleBarChart data={CITATION_DATA} series={[{ key: "errorRate", label: "Error rate (%)", color: "#dc2626" }]} yLabel="% incorrect" valueFormatter={(v) => `${v}%`} />}
+        q1={{
+          id: "chart4-q1",
+          kind: "So-what / decision implication",
+          prompt:
+            "Perplexity's 37% error rate was the best of eight tested engines, yet more than one in three citation answers were still wrong. If you were the PM who owns this feature and needed a pre-mortem kill-criterion, what future error rate — and over what population of queries — would make you pull the citation feature rather than keep marketing it as 'industry-best'?",
+          authored:
+            "A defensible kill-criterion ties the threshold to the stakes of the query population, not one flat global number — for example, pulling inline citations specifically for paywalled or licensed publisher content if the error rate there exceeds the 37% all-query baseline, since the National Geographic case shows a subgroup where Perplexity answered confidently despite being blocked entirely. Being 'best of a bad field' is not the same as 'good enough,' and the bar should be set against user and publisher harm, not against how competitors score.",
+        }}
+        q2={{
+          id: "chart4-q2",
+          kind: "Quantitative reasoning",
+          prompt:
+            "Perplexity's error rate (37%) is about 2.5x smaller than Grok-3's (94%) but still several multiples larger than what a genuinely trustworthy citation tool would need — arguably in the single digits, the way a checked footnote in a published paper would be. What does the size of that remaining gap suggest about whether this is a simple tuning problem or something more structural?",
+          authored:
+            "The size of the gap is the tell: all eight independently built systems in the same study failed more than 60% of queries combined, and even the best one is several multiples away from a single-digit error rate. That pattern — many different engineering teams landing in a similar bad neighborhood — looks like a structural limit of the retrieval-then-generate approach (the model can still misattribute or paraphrase past a correctly retrieved passage) rather than one company's fixable bug. A PM should treat 'cites its sources accurately' as a probabilistic claim to keep measuring, not a solved feature to stop testing.",
+        }}
+      />
+      <ConsultingCase
+        id="case-medibrief"
+        prompt="MediBrief, a fictional startup, is building an AI answer engine for clinicians researching drug-interaction literature. Before launch, the team wants to advertise: 'Every answer is sourced from a peer-reviewed citation.' Given what this section showed about Perplexity's citation-grounding gap, which assumption must hold for that claim to build trust rather than create legal exposure — and which piece of evidence here is thinnest in supporting it?"
+        options={[
+          "The assumption that clinicians will always double-check a citation before acting on it, which is well supported because medical professionals are trained to verify sources before making treatment decisions.",
+          "The assumption that displaying a passage-level citation next to an answer means that citation is actually correct — and this is the thinnest-supported assumption, since even the best-scoring tested engine was wrong on 37% of citation-identification tests.",
+          "The assumption that MediBrief's retrieval system will be technically similar to Perplexity's, which only matters if MediBrief actually chooses to build on that same kind of underlying search infrastructure.",
+          "The assumption that clinicians will prefer an AI answer engine over a traditional medical literature database, which depends mainly on how much faster the AI tool feels during daily practice.",
+        ]}
+        correctIndex={1}
+        explanations={{
+          correct:
+            "The claim 'every answer is sourced' quietly assumes that showing a citation and that citation being correct are the same thing. Section 2's evidence shows they are not: the best-tested AI search engine was still wrong more than a third of the time, and a separate case showed confident answers about content the crawler was not even permitted to access. For a clinical use case, that gap is the load-bearing risk, not a footnote.",
+          reasoningError: [
+            "this option describes a real behavior but is not the load-bearing assumption behind MediBrief's specific marketing claim, and it is not the assumption the article's evidence is thinnest on — clinician diligence is a mitigation, not what the claim itself asserts.",
+            null,
+            "this restates a fact about MediBrief's future engineering choice rather than identifying the assumption the trust claim itself depends on.",
+            "this is a business-adoption question, not a legal-exposure or trust-claim question, and the article's evidence does not speak to it either way.",
+          ],
+          scaffold:
+            "Ask yourself: what would have to be true for 'every answer is sourced from a peer-reviewed citation' to actually mean 'every answer is correct'? Then check which piece of Section 2's evidence most directly challenges that gap.",
+        }}
+        whereGeneralizes="any product that turns an internal retrieval or ranking signal into a user-facing trust claim — the claim is only as strong as evidence that the signal and the underlying correctness are the same thing, which usually has to be measured separately."
+      />
+      <TrueFalseQ
+        id="tg-citation"
+        prompt="True or False: Because Perplexity's retrieval pipeline already scores passages at the sub-document level for the language model's benefit, exposing those same passages as user-facing citations was a low-cost product decision — and citation accuracy is therefore guaranteed by the retrieval architecture."
+        correctAnswer={false}
+        authoredJustification="The first half is true and well-supported (reusing an existing data structure as a UI feature is a genuinely low-cost decision). The second half over-generalizes a necessary condition (passage-level scoring exists) into a sufficient one (citations are therefore guaranteed accurate) — the 37% citation error rate and the National Geographic case both directly contradict 'guaranteed.'"
+        reasoningErrorIfWrong="applying a classical software assumption to AI: treating the existence of a data structure (passage-level scoring) as equivalent to a correctness guarantee for how that structure behaves in front of a user — necessary infrastructure is not the same as a sufficient trust guarantee."
+      />
+      <PatternTransfer
+        id="pt-product"
+        prompt="The principle from this section is: a product's most visible trust signals (like inline citations) are often a reused byproduct of internal architecture built for a different audience (the model), not an independently verified guarantee. Apply this to a different product — for example, an AI coding assistant that shows a 'tested' badge next to generated code because it ran the code once in a sandbox. What would a PM or CTO build or decide differently because of this principle, and what new failure mode would they face that is different from Perplexity's citation problem?"
+      />
+      <PrincipleGate authored="A user-facing trust signal that started as an internal architecture byproduct (a citation, a 'tested' badge, a confidence score) needs its own independent accuracy measurement — the fact that the underlying system produces the signal at all does not mean the signal is reliable enough to carry the trust claim built on top of it." />
+      <Glossary
+        terms={[
+          { term: "Inline citation", def: "A numbered reference shown next to a specific claim in an AI answer, linking to the source it supposedly came from." },
+          { term: "Search API", def: "A version of a company's internal search infrastructure sold to outside developers so they can build their own products on top of it." },
+        ]}
+      />
+    </section>
+  );
+}
+
+function CostSection() {
+  return (
+    <section id="cost" style={{ marginBottom: 48 }}>
+      <h2>3. Cost and Latency: Rationing Expensive Work, Not Buying a Cheaper Model</h2>
+      <p>
+        <strong>Claim to defend: </strong>Perplexity controls the economics of a generated answer by making expensive computation progressively more selective — applying it only to the candidates and queries that need it — not by simply choosing a cheaper model.
+      </p>
+      <p>
+        The multi-stage ranking design from Section 1 already does this for compute: cheap lexical and embedding scorers run first on the full candidate set, and the genuinely expensive cross-encoder reranker only ever touches the smaller, already-narrowed remainder (Perplexity Research, Sept 2025). That is why Perplexity can report a 358ms median latency at all — the expensive step is rationed, not applied uniformly to every candidate.
+      </p>
+      <p>
+        Perplexity's own Sonar API pricing shows the identical rationing logic applied to money instead of milliseconds. A single Sonar query with a short prompt and answer costs $0.0057 in total at the cheapest "low" search-context setting, versus $0.0127 at the most thorough "high" setting — more than double, purely from choosing how much retrieval depth to buy (Perplexity API Pricing docs). At the far end, a single Sonar Deep Research query — which runs multiple search steps and heavier reasoning — costs between $0.41 and $1.32 depending on that same context-size choice (Perplexity API Pricing docs). A separate "request fee," billed per 1,000 requests and independent of token count, exists specifically to charge for retrieval depth as its own line item — an explicit acknowledgment that retrieval, not generation, is where a meaningful share of both the cost and the value sits.
+      </p>
+      <p>
+        As with Section 1, these are self-reported list prices from Perplexity's own documentation, not independently audited unit economics, and large customers likely negotiate below list price — a normal limitation of pricing-page evidence that should soften any claim about Perplexity's actual margins.
+      </p>
+      <p>
+        This "ration the expensive step, don't just swap the model" lever is not the only way an AI product controls unit economics — it is one specific lever among several. A different, commonly used lever elsewhere in the industry is to swap in a smaller, cheaper, distilled model for routine requests and reserve a larger model only for hard cases — a model-side choice, rather than a retrieval-side one. Perplexity's approach shows that the same economic goal (spend compute only where it earns its keep) can be achieved by re-architecting when work happens in a pipeline, not only by changing which model does the work — a distinct lever worth having in a PM's toolkit alongside model selection.
+      </p>
+      <ChartBlock
+        title="Cost per query across Sonar tiers, by search-context size"
+        tier="FACT"
+        sourceNote="Perplexity API Pricing documentation (docs.perplexity.ai) — Sonar example assumes 500 input + 200 output tokens; Deep Research figures are Perplexity's own worked pricing examples."
+        chart={<SimpleBarChart data={COST_DATA} series={[{ key: "cost", label: "Cost per query (USD)", color: "#7c3aed" }]} yLabel="USD" valueFormatter={(v) => `$${v}`} />}
+        magnitudeAsk="how many times more expensive do you expect the priciest Deep Research tier is versus the cheapest Sonar tier?"
+        q1={{
+          id: "chart5-q1",
+          kind: "So-what / decision implication",
+          prompt:
+            "A developer expects 2 million Sonar queries a month at the cheapest 'low' context tier ($0.0057/query). Size the monthly retrieval bill, then say which single lever — total query volume or context-tier choice — would change that estimate the most if the team defaulted every query to the 'high' tier ($0.0127/query) instead.",
+          authored:
+            "2,000,000 × $0.0057 = $11,400/month at low context; at high context, 2,000,000 × $0.0127 = $25,400/month — more than double. Context-tier choice moves this estimate more than query volume alone would for a fixed query count, because the request fee (not the token price) is what jumps sharpest between tiers ($5 to $12 per 1,000 requests). A PM sizing this cost should treat 'which context tier is the default' as the single highest-leverage lever, ahead of arguing over token price.",
+        }}
+        q2={{
+          id: "chart5-q2",
+          kind: "Quantitative reasoning",
+          prompt:
+            "A Sonar Deep Research query costs $0.41 at low context and $1.32 at high context — a 3.2x range for the same type of query. Plain Sonar's low-to-high range is only $0.0057 to $0.0127, about 2.2x. What does the wider multiple for Deep Research reveal about where its cost actually accumulates?",
+          authored:
+            "Deep Research's much wider range comes from reasoning and citation tokens compounding with search-query count as context size grows, not from a flat per-request search fee the way plain Sonar's smaller spread does. In the worked pricing example, the reasoning-token cost alone rises from about $0.22 at low context to roughly $1.02 at high context. Sonar's cost is mostly a fixed retrieval-request fee; Deep Research's cost is mostly a variable, compounding 'thinking harder' cost — the two products need different cost models when a PM is forecasting spend.",
+        }}
+      />
+      <FermiQ
+        id="fermi1"
+        prompt="Perplexity's own engineering post cites a leading commercial search API charging $200 per 1,000 queries in 2022–2023. If Perplexity had kept paying that legacy price while scaling to its own reported 200 million queries a day, estimate the ANNUAL retrieval bill that pricing would have implied (in US dollars)."
+        tolerance={0.1}
+        unit="USD/year"
+        correctValue={14600000000}
+        openEnded={false}
+        decomposition="200,000,000 queries/day × 365 days/year = 73,000,000,000 queries/year. 73,000,000,000 × ($200 ÷ 1,000 = $0.20/query) = $14,600,000,000/year."
+        bounds="Lower bound if volume were flat at 100M/day: ~$7.3B/year. Upper bound if legacy pricing had a volume discount, easily still several billion dollars/year — the point is the order of magnitude, not the exact figure."
+        mostSensitive="The query-volume figure (200M/day) is doing the most work here — this is a counterfactual ESTIMATE built from two cited FACTs (query volume and legacy price), not a bill Perplexity actually paid, since it built its own system before reaching this scale."
+      />
+      <FermiQ
+        id="fermi2"
+        prompt="A developer's AI agent calls Perplexity's Sonar (not Pro) API for 50,000 queries a month, each averaging 500 input tokens and 200 output tokens, all at the 'medium' search-context size ($8 per 1,000 requests). Name your decomposition path, then estimate the monthly bill in US dollars."
+        tolerance={0.1}
+        unit="USD/month"
+        correctValue={435}
+        openEnded={true}
+        decomposition="Token cost per query: (500 × $1/1,000,000) + (200 × $1/1,000,000) = $0.0007. Request fee per query: $8 ÷ 1,000 = $0.008. Total per query: $0.0087 (this matches Perplexity's own worked 'medium context' example exactly). 50,000 × $0.0087 = $435/month."
+        bounds="At 'low' context ($5/1,000 request fee): 50,000 × $0.0057 = $285/month. At 'high' context ($12/1,000): 50,000 × $0.0127 = $635/month."
+        mostSensitive="The request-fee tier (low/medium/high) matters far more than the token counts at this query volume, since the request fee is 8–17x larger than the token cost per query in this example."
+      />
+      <MCQ
+        id="th-cost"
+        subFormLabel="Weaken"
+        prompt="The claim in this section is: 'Perplexity controls costs by rationing expensive computation to only the candidates that survive earlier, cheaper stages, not by picking a cheaper model.' Which new piece of evidence, if true, would most weaken this claim?"
+        options={[
+          "Perplexity's own architecture post describes multiple stages of progressively advanced ranking, with lexical and embedding scorers running before cross-encoder rerankers are applied to the narrowed candidate set.",
+          "Perplexity's Search API documentation also lists a separate embeddings product with its own per-token pricing for developers who want to build fully custom retrieval pipelines from scratch.",
+          "Independent benchmarking shows the cross-encoder reranker stage runs on fixed commodity hardware regardless of how many candidates survive prefiltering, so its cost per query stays roughly constant rather than shrinking.",
+          "The Sonar Deep Research pricing example shows total cost rising from $0.41 at low context to $1.32 at high context as more search depth gets purchased.",
+        ]}
+        correctIndex={2}
+        explanations={{
+          correct:
+            "If the expensive reranking stage's cost were actually fixed per query regardless of candidate-set size, then 'rationing to a smaller set' would not be saving any real money — the claimed cost-control mechanism would not actually be doing the work credited to it. That is genuinely new information that would weaken the claim, not something already stated in the article.",
+          reasoningError: [
+            "this restates evidence already presented in the article rather than introducing anything new — it does not test the claim, it repeats the basis for it.",
+            "this is true but irrelevant to whether the reranking-rationing mechanism controls cost; a separate embeddings product's pricing does not bear on this specific causal claim.",
+            null,
+            "this is consistent with, not contrary to, the claim — of course cost rises with more context purchased; that does not test whether rationing is the actual mechanism behind cost control.",
+          ],
+          scaffold:
+            "Ask: what fact, if discovered, would make you doubt that 'rationing to a smaller set' is really what keeps cost down — as opposed to a fact that just re-describes the mechanism or that talks about something else entirely?",
+        }}
+        whereGeneralizes="any cost-control claim resting on an architectural mechanism (caching, rationing, tiering) — the claim is only as strong as evidence that the mechanism's cost genuinely scales down the way it's claimed to, not just evidence that the mechanism exists."
+      />
+      <PatternTransfer
+        id="pt-cost"
+        prompt="The principle from this section is: control unit economics by rationing expensive computation to only the cases that need it, not only by picking a cheaper model. Apply this to a different domain — for example, an AI-powered fraud-detection system that screens every card transaction in real time. What would a PM or CTO build or decide differently because of this principle, and what new failure mode would they face that did not appear in Perplexity's search-cost example?"
+      />
+      <PrincipleGate authored="Ration expensive computation to the cases that actually need it — using cheap early filters to decide what reaches the costly final stage — rather than treating 'pick a cheaper model' as the only lever for controlling an AI product's unit economics." />
+      <Glossary
+        terms={[
+          { term: "Token (input / output)", def: "A small chunk of text (roughly a few characters) that a language model reads or writes; most AI API pricing charges separately for tokens sent in (input) and generated back (output)." },
+          { term: "Search-context size", def: "How much web information a search API retrieves and includes for a given query — a separate setting from the model's overall context window, and priced separately in Perplexity's API." },
+          { term: "Fermi estimate", def: "A rough, back-of-envelope calculation that breaks a hard-to-know number into smaller, easier-to-estimate pieces multiplied together." },
+        ]}
+      />
+    </section>
+  );
+}
+
+function WhatBrokeSection() {
+  return (
+    <section id="whatbroke" style={{ marginBottom: 48, background: "#FEF2F2", border: "1px solid #FCA5A5", borderRadius: 14, padding: 26 }}>
+      <h2 style={{ marginTop: 0 }}>What Broke: The Crawler That Ignored Its Own Rules</h2>
+      <p>
+        On August 4, 2025, Cloudflare published findings that Perplexity's declared, publicly documented crawlers — PerplexityBot and Perplexity-User — were being correctly blocked by customers' robots.txt files and firewall rules, yet Perplexity kept retrieving and answering questions about that blocked content anyway (Cloudflare Blog, Aug 4, 2025). Cloudflare tested this directly: it created brand-new domains that had never been indexed by any search engine, set a robots.txt file disallowing every automated crawler, and asked Perplexity questions about the content on those pages. Perplexity answered in detail (Cloudflare Blog, Aug 4, 2025).
+      </p>
+      <p>
+        The root cause was a second, undeclared crawler that activated whenever the declared one was blocked. It impersonated a Chrome browser running on a Mac, rotated through IP addresses and network providers (ASNs) outside Perplexity's own published IP ranges, and — according to Cloudflare — either ignored robots.txt files or sometimes failed to even fetch them at all (Cloudflare Blog, Aug 4, 2025). Cloudflare measured the declared crawler at roughly 20–25 million requests a day and the undeclared, stealth fallback at roughly 3–6 million requests a day, spread across tens of thousands of domains (Cloudflare Blog, Aug 4, 2025). Perplexity's own architecture post, published a few weeks later, states that "PerplexityBot... complies with explicit limits set forth in robots.txt files" (Perplexity Research, Sept 2025) — a claim that appears to describe only the declared path, saying nothing about what should happen the moment that declared path hits a block. The same completeness-and-freshness pressure that makes the retrieval pipeline good, described in Section 1, seems to have extended into routing around a block instead of stopping at one.
+      </p>
+      <p>
+        The cost was immediate and structural, not just reputational in the abstract. Cloudflare de-listed Perplexity from its Verified Bots program and shipped new detection signatures into its managed rules for its entire customer base — meaning any Cloudflare customer with an existing bot-blocking rule was now blocking Perplexity by default, without taking any new action (Cloudflare Blog, Aug 4, 2025). This landed about a month after Cloudflare's "Content Independence Day" initiative, during which more than 2.5 million websites had already chosen to fully disallow AI crawling through Cloudflare's tools (Cloudflare Blog, Aug 4, 2025) — timing that compounded the reputational cost exactly as publisher trust in AI crawlers was being actively tested industry-wide. Nor was this a first offense: the same Tow Center/CJR study cited in Section 2 had already found, five months earlier, that Perplexity's free tier answered all ten test questions about paywalled National Geographic articles it should not have had access to (Tow Center/CJR, March 2025).
+      </p>
+      <p>
+        The lesson is that a documented crawler and a public compliance policy are not the same as an architectural guarantee. Real control requires a hard, code-level invariant — "never serve an answer sourced from a domain that returned a disallow signal" — enforced the same way a latency budget is enforced, because a policy document cannot constrain what a fallback code path does under pressure. And the pressure here cuts both ways: the same business incentive that rewards a complete, fresh index (Section 1's core strength) rewards routing around a block just as much as it rewards good crawling behavior. The strength and the failure trace back to the same root incentive.
+      </p>
+      <ChartBlock
+        title="Reported daily request volume: declared vs. undeclared crawler"
+        tier="FACT"
+        sourceNote="Cloudflare Blog, 'Perplexity is using stealth, undeclared crawlers to evade website no-crawl directives,' Aug 4, 2025. Figures are Cloudflare's own reported ranges, observed across tens of thousands of domains."
+        chart={<SimpleBarChart data={CRAWLER_DATA} series={[{ key: "low", label: "Low estimate (M/day)", color: "#fca5a5" }, { key: "high", label: "High estimate (M/day)", color: "#b91c1c" }]} yLabel="Requests/day (millions)" valueFormatter={(v) => `${v}M`} />}
+        q1={{
+          id: "chart6-q1",
+          kind: "So-what / decision implication",
+          prompt:
+            "Using a Now-Next-Later roadmap, and given the stealth crawler ran at roughly 3–6 million requests a day versus 20–25 million for the declared crawler, would you prioritize (a) shutting the fallback down entirely, (b) making the fallback itself respect robots.txt and blocks, or (c) improving detection and monitoring first — and what in the data supports doing that one first?",
+          authored:
+            "'Now' should be making the fallback path itself respect robots.txt and network blocks (option b) — not detection alone, and not a slower full shutdown project. Even though the stealth crawler's volume (3–6M/day) is smaller than the declared crawler's (20–25M/day), Cloudflare's report shows it specifically activates in the exact cases where a site said no — meaning every one of those requests is a compliance violation by construction, unlike the declared crawler's presumably-compliant volume. Detection alone only measures the harm after the fact; it does not stop it.",
+        }}
+        q2={{
+          id: "chart6-q2",
+          kind: "Causal / comparative",
+          prompt:
+            "Cloudflare ran the identical block-and-test experiment on ChatGPT and reported that it stopped crawling immediately with no follow-up attempts from any other user agent. What does the difference between Perplexity's and ChatGPT's response to the exact same test condition rule out as an explanation for Perplexity's behavior?",
+          authored:
+            "It rules out 'this is just an unavoidable side effect of how any RAG crawler has to work at scale.' Since a peer company, tested with the identical method under the identical condition (a network block), produced the opposite result, the difference must trace to a specific design or policy choice inside Perplexity's own crawling system — not to some industry-wide technical constraint that any AI search company would inevitably hit. A same-method comparison like this isolates the variable that actually matters: company-specific engineering choices.",
+        }}
+      />
+      <div style={{ margin: "24px 0" }}>
+        <div style={{ fontWeight: 600, marginBottom: 10 }}>Crawler fallback pattern</div>
+        <CrawlerDiagram />
+        <SourceNote>Illustrative flow of the fallback behavior Cloudflare reported, Aug 4, 2025 — simplified for teaching.</SourceNote>
+      </div>
+      <MCQ
+        id="failure-mcq"
+        prompt="Given the failure described above, which assumption in the original design was most likely held by the team and considered uncontroversial — and why was it wrong?"
+        options={[
+          "The team should have anticipated that any AI company would eventually be caught bypassing robots.txt, since criticism of AI crawlers was already widespread well before August 2025, making this a foreseeable risk they simply chose to ignore.",
+          "The sole cause of the incident was one engineer implementing an unapproved fallback crawler, so fixing the problem required only deleting that single code path and adding no new organizational safeguard.",
+          "The real problem was that Cloudflare's bot-detection heuristics were overly aggressive and misclassified ordinary browser traffic as a stealth crawler, so tuning Cloudflare's detection thresholds mattered more than anything inside Perplexity's own crawling systems.",
+          "The team likely assumed that a documented crawler plus a stated robots.txt-compliance policy was itself sufficient proof of good behavior, without any code-level rule that blocks serving answers sourced from a domain that returned a disallow signal.",
+        ]}
+        correctIndex={3}
+        explanations={{
+          correct:
+            "A published crawler name and a stated policy describe intended behavior for the primary path. They say nothing about what a fallback path does once the primary path hits resistance — and Cloudflare's evidence shows that gap is exactly where the failure lived. The fix has to be an enforced invariant, not a stronger paragraph of policy.",
+          reasoningError: [
+            "hindsight bias — this assumes the specific failure was obviously foreseeable in exactly this form, when the question asks what assumption the team held as uncontroversial at design time, not what a critic could say after the fact.",
+            "single-cause fallacy — attributing a systemic gap (no enforced invariant for fallback behavior) to one individual's unapproved action understates how a policy-without-enforcement gap could recur through any code path, not just one.",
+            "scope-creep misdiagnosis — this blames the detector for correctly catching a real pattern rather than addressing the underlying crawling behavior the detector was built to catch.",
+            null,
+          ],
+          scaffold:
+            "Focus on what the team's own public statement claims ('complies with robots.txt') versus what it does not claim anything about (what happens when the declared path is blocked) — the gap between those two is the assumption to name.",
+        }}
+        whereGeneralizes="any system with a documented 'happy path' policy and an undocumented fallback path — a policy statement about the primary path is not evidence about what the fallback does, and that gap needs its own explicit, enforced rule."
+      />
+      <PrincipleGate authored="A documented policy describes what the primary path is supposed to do; it says nothing about the fallback path's behavior when the primary path is blocked, and that gap has to be closed with an enforced, code-level invariant, not a stronger policy statement." />
+      <Glossary
+        terms={[
+          { term: "robots.txt", def: "A text file website owners publish to tell automated crawlers which pages they are and are not allowed to visit." },
+          { term: "ASN (Autonomous System Number)", def: "An ID number for a block of internet addresses controlled by one network provider; switching ASNs is one way traffic can appear to come from a different source." },
+          { term: "Verified Bots program", def: "Cloudflare's list of crawlers it recognizes as behaving transparently and by-the-rules, which sites can choose to allow more easily than unverified traffic." },
+        ]}
+      />
+    </section>
+  );
+}
+
+function ConclusionSection() {
+  return (
+    <section id="conclusion" style={{ marginBottom: 60 }}>
+      <h2>Conclusion</h2>
+      <p>
+        The governing principle holds up under both the evidence and the failure, with one addition the failure makes visible: retrieval infrastructure is the product surface users actually judge, but a retrieval system this central also concentrates the company's biggest compliance risk in the exact same place. Partial failure of this principle looks like what Perplexity shows here — a genuinely strong retrieval architecture sitting next to a broken failure-mode around how that architecture handles a "no." Good architecture and trustworthy behavior are not the same claim, and a team can win decisively on one while failing the other at the same time.
+      </p>
+      <p>
+        For an AI PM, the implication is concrete: do not treat "we have a documented crawler policy" or "we cite our sources" as evidence that the underlying behavior is actually compliant or accurate. Require observable proof under adversarial conditions — a blocked network, a disallowed robots.txt, a citation-accuracy audit like the Tow Center's — before shipping either claim publicly, because Section 2 and the What Broke section both show real gaps between the stated policy and the measured behavior.
+      </p>
+      <p>
+        For a future CTO, the implication is about where to spend engineering effort. A retrieval-as-product company should budget for enforcement invariants — hard-blocking disallowed domains at the architecture level — with the same seriousness it budgets for a latency SLO, because both failure classes (bad answers, disallowed retrieval) draw from the same infrastructure and are equally reputational when they surface publicly.
+      </p>
+      <p>
+        The most important question this article cannot answer: none of the sources here reveal whether Perplexity's fallback-crawler behavior was a deliberate choice made under completeness pressure, or an unintended side effect nobody had explicitly signed off on. That distinction matters enormously for how much weight to put on the company's next public architecture claim — and it is exactly the kind of internal detail a company's own engineering blog will never volunteer.
+      </p>
+      <MCQ
+        id="te-conclusion"
+        prompt="Which new evidence, if observed, would most weaken this article's governing principle that retrieval architecture — not the generation model — is the primary driver of AI answer-engine quality?"
+        options={[
+          "Multiple independent AI answer engines built on very different retrieval architectures, or with no custom retrieval investment at all, converge to statistically indistinguishable user-rated answer quality once every provider uses a similarly capable generation model.",
+          "A company invests heavily in retrieval infrastructure, the way Perplexity did, and its measured answer quality and latency subsequently improve relative to competitors that keep renting third-party search APIs.",
+          "A rival company raises a larger funding round than Perplexity's $20 billion valuation but has not yet shipped a comparable consumer search product to actual users.",
+          "An AI search engine's citation-accuracy error rate, like the 37 percent figure reported for Perplexity, stays roughly flat when an independent study repeats the same test a year later.",
+        ]}
+        correctIndex={0}
+        explanations={{
+          correct:
+            "If retrieval architecture stopped explaining quality differences — because every provider converged to similar quality regardless of how much they invested in retrieval, once the generation model was equally strong — that would directly undercut the claim that retrieval, not the model, is the primary driver. This is genuinely new evidence the article does not currently have, and it points the other way.",
+          reasoningError: [
+            null,
+            "this restates the article's own supporting evidence (Perplexity's investment correlating with better outcomes) rather than describing evidence that would weaken the claim.",
+            "this is not relevant to the causal claim about retrieval architecture and answer quality; funding size and shipped product maturity are a different question entirely.",
+            "this is already-known evidence discussed in the article, not new evidence, and a flat error rate over time does not by itself say anything about whether retrieval or the model architecture is the driver.",
+          ],
+          scaffold:
+            "Ask what observation would make you doubt that architecture — rather than the model — is the thing actually driving the quality differences described throughout this article.",
+        }}
+        whereGeneralizes="any claim that one specific layer of a system (infrastructure, model, UI) is 'the real driver' of a measured outcome — the claim is falsifiable only if you can name an observation where controlling for that layer makes the outcome differences disappear."
+      />
+      <div style={{ background: "#f9fafb", border: "1px solid #e5e7eb", borderRadius: 10, padding: 18, margin: "18px 0" }}>
+        <div style={{ fontWeight: 600, marginBottom: 10 }}>Forward-looking: present-day and 2027</div>
+        <ConclusionFreeText
+          id="te-present"
+          label="Present-day"
+          prompt="Given the evidence in this article, what is the single most important decision a PM or CTO at a similar AI answer-engine company should make in the next six months?"
+        />
+        <ConclusionFreeText
+          id="te-2027"
+          label="2027 variant"
+          prompt="Assume inference gets cheaper and models get meaningfully better at multi-hop reasoning by 2027 — closing some of the FRAMES-style gap seen in the Landscape section. What would you design or decide differently, and which load-bearing assumption from today's retrieval-first approach does the 2027 version replace?"
+        />
+      </div>
+      <PatternTransfer
+        id="final-tf"
+        minLen={50}
+        prompt="Final question. The governing principle of this article is: in an AI answer engine, the retrieval system — not the generation model — is the real product, and the same infrastructure that produces its strength can also produce its most damaging failure. Apply this to an AI-powered legal research product (a domain not covered in this article) used by law firms to find relevant case law. What would a PM or CTO build or decide differently because of this principle, and what new failure mode would they face that is genuinely different from Perplexity's publisher-blocking incident?"
+      />
+    </section>
+  );
+}
+
+function ConclusionFreeText({ id, label, prompt }) {
+  const [text, setText] = useState("");
+  const [submitted, setSubmitted] = useState(false);
+  return (
+    <div style={{ marginBottom: 16 }}>
+      <div style={{ fontWeight: 600, fontSize: 13, color: "#2563eb", marginBottom: 4 }}>{label}</div>
+      <div style={{ fontSize: 14, marginBottom: 8 }}>{prompt}</div>
+      {!submitted ? (
+        <>
+          <textarea
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            rows={3}
+            style={{ width: "100%", boxSizing: "border-box", padding: 8, borderRadius: 6, border: "1px solid #d1d5db", fontSize: 14 }}
+            placeholder="Minimum 40 characters..."
+          />
+          <div style={{ marginTop: 6 }}>
+            <button disabled={text.length < 40} onClick={() => setSubmitted(true)} style={btnStyle(text.length < 40)}>
+              Submit
+            </button>
+            <span style={{ marginLeft: 10, fontSize: 12, color: "#9ca3af" }}>{text.length}/40 characters</span>
+          </div>
+        </>
+      ) : (
+        <div style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 6, padding: 10, fontSize: 14 }}>
+          <strong>Your answer:</strong> {text}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ---------------------------------------------------------------------------
+   Apply It — present-day (4 labeled parts) + 2027 variant
+--------------------------------------------------------------------------- */
+function ApplyItField({ label, placeholder, minLen = 20 }) {
+  const [text, setText] = useState("");
+  const [submitted, setSubmitted] = useState(false);
+  return (
+    <div style={{ marginBottom: 14 }}>
+      <div style={{ fontSize: 13, fontWeight: 600, color: "#374151", marginBottom: 4 }}>{label}</div>
+      {!submitted ? (
+        <>
+          <textarea
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            rows={2}
+            placeholder={placeholder}
+            style={{ width: "100%", boxSizing: "border-box", padding: 8, borderRadius: 6, border: "1px solid #d1d5db", fontSize: 14 }}
+          />
+          <div style={{ marginTop: 4 }}>
+            <button disabled={text.length < minLen} onClick={() => setSubmitted(true)} style={{ ...btnStyle(text.length < minLen), padding: "5px 12px", fontSize: 13 }}>
+              Lock in
+            </button>
+            <span style={{ marginLeft: 8, fontSize: 12, color: "#9ca3af" }}>{text.length}/{minLen} characters</span>
+          </div>
+        </>
+      ) : (
+        <div style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 6, padding: 8, fontSize: 14 }}>{text}</div>
+      )}
+    </div>
+  );
+}
+
+function ApplyIt() {
+  return (
+    <div style={{ background: "#eef2ff", borderRadius: 10, padding: 18, marginBottom: 20 }}>
+      <div style={{ fontWeight: 600, marginBottom: 4 }}>Apply It</div>
+      <div style={{ fontSize: 14, color: "#4b5563", marginBottom: 14 }}>
+        These are encouraged production steps — not scored, and they do not lock the conclusion below.
+      </div>
+      <div style={{ fontSize: 13, fontWeight: 700, color: "#4338ca", textTransform: "uppercase", marginBottom: 8 }}>
+        Present-day: apply the governing principle to a company or product you know
+      </div>
+      <ApplyItField label="1. One-sentence so-what thesis" placeholder="In one sentence, what should that company or product do differently because of this article's principle?" />
+      <ApplyItField label="2. Load-bearing assumption" placeholder="What single assumption has to hold for your thesis to create value?" />
+      <ApplyItField label="3. Strongest disconfirming evidence from this article" placeholder="What evidence in this article would most challenge your thesis?" />
+      <ApplyItField label="4. One-line pre-mortem" placeholder="If this fails in 12 months, the most likely reason is ___." />
+      <div style={{ fontSize: 13, fontWeight: 700, color: "#4338ca", textTransform: "uppercase", marginTop: 18, marginBottom: 8 }}>
+        2027 forward-looking variant
+      </div>
+      <ApplyItField
+        label="Given longer context, cheaper inference, and better reasoning by 2027, what would you design or decide differently — and which load-bearing assumption from today's version does the 2027 version replace?"
+        placeholder="Write your 2027 variant answer..."
+        minLen={30}
+      />
+    </div>
+  );
+}
+
+/* ---------------------------------------------------------------------------
+   Learning Summary
+--------------------------------------------------------------------------- */
+function LearningSummary({ answers, warmupSkipped }) {
+  const entries = Object.entries(answers);
+  const scored = entries.filter(([, v]) => v.correct !== null);
+  const correct = scored.filter(([, v]) => v.correct === true).length;
+  const byType = {};
+  scored.forEach(([, v]) => {
+    byType[v.type] = byType[v.type] || { correct: 0, total: 0 };
+    byType[v.type].total += 1;
+    if (v.correct) byType[v.type].correct += 1;
+  });
+  const numericErrors = scored.filter(([, v]) => typeof v.signedError === "number");
+  const avgSignedError = numericErrors.length
+    ? numericErrors.reduce((a, [, v]) => a + v.signedError, 0) / numericErrors.length
+    : null;
+
+  const [insight, setInsight] = useState("");
+  const [insightSubmitted, setInsightSubmitted] = useState(false);
+
+  return (
+    <section id="summary" style={{ marginBottom: 48 }}>
+      <h2>Learning Summary</h2>
+
+      <div style={{ background: "#f9fafb", borderRadius: 10, padding: 18, marginBottom: 20 }}>
+        <div style={{ fontWeight: 600, marginBottom: 10 }}>Score breakdown by question type</div>
+        <div style={{ marginBottom: 8 }}>Overall: {correct}/{scored.length} scored questions correct.</div>
+        {Object.entries(byType).map(([type, v]) => (
+          <div key={type} style={{ fontSize: 14, marginBottom: 4 }}>
+            {type}: {v.correct}/{v.total}
+          </div>
+        ))}
+        {avgSignedError !== null && (
+          <div style={{ fontSize: 14, marginTop: 8 }}>
+            Numeric (Fermi) average signed error: {(avgSignedError * 100).toFixed(0)}% {avgSignedError > 0 ? "(you tended to over-estimate)" : "(you tended to under-estimate)"}
+          </div>
+        )}
+        <div style={{ fontSize: 14, marginTop: 8, color: warmupSkipped ? "#991b1b" : "#065f46" }}>
+          {warmupSkipped ? "Warm-up skipped — 3 prior principles not reviewed this session." : "Warm-up completed this session."}
+        </div>
+      </div>
+
+      <div style={{ marginBottom: 20 }}>
+        <div style={{ fontWeight: 600, marginBottom: 6 }}>Which of your stated principles surprised you most compared to the authored version? Why?</div>
+        <ConclusionFreeText id="ls-reflect" label="" prompt="" />
+      </div>
+
+      <div style={{ background: "#fff7ed", borderRadius: 10, padding: 18, marginBottom: 20 }}>
+        <div style={{ fontWeight: 600, marginBottom: 10 }}>Three insight slots</div>
+        <div style={{ fontSize: 14, marginBottom: 8 }}>
+          You have seen evidence across three sections and a failure case. Write the single most non-obvious insight you would defend to a skeptical CTO:
+        </div>
+        {!insightSubmitted ? (
+          <>
+            <textarea value={insight} onChange={(e) => setInsight(e.target.value)} rows={3} style={{ width: "100%", boxSizing: "border-box", padding: 8, borderRadius: 6, border: "1px solid #d1d5db", fontSize: 14 }} placeholder="Minimum 30 characters..." />
+            <div style={{ marginTop: 6 }}>
+              <button disabled={insight.length < 30} onClick={() => setInsightSubmitted(true)} style={btnStyle(insight.length < 30)}>
+                Submit
+              </button>
+            </div>
+          </>
+        ) : (
+          <>
+            <div style={{ background: "#fff", borderRadius: 6, padding: 10, marginBottom: 10, fontSize: 14 }}>
+              <strong>Your insight:</strong> {insight}
+            </div>
+            <div style={{ fontWeight: 600, marginBottom: 6 }}>How your insight compares — three authored insight cards:</div>
+            {[
+              "The same architecture that makes a retrieval-first product good (chasing completeness and freshness) is the same incentive that produced its worst public failure — strength and failure share one root cause, not two.",
+              "A citation, a badge, or any UI trust signal is often a reused byproduct of infrastructure built for a different audience (the model); it needs its own accuracy measurement, not an inherited one.",
+              "Controlling AI unit economics has at least two independent levers — which model you use, and when in the pipeline expensive work happens — and the second lever is easy to overlook.",
+            ].map((c, i) => (
+              <div key={i} style={{ border: "1px solid #fde68a", borderRadius: 8, padding: 12, marginBottom: 8, fontSize: 14, background: "#fff" }}>
+                {c}
+              </div>
+            ))}
+          </>
+        )}
+      </div>
+
+      <ApplyIt />
+
+      <div style={{ marginBottom: 20 }}>
+        <div style={{ fontWeight: 600, marginBottom: 8 }}>Principles to revisit</div>
+        <div style={{ fontSize: 14, color: "#4b5563" }}>
+          {scored.filter(([, v]) => v.correct === false).length === 0 ? (
+            "No missed scored questions this session — nothing to revisit."
+          ) : (
+            <ul style={{ paddingLeft: 20, margin: 0 }}>
+              {scored
+                .filter(([, v]) => v.correct === false)
+                .map(([id]) => (
+                  <li key={id} style={{ marginBottom: 4 }}>{PRINCIPLE_LABELS[id] || "Review the section this question belonged to."}</li>
+                ))}
+            </ul>
+          )}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+/* ---------------------------------------------------------------------------
+   APP
+--------------------------------------------------------------------------- */
+function App() {
+  const [active, setActive] = useState("warmup");
+  const [narrow, setNarrow] = useState(window.innerWidth < 1160);
+  const [warmupSkipped, setWarmupSkipped] = useState(false);
+  const answersRef = useRef({});
+  const answeredRef = useRef({});
+  const [answersState, setAnswersState] = useState({});
+  const [scoreTick, setScoreTick] = useState(0);
+
+  useEffect(() => {
+    function onResize() { setNarrow(window.innerWidth < 1160); }
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+
+  useEffect(() => {
+    function onScroll() {
+      let current = SECTIONS[0].id;
+      for (const s of SECTIONS) {
+        const el = document.getElementById(s.id);
+        if (el && el.getBoundingClientRect().top < 140) current = s.id;
+      }
+      setActive(current);
+    }
+    window.addEventListener("scroll", onScroll);
+    return () => window.removeEventListener("scroll", onScroll);
+  }, []);
+
+  function registerAnswer(id, meta) {
+    answeredRef.current[id] = true;
+    answersRef.current[id] = meta;
+    setAnswersState({ ...answersRef.current });
+    setScoreTick((t) => t + 1);
+  }
+
+  function navigate(id) {
+    const el = document.getElementById(id);
+    if (el) el.scrollIntoView({ behavior: "smooth" });
+    setActive(id);
+  }
+
+  const scored = Object.values(answersState).filter((v) => v.correct !== null);
+  const score = scored.filter((v) => v.correct === true).length;
+
+  const ctxValue = { answered: answeredRef, registerAnswer };
+
+  return (
+    <AppCtx.Provider value={ctxValue}>
+      <ProgressBar pct={Math.min(100, (SECTIONS.findIndex((s) => s.id === active) / (SECTIONS.length - 1)) * 100)} />
+      <ScoreBadge score={score} total={scored.length} />
+      <Header />
+      <SectionNav active={active} onNav={navigate} narrow={narrow} />
+      <div style={{ maxWidth: 720, margin: "0 auto", padding: "40px 20px 100px", marginLeft: narrow ? "auto" : 250 }}>
+        <WarmupSection skipped={warmupSkipped} setSkipped={setWarmupSkipped} />
+        <IntroSection />
+        <LandscapeSection />
+        <ArchitectureSection />
+        <ProductSection />
+        <CostSection />
+        <WhatBrokeSection />
+        <LearningSummary answers={answersState} warmupSkipped={warmupSkipped} />
+        <ConclusionSection />
+        <div style={{ textAlign: "center", color: "#9ca3af", fontSize: 13, marginTop: 60 }}>
+          Sources are listed in the article text with inline (Source, Year) citations: Perplexity Research blog (Sept 2025), Perplexity API Pricing docs, Vespa case study (2025–2026), Cloudflare Blog (Aug 2025), and the Tow Center for Digital Journalism / Columbia Journalism Review (March 2025).
+        </div>
+      </div>
+    </AppCtx.Provider>
+  );
+}
+
+const root = ReactDOM.createRoot(document.getElementById("root"));
+root.render(<App />);
+</script>
+</body>
+</html>

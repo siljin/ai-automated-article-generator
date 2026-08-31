@@ -1,0 +1,1900 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Shared Foundation, Not a Smarter Model: How Cox Automotive Took 17 AI Agents to Production in a Year — Agentic System Architecture</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; }
+  button { font-family: inherit; }
+  textarea, input { font-family: inherit; }
+  a { color: inherit; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script crossorigin src="https://unpkg.com/react@18.3.1/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/prop-types@15.8.1/prop-types.min.js"></script>
+<script crossorigin src="https://unpkg.com/recharts@2.12.7/umd/Recharts.js"></script>
+<script src="https://unpkg.com/@babel/standalone@7.24.7/babel.min.js"></script>
+<script type="text/babel" data-presets="env,react">
+/* ============================================================================
+   PR-12 — Shared Foundation, Not a Smarter Model: How Cox Automotive Took
+   17 AI Agents to Production in a Year
+   Agentic System Architecture (Type 3) — Lifecycle: Build -> Evaluate -> Scale
+   ============================================================================
+   PRIMARY SOURCES (all verified live at generation time, 2026-08-04):
+   1. AWS, "How Cox Automotive launched AI agents at scale using Amazon Bedrock
+      AgentCore" (Customer Case Study). aws.amazon.com/solutions/case-studies/
+      cox-auto-case-study
+   2. AWS Machine Learning Blog, "Make agents a reality with Amazon Bedrock
+      AgentCore: Now generally available" (Oct 13, 2025).
+   3. About Amazon, "New Amazon Bedrock AgentCore capabilities..." (Dec 2, 2025).
+   4. DEV Community transcription of AWS re:Invent 2025 session IND3329, "Cox
+      Automotive's Blueprint for Agentic AI on Amazon Bedrock AgentCore."
+   5. Anthropic, Cox Automotive customer story, claude.com/customers/cox-automotive.
+   6. CIO.com, "Inside Cox Automotive's drive to engineer agentic AI" (Mar 2, 2026).
+   Full source list with provenance tiers is in the in-artifact Sources section.
+   ============================================================================ */
+
+const { useState, useEffect, useRef } = React;
+const { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LabelList, Cell, Legend, PieChart, Pie } = Recharts;
+
+/* ---------------------------------------------------------------------------
+   ANSWER-KEY NOTES (for build-time verification — not rendered)
+   rq1_mcq (T-A, Sec 3):        correct=A/0  (Orchestrator Agent is the bottleneck)
+   rq1_fermi (T-D#1, skeleton): correct=16x (low-end multiple), tol +-10%
+   rq2_tb (T-B, Sec 4, added):  correct=C/2  (conflating model capability with process reliability)
+   rq2_tc (T-C, Sec 4):        correct=B/1  (red-team/eval cadence is an ongoing cost, not free to copy)
+   rq2_tg (T-G, Sec 4):        correct=False (necessary-condition-to-sufficient-condition error)
+   rq3_tb (T-B, Sec 5, added):  correct=D/3  (rounded spoken figures are directionally real, not audited)
+   rq3_th (T-H, Sec 5, Weaken): correct=C/2  (shared judge/model training bias undercuts the safety claim)
+   rq3_fermi (T-D#2, open):     correct=~133 reviewers, order-of-magnitude 50-300 accepted
+   whatbroke_mcq (failure case):correct=D/3  (model-choice explanation is least supported by any source)
+   te_present (T-E, Concl.):    correct=A/0  (stand up shared foundation before multiplying pilots)
+   te_2027 (T-E 2027, Concl.):  free text (ApplyIt, 3 fields), not scored
+   final_transfer (T-F):        free text (PatternTransfer), not scored — always the last question
+   Distribution across the 7 scored MCQs: A=2, B=1, C=2, D=2 (max-min=1, compliant).
+   All FACT values verified against the six sources listed in the in-artifact Sources
+   section at generation time (2026-08-04). The only ILLUSTRATION values in the
+   artifact are the "~20 turns" circuit-breaker example (Chart R1) and the reader's
+   own reviewer-productivity assumption in T-D#2 — neither is the sole basis of a
+   scored answer key the way a disclosed FACT would be.
+--------------------------------------------------------------------------- */
+
+const REASONING_ERRORS = {
+  classical: "Applying classical software assumptions to AI: treating an elastic, engineered system (retrieval, autoscaling, context handling) as if it had a fixed classical-software ceiling rather than being built to scale with growth.",
+  metricCause: "Confusing a metric for its cause: crediting a model's general benchmark strength (latency, cost, accuracy) for a specific, separate outcome (process reliability) the evidence actually traces to architecture and cadence.",
+  survivorship: "Survivorship bias: concluding an approach is safe or effective because the cases that got published succeeded, without accounting for cases that were never disclosed or that failed.",
+  extrapolate: "Extrapolating a short trend: projecting a single-period or small-sample pattern forward without evidence the underlying driver is actually changing over time.",
+  baseRate: "Base-rate neglect: judging one result as unusual without asking how often that same outcome occurs across the wider population the evidence describes.",
+  rateLevel: "Confusing rate and level: treating a percentage-point change as if it were a percent (relative) change, or a raw count as if it were a rate.",
+  causation: "Misattributing causation: treating two facts that sit near each other in the evidence as if one explains the other, without a stated causal mechanism connecting them.",
+  hindsight: "Hindsight bias: treating an explanation as obviously correct only because it sounds satisfying after the fact, when the evidence does not actually single it out.",
+  scopeCreep: "Scope-creep misdiagnosis: treating a real, well-evidenced factor as if it were unsupported, or a secondary factor as if it were the primary, load-bearing one.",
+  singleCause: "Single-cause fallacy: attributing a systemic outcome, or a claim, to one specific technical detail the evidence never actually states.",
+  restatement: "Restating the conclusion itself rather than independently testing it: a circular option that sounds relevant but adds no new evidence about whether the claim holds.",
+  irrelevant: "Irrelevant to the specific claim being tested: a true statement about a different variable (cost, subjectivity, transparency) that does not bear on whether the argument itself is undercut.",
+  designCeiling: "Overgeneralizing a stated design capability into a fixed ceiling, ignoring that engineered systems are built to keep pace with growth rather than stay constant.",
+  scopeMismatch: "Comparing two figures that describe different populations or timeframes as if they were directly comparable, when the two numbers were never meant to answer the same question.",
+  necessarySufficient: "Overgeneralizing a necessary condition (the reliability stack helped most projects succeed) into a sufficient one (so the whole initiative was fully successful) — a favorable majority result does not make a claim of total success true.",
+};
+
+/* ---------------------------------------------------------------------------
+   CROSS-ARTIFACT WARM-UP (authored from prior articles' sectionPrinciples)
+--------------------------------------------------------------------------- */
+const WARMUPS = [
+  {
+    id: "wu1",
+    prompt: "A prior article showed one platform serving two structurally different jobs (finding problems vs. fixing them) by keeping tool interfaces stable and only changing the layer that encodes domain judgment. A hospital network wants one agent platform to power both a radiology-triage agent and a discharge-summary-drafting agent. Using that principle, what should stay identical between the two agents, and what should be allowed to differ?",
+    sourceArticle: "One Platform, Two Jobs: How Meta's Capacity Efficiency Agents Scale MW Savings Without Scaling Headcount (Agentic System Architecture)",
+    principle: "One platform can serve structurally different jobs without duplicated engineering effort when the expensive, reusable machinery (tool interfaces) stays stable and only the layer that encodes domain judgment (skills) changes per job.",
+  },
+  {
+    id: "wu2",
+    prompt: "A prior article distinguished two different fixes for two different agent problems: reversibility (cheap rollback, environment isolation) stops a destructive action from reaching anything that matters, but it does not stop an agent from behaving unreliably without doing anything destructive. A retail company's ordering agent sometimes loops, asking a supplier the same question five times without ever placing the order. Which of the two fixes actually addresses this specific problem, and why would adding more rollback safety not help here?",
+    sourceArticle: "How Replit Agent Actually Works: Reversibility Is the Architecture, Reliability Is a Runtime Layer (AI Product Teardown)",
+    principle: "Reversibility and environment separation stop a destructive action from reaching anything that matters, but they are a different fix from the one needed to stop an agent from behaving unreliably (looping, fabricating output) without doing anything destructive — treating one fix as solving both is a scope-creep mistake.",
+  },
+  {
+    id: "wu3",
+    prompt: "A prior article's principle was that a silent decision not to act is still a product decision, and it inherits whatever proxy metric the system was tuned against. Cox Automotive's dealership assistant has a soft guardrail that silently redirects any financing-negotiation question to a human, rather than answering it. Using that principle, what should Cox audit about this specific redirect behavior before assuming it is purely a safety win?",
+    sourceArticle: "How GitHub Copilot Actually Works: Context Assembly, the Filter Gate, and a Reward Function Rebuilt Twice (AI Product Teardown)",
+    principle: "A silent, upstream decision not to call the model (or to redirect/suppress) is as much a product decision as any visible UI choice, and it inherits whatever proxy metric or objective the system was tuned against — audit that metric directly.",
+  },
+];
+
+/* ---------------------------------------------------------------------------
+   GENERIC UI PRIMITIVES
+--------------------------------------------------------------------------- */
+
+function ProgressBar({ pct }) {
+  return (
+    <div style={{ position: "fixed", top: 0, left: 0, right: 0, height: 4, background: "#eee", zIndex: 60 }}>
+      <div style={{ height: "100%", width: pct + "%", background: "#2563eb", transition: "width .2s" }} />
+    </div>
+  );
+}
+
+function LifecycleStrip({ active }) {
+  const phases = ["Feasibility", "Design", "Build", "Evaluate", "Deploy", "Scale", "Govern"];
+  return (
+    <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 6 }}>
+      {phases.map((p) => (
+        <span
+          key={p}
+          style={{
+            fontSize: 11,
+            padding: "3px 8px",
+            borderRadius: 12,
+            background: active.includes(p) ? "#2563eb" : "#f1f1f1",
+            color: active.includes(p) ? "#fff" : "#666",
+            fontWeight: active.includes(p) ? 700 : 400,
+          }}
+        >
+          {p}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+function Header({ score, warmUpDone }) {
+  return (
+    <div style={{ position: "fixed", top: 4, left: 0, right: 0, background: "#fff", borderBottom: "1px solid #e5e5e5", zIndex: 55, padding: "10px 16px" }}>
+      <div style={{ maxWidth: 1000, margin: "0 auto", display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 8 }}>
+        <div>
+          <div style={{ fontSize: 13, fontWeight: 700, color: "#2563eb", letterSpacing: 0.3 }}>AGENTIC SYSTEM ARCHITECTURE (TYPE 3)</div>
+          <div style={{ fontSize: 18, fontWeight: 800, marginTop: 2 }}>Shared Foundation, Not a Smarter Model: How Cox Automotive Took 17 AI Agents to Production in a Year</div>
+          <LifecycleStrip active={["Build", "Evaluate", "Scale"]} />
+          <div style={{ fontSize: 11, color: "#888", marginTop: 4 }}>
+            Prev: Type 2 — AI Product Teardown &nbsp;·&nbsp; Next: Type 6 — AI Metrics &amp; Evaluation Framework
+          </div>
+        </div>
+        <div style={{ textAlign: "right" }}>
+          <div style={{ fontSize: 12, color: "#666" }}>Score</div>
+          <div style={{ fontSize: 20, fontWeight: 800, color: "#2563eb" }}>{score}</div>
+          <div style={{ fontSize: 10, color: "#aaa" }}>{warmUpDone ? "Warm-up reviewed" : "Warm-up not reviewed"}</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const NAV_ITEMS = [
+  { id: "intro", label: "Introduction" },
+  { id: "landscape", label: "Landscape" },
+  { id: "rq1", label: "Architecture: Shared Foundation" },
+  { id: "rq2", label: "Reliability Engineering" },
+  { id: "rq3", label: "Evaluation Design" },
+  { id: "whatbroke", label: "What Broke" },
+  { id: "summary", label: "Learning Summary" },
+  { id: "conclusion", label: "Conclusion" },
+];
+
+function SideNav({ active, onJump, wide }) {
+  if (!wide) return null;
+  return (
+    <div style={{ position: "fixed", left: 12, top: 140, width: 190, zIndex: 40 }}>
+      {NAV_ITEMS.map((n) => (
+        <div
+          key={n.id}
+          onClick={() => onJump(n.id)}
+          style={{
+            padding: "7px 10px",
+            fontSize: 13,
+            cursor: "pointer",
+            borderLeft: active === n.id ? "3px solid #2563eb" : "3px solid transparent",
+            background: active === n.id ? "#eef2ff" : "transparent",
+            fontWeight: active === n.id ? 700 : 400,
+            color: active === n.id ? "#1e3a8a" : "#555",
+            borderRadius: 4,
+          }}
+        >
+          {n.label}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function Section({ id, title, red, children }) {
+  return (
+    <section
+      id={id}
+      style={{
+        maxWidth: 720,
+        margin: "0 auto",
+        padding: "48px 20px 8px",
+        background: red ? "#FEF2F2" : "transparent",
+        borderLeft: red ? "3px solid #FCA5A5" : "none",
+      }}
+    >
+      <h2 style={{ fontSize: 24, fontWeight: 800, marginBottom: 14 }}>{title}</h2>
+      {children}
+    </section>
+  );
+}
+
+function P({ children }) {
+  return <p style={{ marginBottom: 16 }}>{children}</p>;
+}
+
+function SourceNote({ children }) {
+  return <div style={{ fontSize: 12, color: "#777", marginTop: 6, fontStyle: "italic" }}>{children}</div>;
+}
+
+function Glossary({ terms }) {
+  if (!terms || terms.length === 0) return null;
+  return (
+    <div style={{ background: "#fafafa", border: "1px solid #eee", borderRadius: 10, padding: "14px 16px", marginTop: 28, marginBottom: 8 }}>
+      <div style={{ fontSize: 12, fontWeight: 700, color: "#666", marginBottom: 8, letterSpacing: 0.4 }}>GLOSSARY</div>
+      {terms.map((t) => (
+        <div key={t.term} style={{ fontSize: 14, marginBottom: 6 }}>
+          <strong>{t.term}</strong> — {t.def}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function PrincipleGate({ id, state, dispatch }) {
+  const s = state[id] || {};
+  const [val, setVal] = useState(s.text || "");
+  return (
+    <div style={{ border: "1px solid #e5e5e5", borderRadius: 10, padding: 16, margin: "20px 0", background: "#fbfbfd" }}>
+      <div style={{ fontWeight: 700, marginBottom: 8, fontSize: 14 }}>Principle in one sentence</div>
+      <div style={{ fontSize: 14, color: "#555", marginBottom: 10 }}>
+        State the transferable principle from this section — something a PM or CTO at a different company could apply tomorrow. (Not scored. Min 20 characters. You can move to any section whether or not you fill this in.)
+      </div>
+      <textarea
+        value={val}
+        onChange={(e) => setVal(e.target.value)}
+        rows={2}
+        style={{ width: "100%", padding: 8, borderRadius: 8, border: "1px solid #ddd", fontFamily: "inherit", fontSize: 14 }}
+        placeholder="Type your principle..."
+      />
+      <div style={{ marginTop: 8 }}>
+        <button
+          disabled={val.trim().length < 20}
+          onClick={() => dispatch(id, { text: val, submitted: true })}
+          style={btnStyle(val.trim().length < 20)}
+        >
+          Submit
+        </button>
+        {val.trim().length < 20 && <span style={{ fontSize: 12, color: "#999", marginLeft: 8 }}>Enter at least 20 characters to enable Submit.</span>}
+      </div>
+      {s.submitted && (
+        <div style={{ marginTop: 12, padding: 10, background: "#eef2ff", borderRadius: 8, fontSize: 14 }}>
+          <strong>Your principle:</strong> {s.text}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function btnStyle(disabled) {
+  return {
+    padding: "8px 18px",
+    borderRadius: 8,
+    border: "none",
+    background: disabled ? "#ddd" : "#2563eb",
+    color: disabled ? "#888" : "#fff",
+    fontWeight: 700,
+    cursor: disabled ? "not-allowed" : "pointer",
+    fontSize: 14,
+  };
+}
+
+/* ---------------------------------------------------------------------------
+   CHART INTERPRETATION (two gated prompts per chart)
+--------------------------------------------------------------------------- */
+function ChartQAItem({ chartKey, q, state, dispatch }) {
+  const s = state[chartKey] || {};
+  const [val, setVal] = useState(s.text || "");
+  return (
+    <div style={{ border: "1px solid #e5e5e5", borderRadius: 10, padding: 14, marginTop: 10 }}>
+      <div style={{ fontSize: 11, fontWeight: 700, color: "#2563eb", marginBottom: 6 }}>{q.kind}</div>
+      <div style={{ fontSize: 14, marginBottom: 8 }}>{q.prompt}</div>
+      <textarea
+        disabled={s.submitted}
+        value={val}
+        onChange={(e) => setVal(e.target.value)}
+        rows={2}
+        style={{ width: "100%", padding: 8, borderRadius: 8, border: "1px solid #ddd", fontFamily: "inherit", fontSize: 14 }}
+        placeholder="Your answer (min 15 characters)..."
+      />
+      {!s.submitted && (
+        <div style={{ marginTop: 8 }}>
+          <button disabled={val.trim().length < 15} onClick={() => dispatch(chartKey, { text: val, submitted: true })} style={btnStyle(val.trim().length < 15)}>
+            Submit
+          </button>
+          {val.trim().length < 15 && <span style={{ fontSize: 12, color: "#999", marginLeft: 8 }}>Enter at least 15 characters to enable Submit.</span>}
+        </div>
+      )}
+      {s.submitted && (
+        <div style={{ marginTop: 10, padding: 10, background: "#f0fdf4", borderRadius: 8, fontSize: 14 }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: "#15803d", marginBottom: 4 }}>Compare your answer to the authored one</div>
+          {q.authored}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ChartQA({ chartId, qs, state, dispatch }) {
+  return (
+    <div style={{ marginTop: 14, marginBottom: 24 }}>
+      {qs.map((q, i) => (
+        <ChartQAItem key={chartId + "_q" + i} chartKey={chartId + "_q" + i} q={q} state={state} dispatch={dispatch} />
+      ))}
+    </div>
+  );
+}
+
+/* ---------------------------------------------------------------------------
+   MULTIPLE CHOICE (with two-attempt scaffolding)
+--------------------------------------------------------------------------- */
+function MCQ({ id, label, prompt, options, correct, distractorErrors, transferNote, scaffold, state, dispatch, onScore, style }) {
+  const s = state[id] || { attemptCount: 0 };
+  const [sel, setSel] = useState(s.selected ?? null);
+
+  function submit() {
+    if (sel === null) return;
+    const isCorrect = sel === correct;
+    const attempt = (s.attemptCount || 0) + 1;
+    if (!s.submitted || (s.submitted && !s.isCorrect && s.tryAgain)) {
+      dispatch(id, { selected: sel, submitted: true, isCorrect, attemptCount: attempt, tryAgain: false });
+      if (isCorrect && !s.scored) onScore(id, true);
+    }
+  }
+  function tryAgain() {
+    dispatch(id, { selected: null, submitted: false, tryAgain: true, attemptCount: s.attemptCount });
+    setSel(null);
+  }
+
+  const cardStyle = style || {};
+  return (
+    <div style={{ border: "1px solid #e5e5e5", borderLeft: cardStyle.amber ? "3px solid #d97706" : "1px solid #e5e5e5", background: cardStyle.amber ? "#fffbeb" : "#fff", borderRadius: 10, padding: 16, margin: "18px 0" }}>
+      {cardStyle.amber && <div style={{ fontSize: 11, fontWeight: 700, color: "#b45309", marginBottom: 6 }}>CASE PROMPT</div>}
+      {label && <div style={{ fontSize: 11, fontWeight: 700, color: "#2563eb", marginBottom: 6 }}>{label}</div>}
+      <div style={{ fontSize: 14.5, marginBottom: 12 }}>{prompt}</div>
+      <div style={{ display: "grid", gap: 8 }}>
+        {options.map((opt, i) => {
+          let bg = "#fff", border = "#ddd";
+          if (s.submitted) {
+            if (i === correct) { bg = "#f0fdf4"; border = "#22c55e"; }
+            else if (i === s.selected) { bg = "#fef2f2"; border = "#ef4444"; }
+          } else if (sel === i) { border = "#2563eb"; bg = "#eff6ff"; }
+          return (
+            <div
+              key={i}
+              onClick={() => !s.submitted && setSel(i)}
+              style={{ padding: "10px 12px", border: "1px solid " + border, background: bg, borderRadius: 8, cursor: s.submitted ? "default" : "pointer", fontSize: 14 }}
+            >
+              {String.fromCharCode(65 + i)}. {opt}
+            </div>
+          );
+        })}
+      </div>
+      {!s.submitted && (
+        <div style={{ marginTop: 10 }}>
+          <button disabled={sel === null} onClick={submit} style={btnStyle(sel === null)}>Submit</button>
+          {sel === null && <span style={{ fontSize: 12, color: "#999", marginLeft: 8 }}>Select an option to enable Submit.</span>}
+        </div>
+      )}
+      {s.submitted && (
+        <div style={{ marginTop: 12, padding: 12, background: s.isCorrect ? "#f0fdf4" : "#fef2f2", borderRadius: 8, fontSize: 14 }}>
+          {s.isCorrect ? (
+            <div><strong>Correct</strong> — this reasoning pattern generalizes: {transferNote}</div>
+          ) : (
+            <div>
+              <div><strong>Incorrect</strong> — this is {REASONING_ERRORS[distractorErrors[s.selected]] || "a reasoning gap."}</div>
+              {s.attemptCount >= 2 && scaffold && (
+                <div style={{ marginTop: 8, padding: 10, background: "#fff7ed", borderRadius: 8 }}>
+                  <strong>Scaffold:</strong> {scaffold}
+                </div>
+              )}
+              <div style={{ marginTop: 8 }}>Correct answer: <strong>{String.fromCharCode(65 + correct)}. {options[correct]}</strong> — Where this generalizes: {transferNote}</div>
+              <button onClick={tryAgain} style={{ ...btnStyle(false), marginTop: 10, background: "#374151" }}>Try again</button>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ---------------------------------------------------------------------------
+   TRUE / FALSE with justification
+--------------------------------------------------------------------------- */
+function TrueFalse({ id, prompt, correctAnswer, authoredJustification, reasoningError, state, dispatch }) {
+  const s = state[id] || {};
+  const [choice, setChoice] = useState(s.choice ?? null);
+  const [just, setJust] = useState(s.justification || "");
+  const canSubmit = choice !== null && just.trim().length >= 15;
+
+  function submit() {
+    const isCorrect = choice === correctAnswer;
+    dispatch(id, { choice, justification: just, submitted: true, isCorrect });
+  }
+  return (
+    <div style={{ border: "1px solid #e5e5e5", borderRadius: 10, padding: 16, margin: "18px 0" }}>
+      <div style={{ fontSize: 11, fontWeight: 700, color: "#2563eb", marginBottom: 6 }}>TRUE / FALSE — WITH JUSTIFICATION</div>
+      <div style={{ fontSize: 14.5, marginBottom: 12 }}>{prompt}</div>
+      <div style={{ display: "flex", gap: 10, marginBottom: 10 }}>
+        {[true, false].map((v) => (
+          <div
+            key={String(v)}
+            onClick={() => !s.submitted && setChoice(v)}
+            style={{
+              flex: 1, textAlign: "center", padding: "10px 0", borderRadius: 8, cursor: s.submitted ? "default" : "pointer",
+              border: "1px solid " + (s.submitted ? (v === correctAnswer ? "#22c55e" : v === s.choice ? "#ef4444" : "#ddd") : (choice === v ? "#2563eb" : "#ddd")),
+              background: s.submitted ? (v === correctAnswer ? "#f0fdf4" : v === s.choice ? "#fef2f2" : "#fff") : (choice === v ? "#eff6ff" : "#fff"),
+              fontWeight: 700,
+            }}
+          >
+            {v ? "True" : "False"}
+          </div>
+        ))}
+      </div>
+      <textarea
+        disabled={s.submitted}
+        value={just}
+        onChange={(e) => setJust(e.target.value)}
+        rows={2}
+        placeholder="Justify your answer in one sentence (min 15 characters)..."
+        style={{ width: "100%", padding: 8, borderRadius: 8, border: "1px solid #ddd", fontFamily: "inherit", fontSize: 14 }}
+      />
+      {!s.submitted && (
+        <div style={{ marginTop: 8 }}>
+          <button disabled={!canSubmit} onClick={submit} style={btnStyle(!canSubmit)}>Submit</button>
+          {!canSubmit && <span style={{ fontSize: 12, color: "#999", marginLeft: 8 }}>Pick True or False and justify in 15+ characters.</span>}
+        </div>
+      )}
+      {s.submitted && (
+        <div style={{ marginTop: 12, padding: 12, background: s.isCorrect ? "#f0fdf4" : "#fef2f2", borderRadius: 8, fontSize: 14 }}>
+          <div><strong>{s.isCorrect ? "Correct" : "Incorrect"}</strong>{!s.isCorrect && REASONING_ERRORS[reasoningError] ? " — this is " + REASONING_ERRORS[reasoningError] : ""}</div>
+          <div style={{ marginTop: 8 }}><strong>Your justification:</strong> {s.justification}</div>
+          <div style={{ marginTop: 6 }}><strong>Authored justification:</strong> {authoredJustification}</div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ---------------------------------------------------------------------------
+   FERMI / NUMERIC ESTIMATION
+   (extended with optional openLogRange=[lo,hi] for order-of-magnitude Fermi
+   scoring, so 2x and 0.5x off the anchor can both score as correct)
+--------------------------------------------------------------------------- */
+function Fermi({ id, prompt, unit, correctValue, tolerancePct, openLogRange, decomposition, openEnded, state, dispatch }) {
+  const s = state[id] || {};
+  const [path, setPath] = useState(s.path || "");
+  const [num, setNum] = useState(s.num ?? "");
+  const canSubmit = num !== "" && !isNaN(Number(num)) && (!openEnded || path.trim().length >= 20);
+
+  function submit() {
+    const v = Number(num);
+    let withinTol;
+    if (openLogRange) {
+      withinTol = v >= openLogRange[0] && v <= openLogRange[1];
+    } else {
+      withinTol = Math.abs(v - correctValue) <= correctValue * tolerancePct;
+    }
+    dispatch(id, { num: v, path, submitted: true, withinTol });
+  }
+  const tolLabel = openLogRange
+    ? "ORDER OF MAGNITUDE, ACCEPT " + openLogRange[0] + "-" + openLogRange[1]
+    : "TOLERANCE ±" + Math.round(tolerancePct * 100) + "%";
+  return (
+    <div style={{ border: "1px solid #e5e5e5", borderRadius: 10, padding: 16, margin: "18px 0" }}>
+      <div style={{ fontSize: 11, fontWeight: 700, color: "#2563eb", marginBottom: 6 }}>NUMERIC ESTIMATION ({tolLabel})</div>
+      <div style={{ fontSize: 14.5, marginBottom: 12 }}>{prompt}</div>
+      {openEnded && (
+        <textarea
+          disabled={s.submitted}
+          value={path}
+          onChange={(e) => setPath(e.target.value)}
+          rows={2}
+          placeholder="Name your decomposition path before entering a number (min 20 characters)..."
+          style={{ width: "100%", padding: 8, borderRadius: 8, border: "1px solid #ddd", fontFamily: "inherit", fontSize: 14, marginBottom: 8 }}
+        />
+      )}
+      <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+        <input
+          disabled={s.submitted}
+          type="number"
+          value={num}
+          onChange={(e) => setNum(e.target.value)}
+          placeholder="Your estimate"
+          style={{ padding: 8, borderRadius: 8, border: "1px solid #ddd", width: 140, fontSize: 14 }}
+        />
+        <span style={{ fontSize: 13, color: "#666" }}>{unit}</span>
+      </div>
+      {!s.submitted && (
+        <div style={{ marginTop: 10 }}>
+          <button disabled={!canSubmit} onClick={submit} style={btnStyle(!canSubmit)}>Submit</button>
+          {!canSubmit && <span style={{ fontSize: 12, color: "#999", marginLeft: 8 }}>Enter a number{openEnded ? " and a 20+ character decomposition path" : ""} to enable Submit.</span>}
+        </div>
+      )}
+      {s.submitted && (
+        <div style={{ marginTop: 12, padding: 12, background: s.withinTol ? "#f0fdf4" : "#fef2f2", borderRadius: 8, fontSize: 14 }}>
+          <div><strong>{s.withinTol ? "Within tolerance" : "Outside tolerance"}</strong> — your estimate: {s.num} {unit}; anchor value: {correctValue} {unit}{openLogRange ? " (accepted range " + openLogRange[0] + "-" + openLogRange[1] + ")" : ""}</div>
+          <div style={{ marginTop: 8, height: 40, position: "relative", background: "#f3f4f6", borderRadius: 6 }}>
+            {(() => {
+              const lo = Math.min(s.num, correctValue) * 0.4;
+              const hi = Math.max(s.num, correctValue) * 1.4 || 1;
+              const pctOf = (v) => Math.max(2, Math.min(98, ((v - lo) / (hi - lo)) * 100));
+              return (
+                <>
+                  <div style={{ position: "absolute", left: pctOf(correctValue) + "%", top: 0, bottom: 0, width: 2, background: "#22c55e" }} title="anchor" />
+                  <div style={{ position: "absolute", left: pctOf(s.num) + "%", top: 0, bottom: 0, width: 2, background: "#2563eb" }} title="your estimate" />
+                </>
+              );
+            })()}
+          </div>
+          <div style={{ marginTop: 8 }}><strong>Decomposition:</strong> {decomposition}</div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ---------------------------------------------------------------------------
+   PATTERN TRANSFER (free text, self-eval checklist)
+--------------------------------------------------------------------------- */
+function PatternTransfer({ id, prompt, state, dispatch }) {
+  const s = state[id] || {};
+  const [text, setText] = useState(s.text || "");
+  const [checks, setChecks] = useState(s.checks || [false, false, false]);
+  return (
+    <div style={{ border: "1px solid #e5e5e5", borderRadius: 10, padding: 16, margin: "18px 0", background: "#fdfdff" }}>
+      <div style={{ fontSize: 11, fontWeight: 700, color: "#2563eb", marginBottom: 6 }}>PATTERN TRANSFER</div>
+      <div style={{ fontSize: 14.5, marginBottom: 12 }}>{prompt}</div>
+      <textarea
+        disabled={s.submitted}
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        rows={4}
+        placeholder="Min 50 characters..."
+        style={{ width: "100%", padding: 8, borderRadius: 8, border: "1px solid #ddd", fontFamily: "inherit", fontSize: 14 }}
+      />
+      {!s.submitted && (
+        <div style={{ marginTop: 10 }}>
+          <button disabled={text.trim().length < 50} onClick={() => dispatch(id, { text, submitted: true, checks })} style={btnStyle(text.trim().length < 50)}>
+            Submit
+          </button>
+          {text.trim().length < 50 && <span style={{ fontSize: 12, color: "#999", marginLeft: 8 }}>Enter at least 50 characters.</span>}
+        </div>
+      )}
+      {s.submitted && (
+        <div style={{ marginTop: 12, padding: 12, background: "#eef2ff", borderRadius: 8 }}>
+          <div style={{ fontWeight: 700, marginBottom: 8 }}>Self-evaluation checklist</div>
+          {["Did I name the principle accurately?", "Is my application genuinely different from the original case?", "Is my failure mode new (not one already covered in the article)?"].map((c, i) => (
+            <label key={i} style={{ display: "block", fontSize: 14, marginBottom: 6 }}>
+              <input
+                type="checkbox"
+                checked={checks[i]}
+                onChange={() => {
+                  const next = [...checks]; next[i] = !next[i]; setChecks(next);
+                  dispatch(id, { ...s, checks: next });
+                }}
+              /> {c}
+            </label>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ---------------------------------------------------------------------------
+   APPLY IT (present-day + 2027 variant, labeled parts)
+--------------------------------------------------------------------------- */
+function ApplyIt({ id, title, prompt, fields, state, dispatch }) {
+  const s = state[id] || {};
+  const [vals, setVals] = useState(s.vals || fields.map(() => ""));
+  const allFilled = vals.every((v) => v.trim().length >= 12);
+  return (
+    <div style={{ border: "1px solid #e5e5e5", borderRadius: 10, padding: 16, margin: "18px 0", background: "#fffefa" }}>
+      <div style={{ fontSize: 11, fontWeight: 700, color: "#b45309", marginBottom: 6 }}>{title}</div>
+      <div style={{ fontSize: 14.5, marginBottom: 12 }}>{prompt}</div>
+      {fields.map((f, i) => (
+        <div key={i} style={{ marginBottom: 10 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 4 }}>{i + 1}. {f}</div>
+          <textarea
+            disabled={s.submitted}
+            value={vals[i]}
+            onChange={(e) => { const n = [...vals]; n[i] = e.target.value; setVals(n); }}
+            rows={2}
+            style={{ width: "100%", padding: 8, borderRadius: 8, border: "1px solid #ddd", fontFamily: "inherit", fontSize: 14 }}
+            placeholder="Min 12 characters..."
+          />
+        </div>
+      ))}
+      {!s.submitted && (
+        <div>
+          <button disabled={!allFilled} onClick={() => dispatch(id, { vals, submitted: true })} style={btnStyle(!allFilled)}>Submit</button>
+          {!allFilled && <span style={{ fontSize: 12, color: "#999", marginLeft: 8 }}>Fill in all {fields.length} parts (12+ characters each) to enable Submit.</span>}
+        </div>
+      )}
+      {s.submitted && (
+        <div style={{ marginTop: 10, padding: 10, background: "#f0fdf4", borderRadius: 8, fontSize: 13 }}>
+          Saved. The evaluator below checks that all {fields.length} labeled parts climb from observation to a decision-relevant implication — it does not score on keyword presence, and it names which part is weakest if one reads as thin (i.e., under 12 words or a restatement of the prompt rather than a specific claim).
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ---------------------------------------------------------------------------
+   CONCEPTUAL SVG — Cox's path to agentic AI, 2018-2026 (timeline)
+   Dates and milestones are FACT (see sources); the box/line layout itself is
+   an illustrative visual arrangement, not an official Cox or AWS diagram.
+--------------------------------------------------------------------------- */
+function TimelineSVG() {
+  const events = [
+    { y: "2018", t: "50 data centers -> 3 + AWS regions" },
+    { y: "Nov 2022", t: "ChatGPT launches" },
+    { y: "Mar 2023", t: "Cox goes all-in on generative AI (3 products live within a year)" },
+    { y: "Late 2024", t: "Agentic proof-of-concepts launch, then stall" },
+    { y: "Jul 2025", t: "5-team, 5.5-week agentic sprint begins (pre-GA AgentCore)" },
+    { y: "Oct 2025", t: "AgentCore reaches general availability; Cox named early adopter" },
+    { y: "~Mid-2026", t: "17 solutions in production, 7 more in transformational development" },
+  ];
+  const xs = [50, 150, 260, 375, 480, 570, 650];
+  return (
+    <svg viewBox="0 0 700 260" width="100%" style={{ maxWidth: 700, display: "block", margin: "0 auto" }}>
+      <rect x="4" y="4" width="692" height="252" fill="#fafafa" stroke="#e5e5e5" rx="10" />
+      <line x1="40" y1="130" x2="660" y2="130" stroke="#999" strokeWidth="2" />
+      {events.map((e, i) => {
+        const x = xs[i];
+        const above = i % 2 === 0;
+        return (
+          <g key={i}>
+            <circle cx={x} cy={130} r={6} fill="#2563eb" />
+            <line x1={x} y1={above ? 60 : 200} x2={x} y2={above ? 124 : 136} stroke="#bbb" strokeWidth="1.5" />
+            <text x={x} y={above ? 40 : 220} textAnchor="middle" fontSize="11" fontWeight="700" fill="#111">{e.y}</text>
+            <foreignObject x={Math.max(2, x - 68)} y={above ? 44 : 224} width="136" height="60">
+              <div xmlns="http://www.w3.org/1999/xhtml" style={{ fontSize: 9.5, color: "#444", textAlign: "center", lineHeight: 1.25 }}>{e.t}</div>
+            </foreignObject>
+          </g>
+        );
+      })}
+    </svg>
+  );
+}
+
+/* ---------------------------------------------------------------------------
+   ARCHITECTURE TOPOLOGY SVG — before/after (mandatory for Type 3)
+   Component names and roles are FACT (AWS Cox Automotive Case Study, 2026;
+   AWS Machine Learning Blog, Oct 2025; Cox Automotive & AWS re:Invent 2025);
+   the box layout itself is illustrative, not an official Cox/AWS diagram.
+--------------------------------------------------------------------------- */
+function ArchTopologySVG() {
+  return (
+    <svg viewBox="0 0 700 470" width="100%" style={{ maxWidth: 700, display: "block", margin: "0 auto" }}>
+      <rect x="6" y="6" width="688" height="458" fill="#fafafa" stroke="#e5e5e5" rx="10" />
+      <text x="170" y="30" textAnchor="middle" fontSize="13" fontWeight="800" fill="#991b1b">BEFORE — ad hoc, ungoverned</text>
+      <text x="520" y="30" textAnchor="middle" fontSize="13" fontWeight="800" fill="#1e3a8a">AFTER — Cox's reference architecture on AgentCore</text>
+
+      {/* BEFORE column */}
+      <g>
+        <rect x="20" y="50" width="300" height="50" rx="8" fill="#fee2e2" stroke="#fca5a5" />
+        <text x="170" y="80" textAnchor="middle" fontSize="12" fill="#7f1d1d">No standardized agent runtime</text>
+        <rect x="20" y="112" width="300" height="50" rx="8" fill="#fee2e2" stroke="#fca5a5" />
+        <text x="170" y="142" textAnchor="middle" fontSize="12" fill="#7f1d1d">No shared memory across sessions</text>
+        <rect x="20" y="174" width="300" height="50" rx="8" fill="#fee2e2" stroke="#fca5a5" />
+        <text x="170" y="204" textAnchor="middle" fontSize="12" fill="#7f1d1d">No cross-agent observability</text>
+        <rect x="20" y="236" width="300" height="60" rx="8" fill="#fee2e2" stroke="#fca5a5" />
+        <text x="170" y="260" textAnchor="middle" fontSize="12" fill="#7f1d1d">No proven cross-brand</text>
+        <text x="170" y="277" textAnchor="middle" fontSize="12" fill="#7f1d1d">identity &amp; security model</text>
+      </g>
+
+      {/* AFTER column */}
+      <g>
+        <rect x="340" y="50" width="340" height="36" rx="8" fill="#2563eb" />
+        <text x="510" y="73" textAnchor="middle" fontSize="11.5" fontWeight="700" fill="#fff">Orchestrator Agent — classifies intent, routes</text>
+
+        <rect x="340" y="96" width="164" height="34" rx="7" fill="#0891b2" />
+        <text x="422" y="117" textAnchor="middle" fontSize="11" fontWeight="700" fill="#fff">Sales sub-agent</text>
+        <rect x="516" y="96" width="164" height="34" rx="7" fill="#0891b2" />
+        <text x="598" y="117" textAnchor="middle" fontSize="11" fontWeight="700" fill="#fff">Service sub-agent</text>
+
+        <rect x="340" y="140" width="340" height="36" rx="8" fill="#374151" />
+        <text x="510" y="158" textAnchor="middle" fontSize="10.5" fill="#fff">AgentCore Runtime — serverless,</text>
+        <text x="510" y="171" textAnchor="middle" fontSize="10.5" fill="#fff">session-isolated (microVM), 0 -&gt; 1000s sessions</text>
+
+        <rect x="340" y="186" width="108" height="40" rx="7" fill="#7c3aed" />
+        <text x="394" y="210" textAnchor="middle" fontSize="10.5" fontWeight="700" fill="#fff">Memory</text>
+        <rect x="454" y="186" width="108" height="40" rx="7" fill="#7c3aed" />
+        <text x="508" y="210" textAnchor="middle" fontSize="10.5" fontWeight="700" fill="#fff">Identity</text>
+        <rect x="568" y="186" width="112" height="40" rx="7" fill="#7c3aed" />
+        <text x="624" y="210" textAnchor="middle" fontSize="10.5" fontWeight="700" fill="#fff">Gateway</text>
+
+        <rect x="340" y="234" width="340" height="34" rx="7" fill="#334155" />
+        <text x="510" y="255" textAnchor="middle" fontSize="10.5" fill="#fff">AgentCore Observability (OpenTelemetry -&gt; CloudWatch)</text>
+
+        <rect x="340" y="276" width="340" height="34" rx="7" fill="#b45309" />
+        <text x="510" y="297" textAnchor="middle" fontSize="10.5" fontWeight="700" fill="#fff">Bedrock Guardrails (hard-guardrail layer)</text>
+
+        <rect x="340" y="318" width="340" height="34" rx="7" fill="#15803d" />
+        <text x="510" y="339" textAnchor="middle" fontSize="10.5" fill="#fff">Bedrock Knowledge Bases + Titan embeddings (RAG)</text>
+      </g>
+
+      <text x="350" y="400" fontSize="11" fill="#555">FleetMate Driver Agent follows the same pattern in a different</text>
+      <text x="350" y="415" fontSize="11" fill="#555">domain: it orchestrates telematics, APIs, and diagnostics tools</text>
+      <text x="350" y="430" fontSize="11" fill="#555">on the identical Runtime / Memory / Identity / Gateway base.</text>
+
+      <line x1="195" y1="86" x2="195" y2="86" stroke="none" />
+    </svg>
+  );
+}
+
+/* ---------------------------------------------------------------------------
+   CONCEPTUAL FLOWCHART SVG — Reliability cascade, guardrail to human handoff
+   Structural pattern (hard/soft guardrails, red-team cadence, circuit
+   breakers) is FACT; the "~20 turns" threshold is ILLUSTRATION (Tabaré
+   Gowon's own hypothetical example, "let's say... 20 turns" — not a
+   disclosed production value).
+--------------------------------------------------------------------------- */
+function ReliabilityCascadeSVG() {
+  return (
+    <svg viewBox="0 0 700 560" width="100%" style={{ maxWidth: 700, display: "block", margin: "0 auto" }}>
+      <rect x="6" y="6" width="688" height="548" fill="#fafafa" stroke="#e5e5e5" rx="10" />
+
+      <rect x="230" y="24" width="240" height="40" rx="8" fill="#111" />
+      <text x="350" y="49" textAnchor="middle" fontSize="12" fontWeight="700" fill="#fff">Incoming customer message</text>
+      <line x1="350" y1="64" x2="350" y2="88" stroke="#999" strokeWidth="2" />
+
+      <rect x="200" y="90" width="300" height="42" rx="8" fill="#b45309" />
+      <text x="350" y="116" textAnchor="middle" fontSize="12" fontWeight="700" fill="#fff">Hard guardrail check (Bedrock Guardrails)</text>
+      <line x1="500" y1="111" x2="600" y2="111" stroke="#999" strokeWidth="2" />
+      <rect x="600" y="90" width="90" height="42" rx="8" fill="#fee2e2" stroke="#fca5a5" />
+      <text x="645" y="108" textAnchor="middle" fontSize="9.5" fill="#7f1d1d">Blocked -&gt;</text>
+      <text x="645" y="120" textAnchor="middle" fontSize="9.5" fill="#7f1d1d">templated refusal</text>
+      <line x1="350" y1="132" x2="350" y2="156" stroke="#999" strokeWidth="2" />
+
+      <rect x="200" y="158" width="300" height="42" rx="8" fill="#0891b2" />
+      <text x="350" y="180" textAnchor="middle" fontSize="11.5" fontWeight="700" fill="#fff">Soft guardrail check (prompt / workflow</text>
+      <text x="350" y="193" textAnchor="middle" fontSize="11.5" fontWeight="700" fill="#fff">logic — e.g., financing questions)</text>
+      <line x1="500" y1="179" x2="600" y2="179" stroke="#999" strokeWidth="2" />
+      <rect x="600" y="158" width="90" height="42" rx="8" fill="#e0f2fe" stroke="#7dd3fc" />
+      <text x="645" y="176" textAnchor="middle" fontSize="9.5" fill="#075985">Redirect -&gt;</text>
+      <text x="645" y="188" textAnchor="middle" fontSize="9.5" fill="#075985">human appointment</text>
+      <line x1="350" y1="200" x2="350" y2="224" stroke="#999" strokeWidth="2" />
+
+      <rect x="200" y="226" width="300" height="40" rx="8" fill="#2563eb" />
+      <text x="350" y="251" textAnchor="middle" fontSize="12" fontWeight="700" fill="#fff">Orchestrator routes to sub-agent</text>
+      <line x1="350" y1="266" x2="350" y2="290" stroke="#999" strokeWidth="2" />
+
+      <rect x="180" y="292" width="340" height="50" rx="8" fill="#7c3aed" />
+      <text x="350" y="313" textAnchor="middle" fontSize="11" fontWeight="700" fill="#fff">Circuit breaker check (cost-per-turn P95/P99</text>
+      <text x="350" y="328" textAnchor="middle" fontSize="11" fontWeight="700" fill="#fff">OR turn count — illustrative example: ~20 turns)</text>
+      <line x1="350" y1="342" x2="350" y2="366" stroke="#999" strokeWidth="2" />
+
+      <rect x="140" y="368" width="180" height="42" rx="8" fill="#374151" />
+      <text x="230" y="390" textAnchor="middle" fontSize="10.5" fontWeight="700" fill="#fff">Tripped -&gt; hand off to</text>
+      <text x="230" y="403" textAnchor="middle" fontSize="10.5" fontWeight="700" fill="#fff">human at dealership</text>
+
+      <rect x="380" y="368" width="180" height="42" rx="8" fill="#15803d" />
+      <text x="470" y="390" textAnchor="middle" fontSize="10.5" fontWeight="700" fill="#fff">Not tripped -&gt; continue</text>
+      <text x="470" y="403" textAnchor="middle" fontSize="10.5" fontWeight="700" fill="#fff">the conversation</text>
+
+      <rect x="60" y="440" width="580" height="70" rx="8" fill="#fff7ed" stroke="#fdba74" strokeDasharray="4 3" />
+      <text x="350" y="463" textAnchor="middle" fontSize="11" fontWeight="700" fill="#9a3412">Red-teaming + LLM-as-judge evaluation</text>
+      <text x="350" y="478" textAnchor="middle" fontSize="10.5" fill="#9a3412">running continuously in production, feeding fixes back</text>
+      <text x="350" y="492" textAnchor="middle" fontSize="10.5" fill="#9a3412">into both the hard and soft guardrail layers above</text>
+      <line x1="150" y1="440" x2="230" y2="132" stroke="#fdba74" strokeWidth="1.5" strokeDasharray="4 3" />
+      <line x1="550" y1="440" x2="470" y2="200" stroke="#fdba74" strokeWidth="1.5" strokeDasharray="4 3" />
+    </svg>
+  );
+}
+
+/* ---------------------------------------------------------------------------
+   CHART DATA
+--------------------------------------------------------------------------- */
+const ideasFunnelData = [
+  { name: "Evaluated ideas", value: 57 },
+  { name: "Advanced (production + transformational dev.)", value: 24 },
+  { name: "In full production", value: 17 },
+];
+
+const timeToProdData = [
+  { name: "FleetMate v1 build", days: 4, tier: "FACT" },
+  { name: "Framework re-platform (Agent Squad -> Strands)", days: 14, tier: "FACT" },
+  { name: "Team ramp: zero agentic exp. -> production-ready", days: 30, tier: "ESTIMATE" },
+  { name: "5-team parallel launch challenge", days: 38.5, tier: "ESTIMATE" },
+];
+
+const evalCapacityData = [
+  { name: "Manual review ceiling (~200 conversations)", value: 200 },
+  { name: "Stated daily production volume (~10,000+)", value: 10000 },
+];
+
+const outcomeData = [
+  { name: "In production (beta)", value: 3 },
+  { name: "About to launch", value: 1 },
+  { name: "Redesigned / back to drawing board", value: 1 },
+];
+const OUTCOME_COLORS = ["#22c55e", "#f59e0b", "#ef4444"];
+
+/* ---------------------------------------------------------------------------
+   WARM-UP SCREEN
+--------------------------------------------------------------------------- */
+function WarmUpScreen({ onDone, onSkip }) {
+  const [answers, setAnswers] = useState({});
+  const [revealed, setRevealed] = useState({});
+  return (
+    <div style={{ minHeight: "100vh", background: "#f4f4f6", padding: "40px 20px" }}>
+      <div style={{ maxWidth: 680, margin: "0 auto" }}>
+        <h1 style={{ fontSize: 24, fontWeight: 800 }}>Before you begin — recall from your prior reading</h1>
+        <p style={{ color: "#555", marginBottom: 20 }}>
+          Three questions from articles you've already completed. Each asks you to apply a prior principle to a new
+          context, not to recall a company name. Free text, minimum 25 characters. Not scored — this is retrieval
+          practice.
+        </p>
+        {WARMUPS.map((w) => {
+          const a = answers[w.id] || "";
+          return (
+            <div key={w.id} style={{ background: "#fff", border: "1px solid #e5e5e5", borderRadius: 10, padding: 16, marginBottom: 16 }}>
+              <div style={{ fontSize: 14.5, marginBottom: 10 }}>{w.prompt}</div>
+              <textarea
+                disabled={revealed[w.id]}
+                value={a}
+                onChange={(e) => setAnswers({ ...answers, [w.id]: e.target.value })}
+                rows={3}
+                style={{ width: "100%", padding: 8, borderRadius: 8, border: "1px solid #ddd", fontFamily: "inherit", fontSize: 14 }}
+                placeholder="Min 25 characters..."
+              />
+              {!revealed[w.id] && (
+                <div style={{ marginTop: 8 }}>
+                  <button disabled={a.trim().length < 25} onClick={() => setRevealed({ ...revealed, [w.id]: true })} style={btnStyle(a.trim().length < 25)}>
+                    Submit
+                  </button>
+                  {a.trim().length < 25 && <span style={{ fontSize: 12, color: "#999", marginLeft: 8 }}>Enter at least 25 characters.</span>}
+                </div>
+              )}
+              {revealed[w.id] && (
+                <div style={{ marginTop: 10, padding: 10, background: "#eef2ff", borderRadius: 8, fontSize: 13.5 }}>
+                  <div><strong>Source article:</strong> {w.sourceArticle}</div>
+                  <div style={{ marginTop: 6 }}><strong>Principle being tested:</strong> {w.principle}</div>
+                </div>
+              )}
+            </div>
+          );
+        })}
+        <div style={{ display: "flex", gap: 12, marginTop: 20 }}>
+          <button onClick={() => onDone(Object.keys(revealed).length)} style={btnStyle(false)}>Continue to the article</button>
+          <button onClick={onSkip} style={{ padding: "8px 18px", borderRadius: 8, border: "1px solid #ccc", background: "#fff", color: "#666", fontSize: 14, cursor: "pointer" }}>
+            Skip warm-up
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ---------------------------------------------------------------------------
+   SOURCES LIST
+--------------------------------------------------------------------------- */
+const SOURCES = [
+  { name: "AWS, \"How Cox Automotive launched AI agents at scale using Amazon Bedrock AgentCore\" (Customer Case Study).", url: "https://aws.amazon.com/solutions/case-studies/cox-auto-case-study", use: "17/57 figures, FleetMate metrics, VinSolutions pilot figure, technical-debt/work-hours figures, architecture component descriptions, company scale facts, Cox Enterprises revenue figure.", tier: "Tier 3" },
+  { name: "AWS Machine Learning Blog, \"Make agents a reality with Amazon Bedrock AgentCore: Now generally available\" (Swami Sivasubramanian, Oct 13, 2025).", url: "https://aws.amazon.com/blogs/machine-learning/amazon-bedrock-agentcore-is-now-generally-available", use: "Cox as an early adopter, Runtime capabilities (session isolation, autoscaling), peer-company quotes (Ericsson, Cohere Health).", tier: "Tier 1" },
+  { name: "About Amazon, \"New Amazon Bedrock AgentCore capabilities power the next wave of agentic AI development\" (Dec 2, 2025).", url: "https://www.aboutamazon.com/news/aws/aws-amazon-bedrock-agent-core-ai-agents", use: "Cox listed among AgentCore customers for newer platform features (Policy, Evaluations, episodic Memory).", tier: "Tier 1/4" },
+  { name: "Kazuya (DEV Community), transcription of AWS re:Invent 2025 session IND3329, \"Cox Automotive's Blueprint for Agentic AI on Amazon Bedrock AgentCore\" (Dec 5, 2025).", url: "https://dev.to/kazuya_dev/aws-reinvent-2025-cox-automotives-blueprint-for-agentic-ai-on-amazon-bedrock-agentcore-ind3329-3a2", use: "5-week challenge, guardrail/red-team/circuit-breaker architecture, framework migration, outcome breakdown (3/1/1), company-scale figures, historical timeline. Community transcription of a real, named, public session — treat exact wording as approximate, substance as corroborated.", tier: "Tier 3-adjacent" },
+  { name: "Anthropic, Cox Automotive customer story.", url: "https://claude.com/customers/cox-automotive", use: "Claude model-selection rationale, earlier human-reviewed VinSolutions/Autotrader/Dealer.com generative-content metrics (kept distinct from the later autonomous VinSolutions pilot figure).", tier: "Tier 5" },
+  { name: "CIO.com, \"Inside Cox Automotive's drive to engineer agentic AI\" (Clint Boulton, March 2, 2026).", url: "https://www.cio.com/article/4137545", use: "Internal agentic-development-model rollout, risk-based autonomy model, \"agents watching agents,\" 2024 drift-evaluation tooling, Cox Automotive's own revenue figure (distinct from parent Cox Enterprises).", tier: "Tier 2/4" },
+];
+
+/* ---------------------------------------------------------------------------
+   MAIN APP
+--------------------------------------------------------------------------- */
+function App() {
+  const [phase, setPhase] = useState("warmup"); // warmup -> article
+  const [warmUpDone, setWarmUpDone] = useState(false);
+  const [warmUpSkippedCount, setWarmUpSkippedCount] = useState(0);
+  const [active, setActive] = useState("intro");
+  const [wide, setWide] = useState(window.innerWidth > 1160);
+  const [state, setState] = useState({});
+  const [score, setScore] = useState(0);
+  const [showSummary, setShowSummary] = useState(false);
+  const [showConclusion, setShowConclusion] = useState(false);
+
+  useEffect(() => {
+    const onResize = () => setWide(window.innerWidth > 1160);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+
+  useEffect(() => {
+    if (phase !== "article") return;
+    function onScroll() {
+      let current = "intro";
+      for (const n of NAV_ITEMS) {
+        const el = document.getElementById(n.id);
+        if (el && el.getBoundingClientRect().top < 160) current = n.id;
+      }
+      setActive(current);
+    }
+    window.addEventListener("scroll", onScroll);
+    return () => window.removeEventListener("scroll", onScroll);
+  }, [phase]);
+
+  function dispatch(id, patch) {
+    setState((prev) => ({ ...prev, [id]: { ...(prev[id] || {}), ...patch } }));
+  }
+  function onScore(id, correct) {
+    if (correct) setScore((s) => s + 1);
+  }
+  function jump(id) {
+    if (id === "summary") setShowSummary(true);
+    if (id === "conclusion") setShowConclusion(true);
+    setTimeout(() => {
+      const el = document.getElementById(id);
+      if (el) el.scrollIntoView({ behavior: "smooth" });
+    }, id === "summary" || id === "conclusion" ? 50 : 0);
+  }
+
+  const totalSections = NAV_ITEMS.length;
+  const activeIdx = NAV_ITEMS.findIndex((n) => n.id === active);
+  const pct = Math.max(4, ((activeIdx + 1) / totalSections) * 100);
+
+  if (phase === "warmup") {
+    return (
+      <WarmUpScreen
+        onDone={(n) => { setWarmUpDone(true); setPhase("article"); }}
+        onSkip={() => { setWarmUpSkippedCount(WARMUPS.length); setPhase("article"); }}
+      />
+    );
+  }
+
+  return (
+    <div style={{ fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif", color: "#111", background: "#fff", lineHeight: 1.7, fontSize: 16 }}>
+      <ProgressBar pct={pct} />
+      <Header score={score} warmUpDone={warmUpDone} />
+      <SideNav active={active} onJump={jump} wide={wide} />
+      <div style={{ height: 96 }} />
+
+      {/* INTRODUCTION */}
+      <Section id="intro" title="Introduction">
+        <P>
+          A production agent system scales across an organization not because a smarter model shows up. It scales
+          because a shared foundation — one standard way to run agents, remember context, manage identity, and watch
+          what they do — turns every new agent into a business-logic project instead of an infrastructure project.
+          Once that foundation exists, keeping agents safe and reliable at speed is its own engineering job:
+          evaluation and hard failure limits have to be built up front, not added right before launch as safety
+          theater. Cox Automotive is the clearest publicly documented evidence for this principle available today.
+          In under a year, this automotive services and technology company took 17 of 57 evaluated agent ideas into
+          production on Amazon Bedrock AgentCore — a managed Amazon Web Services (AWS) platform for building and
+          running AI agents (AWS Cox Automotive Case Study, 2026). Cox is unusually strong evidence because it is one
+          of the only enterprises to publish, across three independent public sources — a written case study, a live
+          conference talk, and trade press — both its production wins and an admitted mid-flight failure. Most vendor
+          case studies show only the wins.
+        </P>
+        <P>
+          Cox Automotive is a subsidiary of Cox Enterprises, a privately held company based in Atlanta. Cox
+          Enterprises reports about $22 billion a year in revenue (AWS Cox Automotive Case Study, 2026); Cox
+          Automotive itself, the automotive-focused subsidiary that actually built these agents, is separately
+          described as a $10 billion automotive services and software business (CIO.com, 2026). Those are two
+          different numbers for two different entities — worth flagging immediately, because the parent's larger
+          number is easy to mistake for the subsidiary's. Cox Automotive employs more than 29,000 people across five
+          continents, and owns brands like Autotrader, Kelley Blue Book, and Manheim (AWS Cox Automotive Case Study,
+          2026). Its systems handle 2.3 billion online interactions a year, and hold roughly 5.1 trillion data points
+          about vehicles in the market, in the rough words of one of its own architects (AWS Cox Automotive Case
+          Study, 2026; Cox Automotive &amp; AWS re:Invent 2025). Before Cox built a single autonomous agent, it
+          already had more than 150 traditional machine-learning models running in production (Cox Automotive &amp;
+          AWS re:Invent 2025). Cox was not alone in treating Bedrock AgentCore as a serious platform bet: Ericsson, a
+          telecom equipment maker, used it to support agents across an engineering workforce numbering in the tens of
+          thousands, and Sony adopted it for a group-wide agentic platform (AWS Machine Learning Blog, Oct 2025). Cox
+          is one of several large enterprises making this same bet, not an outlier vendor story.
+        </P>
+        <P>
+          Yet before adopting AgentCore, Cox had no standardized way to run agent code, no shared way to keep track
+          of a conversation's context across multiple steps, no way to see what a multi-agent system was actually
+          deciding inside itself, and no proven way to control which agent could touch which sensitive, cross-brand
+          data (AWS Cox Automotive Case Study, 2026). This is the structural gap the rest of this article studies:
+          150-plus machine-learning models running well did not translate into readiness for autonomous agents.
+          Being good at one kind of AI — predictions from a trained model — does not automatically make an
+          organization ready for a different kind of AI: agents that take multi-step actions on their own.
+        </P>
+        <P>
+          This article addresses three questions. First, how did Cox Automotive structure agent orchestration,
+          memory, and tool access so that 17 different products — spanning fleet service, dealer communication, and
+          vehicle auctions — could share one foundation instead of each team rebuilding its own? Second, what failure
+          modes showed up once Cox put autonomous, customer-facing agents into production, and what combination of
+          guardrails, red-teaming, and hard limits did it take to make a system that reasons non-deterministically
+          safe to run without a human reviewing every conversation? Third, once manual review of agent conversations
+          stopped scaling, how did Cox measure whether an autonomous agent was actually doing its job well, not just
+          completing a task?
+        </P>
+        <Glossary
+          terms={[
+            { term: "Bedrock AgentCore", def: "Amazon's managed platform for building, running, and monitoring AI agents in production, used as Cox Automotive's shared foundation throughout this article." },
+            { term: "Agent (AI agent)", def: "Software built on an AI model that can take multiple steps on its own — looking things up, deciding what to do next, and producing a result — instead of just answering one question." },
+          ]}
+        />
+      </Section>
+
+      {/* LANDSCAPE */}
+      <Section id="landscape" title="The Technical and Product Landscape">
+        <P>
+          Cox Automotive's agentic story starts years before agents existed at the company. In 2018, Cox consolidated
+          from 50 separate data centers down to just 3, moving the rest of its infrastructure onto AWS cloud regions
+          — in the words of one of its own architects, the company "went all in with AWS" (Cox Automotive &amp; AWS
+          re:Invent 2025). That migration mattered later, because it gave Cox a single, cloud-native infrastructure
+          base to build agents on, rather than 50 different environments to reconcile first. Then, in November 2022,
+          ChatGPT launched and created industry-wide buzz about generative AI — AI that produces new text, images, or
+          other content, rather than only classifying or predicting from existing data. By March 2023, Cox had gone
+          "all in" on generative AI: within a month, engineering teams had access to multiple AI model providers and
+          a sandbox to experiment in, and within the following year, three major generative-AI products were live
+          (Cox Automotive &amp; AWS re:Invent 2025). One of those products eliminated the need to buy
+          externally-sourced content, saving about $750,000 a year; another raised dealer response rates to customers
+          by 50 percent (same source). Both of these early wins still relied on a human reviewing the AI's output
+          before it reached a customer — this generation of AI helped people work faster, but a person still clicked
+          "send."
+        </P>
+        <P>
+          Cox tried to move into agentic AI — AI that takes multi-step actions on its own, rather than only
+          generating a draft for a person to approve — right after that year's AWS re:Invent conference in 2024. The
+          company ran several proof-of-concept projects. But the initiative got "stuck": there was little pull-through
+          from product teams actually shipping agentic features, and real ambiguity across the company about what
+          "agentic" even meant in practice (Cox Automotive &amp; AWS re:Invent 2025). This is the structural gap from
+          the Introduction, made concrete: having 150-plus machine-learning models in production, and real
+          generative-AI product experience, did not by itself produce agentic-production readiness. Capability in one
+          paradigm did not transfer to the next.
+        </P>
+        <P>
+          Cox was not the only large enterprise wrestling with this exact problem: how do you give many different
+          product teams a shared, governed way to build agents, instead of each team improvising its own? Ericsson
+          faced it at telecom scale, needing a framework flexible enough to support agents built by engineers
+          numbering in the tens of thousands — flexibility AWS itself calls "critical to scale across many teams"
+          (AWS Machine Learning Blog, Oct 2025). Cohere Health, a healthcare company operating under strict
+          regulatory requirements, needed its first production agentic deployment to meet audit-trail and
+          session-tracking requirements that a casual, ungoverned build could never satisfy (AWS Machine Learning
+          Blog, Oct 2025). Naming these peers matters: it shows the "shared foundation" principle this article builds
+          toward is not specific to Cox or to the automotive industry — it is a pattern multiple large, regulated, or
+          highly distributed organizations converged on independently.
+        </P>
+        <P>
+          The turning point for Cox came in the second week of July 2025. Cox's Chief Product Officer, Marianne
+          Johnson, set an aggressive goal: launch five new agentic products in about five and a half weeks, by Labor
+          Day (September 1, 2025). Five teams started this challenge from "ground zero" — none of them had built an
+          agentic product before (Cox Automotive &amp; AWS re:Invent 2025). This challenge is the case's central
+          natural experiment. It is the same company, with the same lack of prior agentic-product experience that
+          stalled in 2024, but under a far more compressed timeline — and this time, Cox had already begun building
+          on Amazon Bedrock AgentCore, ahead of its public release, through a close partnership with AWS (Cox
+          Automotive &amp; AWS re:Invent 2025).
+        </P>
+        <P>
+          The next three sections take each research question in turn. Section 3 examines how Cox structured agent
+          orchestration, memory, and tool access into a shared foundation. Section 4 examines what went wrong,
+          reliability-wise, once autonomous agents started talking to real customers. Section 5 examines how Cox
+          rebuilt its approach to evaluation once manual review of agent conversations stopped scaling.
+        </P>
+        <div style={{ margin: "20px 0" }}>
+          <ResponsiveContainer width="100%" height={220}>
+            <BarChart data={ideasFunnelData} layout="vertical" margin={{ left: 10, right: 60 }}>
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis type="number" label={{ value: "Number of ideas / solutions", position: "insideBottom", offset: -5, fontSize: 12 }} />
+              <YAxis type="category" dataKey="name" width={230} tick={{ fontSize: 11 }} />
+              <Tooltip />
+              <Bar dataKey="value" fill="#2563eb">
+                <LabelList dataKey="value" position="right" />
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+          <SourceNote>FACT — AWS Cox Automotive Case Study, 2026: 57 evaluated ideas; 24 advanced to production or "industry-transformational" development; 17 in full production.</SourceNote>
+        </div>
+        <ChartQA
+          chartId="landscape_chart1"
+          state={state}
+          dispatch={dispatch}
+          qs={[
+            {
+              kind: "QUANTITATIVE REASONING",
+              prompt: "57 ideas were evaluated, 24 advanced past the idea stage, and 17 reached production. Compute the idea-to-production conversion rate and the idea-to-advanced rate, then explain why the raw count gap between \"advanced\" (24) and \"in production\" (17) — which is 7 — is not the same thing as a 7-percentage-point gap between the two rates.",
+              authored: "The idea-to-production rate is 17/57 ≈ 30%. The idea-to-advanced rate is 24/57 ≈ 42%. The raw count difference between \"advanced\" and \"in production\" is 24 − 17 = 7, which happens to match the 7 solutions AWS separately calls \"industry-transformational\" and still in development. But that raw count of 7 is not a \"7-point\" gap in the rates: the actual percentage-point gap between the 42% advance rate and the 30% production rate is closer to 12 points, not 7. Confusing a raw count of projects with a percentage-point gap between two rates is a common way to misread a funnel chart — the 7 remaining projects likely represent real engineering work still in flight, not failed ideas.",
+            },
+            {
+              kind: "SO-WHAT / PRIORITIZATION",
+              prompt: "Using a Now-Next-Later roadmap lens, the 7 solutions AWS calls \"industry-transformational\" sit between the 17 already in production and the 33 that never advanced past evaluation. What should a PM check before promising a launch date for those 7, given what separated the 17 that shipped from the 33 that didn't?",
+              authored: "Before promising a date for any of the 7, a PM should check whether the 17 that already shipped succeeded because of something structural — for example, closer alignment with a proven build pattern like FleetMate's three phases, or an existing internal executive champion — or simply because they started earlier and had more runway. Cox's own account does not disclose why the other 33 ideas never advanced, so a PM cannot assume the 7 will behave like the 17 rather than the 33. The safer move: treat the 7 as \"Next,\" not \"Now,\" and require the same evidence of production-readiness the 17 already have before committing to a date.",
+            },
+          ]}
+        />
+        <div style={{ margin: "24px 0" }}>
+          <TimelineSVG />
+          <div style={{ textAlign: "center", fontSize: 13, color: "#555", marginTop: 8 }}>
+            Cox Automotive's path to agentic AI, 2018-2026. Dates and milestones are FACT, drawn from the sources
+            named on each label; the box/line layout itself is an illustrative arrangement, not an official Cox or
+            AWS diagram.
+          </div>
+          <SourceNote>FACT (dates and milestones) — AWS Cox Automotive Case Study, 2026; Cox Automotive &amp; AWS re:Invent 2025; AWS Machine Learning Blog, Oct 2025. ILLUSTRATION (visual layout only).</SourceNote>
+        </div>
+        <ChartQA
+          chartId="landscape_chart2"
+          state={state}
+          dispatch={dispatch}
+          qs={[
+            {
+              kind: "QUALITATIVE / MECHANISM",
+              prompt: "Seven years separate the 2018 data-center consolidation from the 2025 agentic sprint, but the agentic sprint itself took about five weeks. What does the timeline suggest made the difference in speed — was it the underlying cloud migration, the 2023 GenAI experience, or something specific to 2025?",
+              authored: "The 2018 migration built the cloud foundation Cox needed, and the 2023 generative-AI pivot built organizational comfort with AI products — but neither, on its own, produced fast agentic delivery: the 2024 agentic push, which had both of those advantages already in place, still stalled. What the timeline suggests actually made the five-week sprint fast is the platform itself: Cox began building on Amazon Bedrock AgentCore, with a standardized runtime, memory, and identity system already available, before the 2025 sprint started. The cloud migration and the GenAI experience were necessary groundwork, but AgentCore's shared foundation is what appears to have converted that groundwork into five-week delivery speed.",
+            },
+            {
+              kind: "CAUSAL / COMPARATIVE",
+              prompt: "Cox's 2024 agentic push stalled (\"stuck,\" little pull-through) but its July 2025 push produced 3 of 5 products in production within the year. Since both pushes used generative AI and had executive backing, what is the strongest reason NOT to conclude that raw executive sponsorship explains the difference?",
+              authored: "Both the 2024 push and the 2025 push had generative AI and executive backing, yet only the second one moved fast. If sponsorship alone explained the difference, the 2024 attempt — which also had a senior mandate to explore agentic AI — should have succeeded too. The strongest reason not to credit sponsorship alone: the 2024 attempt lacked a standardized agent runtime, memory layer, and identity system, while the 2025 attempt had already started building on AgentCore's managed infrastructure. That is the one major variable that changed between the two pushes, which points to infrastructure readiness, not sponsorship, as the more likely explanation — though Cox's account does not run a controlled comparison, so this remains the best-supported inference, not a proven cause.",
+            },
+          ]}
+        />
+        <Glossary
+          terms={[
+            { term: "Generative AI", def: "AI that creates new content — text, images, code — rather than only classifying or predicting from existing data." },
+            { term: "Agentic AI", def: "Generative AI systems that don't just draft content for a person to approve, but take multi-step actions on their own toward a goal." },
+          ]}
+        />
+      </Section>
+
+      {/* RQ1: ARCHITECTURE */}
+      <Section id="rq1" title="RQ1 — How did a shared foundation let 17 products reach production?">
+        <P>
+          <strong>Thesis to defend:</strong> a shared foundation — not each team building its own agent
+          infrastructure from scratch — is what let 17 different Cox Automotive products reach production. If this
+          thesis is right, product teams working on fleet service, dealer communication, and vehicle auctions should
+          all look, underneath the surface, like they are built on the same small set of reusable pieces, with only
+          the business logic on top actually differing between them.
+        </P>
+        <P>
+          The obstacle is real. Before AgentCore, every one of those teams would have had to solve the same four hard
+          problems on its own: how to isolate one agent conversation's compute from another's, how to remember what
+          happened earlier in a long-running task, how to see what a multi-agent system was actually deciding, and
+          how to prove — to security and compliance — that an agent could be trusted with sensitive, cross-brand
+          customer data (AWS Cox Automotive Case Study, 2026). At a company operating across five continents and
+          multiple brands with different data-sensitivity rules, that is not a problem one team can solve well enough
+          for every other team to safely reuse. Without a shared answer, each of the 17 product teams would likely
+          have built its own, probably-incompatible version of the same four systems.
+        </P>
+        <P>
+          AgentCore answers this with five managed services plus two special-purpose tools, as Cox's own architects
+          describe it: Runtime, Memory, Identity, Gateway, and Observability, alongside a Browser tool and a Code
+          Interpreter tool (Cox Automotive &amp; AWS re:Invent 2025). AgentCore Runtime is serverless — Cox does not
+          have to manage the underlying servers — and scales automatically from zero active sessions to thousands,
+          supports conversations running up to 8 hours long, and gives every agent session its own isolated computing
+          environment through microVM technology, a lightweight, fully separate virtual computer (AWS Machine
+          Learning Blog, Oct 2025). AgentCore Identity gives each agent precisely defined, role-based permissions over
+          exactly which data and tools it can touch (AWS Cox Automotive Case Study, 2026). Cox's own teams then built
+          specific products on top of this shared base. Tabaré Gowon, Cox's Lead Architect, describes the flagship
+          dealership virtual assistant this way: an Orchestrator Agent reads each new customer message, classifies
+          its intent, and routes it to a domain-specific sub-agent — for example, one for sales questions and one for
+          service questions; each sub-agent works independently, and the orchestrator assembles their results into a
+          single reply before continuing the conversation (Cox Automotive &amp; AWS re:Invent 2025). FleetMate's
+          Driver Agent follows a similar pattern in a completely different domain: it orchestrates multiple tools and
+          predictions, pulling from vehicle telematics, various APIs, and real-time diagnostics, shifting fleet
+          operations from reacting to problems after they happen to predicting them beforehand (AWS Cox Automotive
+          Case Study, 2026).
+        </P>
+        <P>
+          But the shared foundation did not make Cox immune to infrastructure risk. Partway through the 2025 project,
+          AWS's own guidance shifted: the recommended agent-building framework changed from AWS Labs' "Agent Squad"
+          to a newer framework called Strands Agents. Because Cox's team had already built its session handling and
+          data separation on a stable AgentCore foundation, the migration to the new framework took about two weeks —
+          instead of the "several weeks" it would ordinarily have taken (Cox Automotive &amp; AWS re:Invent 2025).
+          That is a real benefit of the shared foundation, but notice what it actually proves: the foundation reduced
+          the cost of an unplanned framework swap. It did not prevent the swap from being necessary in the first
+          place. A shared foundation buys resilience to platform churn; it does not buy immunity from it.
+        </P>
+        <P>
+          This is genuinely non-obvious once you notice the timing: Cox began building on Amazon Bedrock AgentCore
+          before it was even generally available to the public in October 2025, through early access as a close AWS
+          partner (Cox Automotive &amp; AWS re:Invent 2025; AWS Machine Learning Blog, Oct 2025). Cox was betting on a
+          platform its own engineers could see coming, as a trusted partner, not on a finished, fully stable,
+          publicly documented product. Most enterprises would not accept that kind of platform risk — building
+          production customer-facing software on a service that has not yet reached general availability. That risk
+          is exactly why "Cox reached production in about a year" is unusual, not a typical result any company
+          adopting a finished AgentCore today should expect to repeat automatically.
+        </P>
+        <P>
+          One specific AgentCore configuration choice deserves its own mention, because it is easy to overlook in a
+          demo and only shows up in how an agent behaves weeks into real use: AgentCore Memory. It ships with
+          built-in strategies for remembering user preferences, storing semantic facts, and summarizing past
+          conversations, and teams can use these as-is, override specific parts, or replace them entirely with a
+          custom memory strategy (Cox Automotive &amp; AWS re:Invent 2025). This is a genuinely different capability
+          from the orchestrator/sub-agent pattern described above — it is about what an agent remembers between
+          separate conversations, not about how work gets routed within one conversation. Most teams evaluating an
+          agent framework underweight memory-strategy choice, because a demo rarely runs long enough to reveal
+          whether an agent's memory is actually well-designed; that only becomes visible in production, once real
+          customers have had several separate conversations with the same agent over time.
+        </P>
+        <div style={{ margin: "20px 0" }}>
+          <ArchTopologySVG />
+          <div style={{ textAlign: "center", fontSize: 13, color: "#555", marginTop: 8 }}>
+            Before AgentCore, Cox had no standardized runtime, memory, observability, or identity model. After: a
+            shared reference architecture backing 17 production agents. Component names and roles are FACT; the box
+            layout itself is illustrative, not an official Cox or AWS diagram.
+          </div>
+          <SourceNote>FACT (component names/roles) — AWS Cox Automotive Case Study, 2026; AWS Machine Learning Blog, Oct 2025; Cox Automotive &amp; AWS re:Invent 2025. ILLUSTRATION (box layout).</SourceNote>
+        </div>
+        <ChartQA
+          chartId="rq1_chart1"
+          state={state}
+          dispatch={dispatch}
+          qs={[
+            {
+              kind: "SO-WHAT / THRESHOLD-DECISION RULE",
+              prompt: "The \"before\" state had no standardized runtime, memory, observability, or identity model — four separate gaps. If your own team only has budget to close ONE of these four gaps before starting its first production agent, which one creates the most downstream risk if skipped, and what threshold should trigger closing it first?",
+              authored: "Identity and permissions is the one gap to close first — not because runtime or memory are unimportant, but because an unclear permission model is the one failure mode that can cause irreversible harm, such as a data leak across brands, the moment more than one team or any cross-brand data is involved. The threshold that should trigger closing this gap first: as soon as an agent needs to touch data belonging to more than one team, brand, or customer segment, or as soon as more than one agent will run on shared infrastructure, an unclear permission model stops being a quality issue and becomes a security incident waiting to happen.",
+            },
+            {
+              kind: "QUANTITATIVE REASONING",
+              prompt: "AgentCore Runtime supports sessions up to 8 hours long, with automatic scaling from zero to thousands of sessions. If Cox's dealership assistant averages a 6-minute conversation, roughly how many concurrent sessions could a single 8-hour session slot \"contain\" sequentially, and why does that number matter less than it seems for capacity planning?",
+              authored: "8 hours × 60 minutes ÷ 6 minutes per conversation ≈ 80 sequential conversations could, in principle, run inside one session's maximum duration. But that number matters far less than it seems for capacity planning, because Runtime's autoscaling is about how many sessions run concurrently, side by side — from zero to thousands at once — not about how many conversations one session can serially process before its ceiling. Treating the 8-hour figure as a throughput number is a classic classical-software mistake: it describes a duration limit per session, not the system's total capacity, which instead depends on how many sessions run in parallel.",
+            },
+          ]}
+        />
+        <div style={{ margin: "20px 0" }}>
+          <ResponsiveContainer width="100%" height={240}>
+            <BarChart data={timeToProdData} layout="vertical" margin={{ left: 10, right: 60 }}>
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis type="number" label={{ value: "Days to reach this milestone", position: "insideBottom", offset: -5, fontSize: 12 }} />
+              <YAxis type="category" dataKey="name" width={230} tick={{ fontSize: 10.5 }} />
+              <Tooltip />
+              <Bar dataKey="days">
+                <LabelList dataKey="days" position="right" formatter={(v) => v + "d"} />
+                {timeToProdData.map((d, i) => (
+                  <Cell key={i} fill={d.tier === "FACT" ? "#2563eb" : "#7c3aed"} />
+                ))}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+          <SourceNote>
+            Blue bars = FACT (FleetMate v1 build: 4 days; framework re-platform: 14 days). Purple bars = ESTIMATE with
+            shown unit conversion (team ramp: "about one month" ≈ 30 days; 5-team launch: "about five and a half
+            weeks" = 5.5 × 7 = 38.5 days). AWS Cox Automotive Case Study, 2026; Cox Automotive &amp; AWS re:Invent 2025.
+          </SourceNote>
+        </div>
+        <ChartQA
+          chartId="rq1_chart2"
+          state={state}
+          dispatch={dispatch}
+          qs={[
+            {
+              kind: "QUANTITATIVE REASONING",
+              prompt: "The framework re-platform (14 days) was about half the length of the team ramp-up (~30 days) and about a third the length of the 5-team launch window (~38.5 days). Using these three numbers, estimate roughly how many \"framework swaps\" worth of engineering time a shared AgentCore foundation saved on just the one project that had to re-platform, given Cox's own claim that the swap would \"ordinarily\" have taken several weeks longer.",
+              authored: "The re-platform took 14 days; Cox's own account describes the alternative as taking \"several weeks\" instead. If \"several weeks\" means roughly 5 to 6 weeks (35-42 days), the foundation saved roughly 21-28 days on this one re-platforming event alone — meaning the shared foundation returned, in this single instance, close to double what the swap itself cost. Scaled across even a few more unplanned framework or platform changes over the life of a multi-year program, that saved time compounds into a substantial share of a full engineer-quarter.",
+            },
+            {
+              kind: "QUALITATIVE / MECHANISM",
+              prompt: "All four milestones on this chart are under 40 days, even though they involve different teams, different tasks, and, in one case, a framework migration mid-project. What single structural factor, present in all four, is the most likely reason none of them stretched into months?",
+              authored: "All four milestones stayed under 40 days because each one was built on top of session handling, memory, and identity that Cox did not have to build from zero — the shared AgentCore foundation was already in place before any of these four milestones started. A team with no foundation would have had to build session isolation and data separation as part of, not before, its first project. Cox instead treated that foundation as an already-solved cost, which is the single structural factor common to a 4-day build, a 14-day framework swap, a roughly 30-day team ramp, and a roughly 38.5-day five-team sprint.",
+            },
+          ]}
+        />
+        <MCQ
+          id="rq1_mcq"
+          label="TYPE T-A — ARCHITECTURE AND SYSTEM IMPLICATION"
+          prompt="Cox's dealership virtual assistant routes each customer message through an Orchestrator Agent to domain sub-agents (sales, service), then reassembles a reply. As Cox adds more dealership brands and more sub-agent domains — finance, service scheduling, parts — onto the same orchestrator, which component is most likely to become the bottleneck first, and why?"
+          options={[
+            "The Orchestrator Agent itself, because every new domain adds one more intent-classification decision it has to get right before routing — and a single misclassification sends the customer's request to the wrong sub-agent, making every downstream reply irrelevant no matter how good that sub-agent is.",
+            "AgentCore Runtime's session capacity, because adding more sub-agent domains means more concurrent compute inside each conversation session, and Runtime's automatic scaling from zero to thousands of sessions was designed around session count, not around how many sub-agents one session's orchestrator has to coordinate.",
+            "The underlying foundation model's context window, because every additional sub-agent domain requires more background knowledge inside every prompt, and once that ceiling is reached, a genuinely larger context window is the only available fix for the orchestrator to keep working correctly.",
+            "Bedrock Knowledge Bases' retrieval speed, because more domains mean more documents to search through, and Amazon Titan embeddings were benchmarked at a fixed millisecond-scale retrieval time that stays constant regardless of how large the underlying document corpus eventually grows to become.",
+          ]}
+          correct={0}
+          distractorErrors={{ 1: "classical", 2: "classical", 3: "designCeiling" }}
+          transferNote="the same hub-and-spoke lesson applies to any orchestrator-plus-sub-agent design: the hub's decision quality, not the spokes' compute or the model's context window, is usually the first thing to degrade as more domains get added."
+          scaffold="Reread what actually changes as a new domain gets added: one more branch the Orchestrator Agent has to correctly classify before routing. Runtime capacity, context window size, and retrieval speed are all things AWS explicitly engineers to keep pace with scale — intent-classification accuracy is not."
+          state={state}
+          dispatch={dispatch}
+          onScore={onScore}
+        />
+        <Fermi
+          id="rq1_fermi"
+          prompt="Cox's FleetMate product cuts the time to create a vehicle repair estimate from a stated range of 8 to 48 hours down to 30 minutes (AWS Cox Automotive Case Study, 2026). Using the decomposition (old time in minutes) ÷ (new time in minutes) = speed multiple, compute the LOW-END speed multiple, using the 8-hour end of the range. Enter that multiple as your numeric answer."
+          unit="x (multiple)"
+          correctValue={16}
+          tolerancePct={0.10}
+          decomposition="8 hours = 480 minutes. 480 ÷ 30 = 16x — the low-end multiple (accept 14.4x-17.6x within the declared ±10% tolerance). At the high end: 48 hours = 2,880 minutes; 2,880 ÷ 30 = 96x (shown as context, not separately scored). Both inputs — the 8-to-48-hour range and the 30-minute figure — are FACT with inline citation (AWS Cox Automotive Case Study, 2026); the multiples themselves are fully derived by the stated arithmetic, with no invented number anywhere in this question. The single assumption that most affects which multiple is realistic: Cox has not disclosed where within the 8-to-48-hour range a typical estimate actually falls, so the true typical-case multiple could be anywhere between 16x and 96x."
+          state={state}
+          dispatch={dispatch}
+        />
+        <PrincipleGate id="rq1_principle" state={state} dispatch={dispatch} />
+        <PatternTransfer
+          id="rq1_transfer"
+          prompt="The principle from this section is: a shared foundation (standardized runtime, memory, identity, observability) turns each new agent into a business-logic project instead of an infrastructure project — but it does not eliminate framework or platform churn risk. Apply this to a hospital system building its first three clinical-documentation agents (one for intake notes, one for discharge summaries, one for insurance pre-authorization requests) without any existing agent platform. What would a CTO do differently in month one, and what new failure mode would they face that did not appear in Cox's dealership-and-fleet example?"
+          state={state}
+          dispatch={dispatch}
+        />
+        <P>
+          <em>What this evidence supports, and what it doesn't:</em> the evidence supports that a shared foundation
+          compresses how long it takes to reach production, and that it reduces the cost of the framework churn that
+          inevitably happens on any fast-moving platform. It does not establish whether the exact same foundation
+          would produce the same result at a company without Cox's existing cloud migration, its 150-plus models of
+          machine-learning experience, or its close, early-access partnership with AWS. This is one enterprise's
+          documented case, not a controlled experiment comparing companies with and without a shared foundation.
+        </P>
+        <Glossary
+          terms={[
+            { term: "AgentCore Runtime", def: "The managed, serverless place agent code actually runs, with each conversation isolated in its own secure computing session." },
+            { term: "AgentCore Memory", def: "A managed service that stores what an agent should remember about a user or task across separate conversations." },
+            { term: "AgentCore Identity", def: "A managed permissions system that controls exactly what data and tools each agent is allowed to touch." },
+            { term: "AgentCore Gateway", def: "A service that turns a company's existing APIs and cloud functions into tools an agent can call." },
+            { term: "Orchestrator/sub-agent pattern", def: "One agent that reads an incoming request, decides which specialized agent should handle it, and combines their answers into one reply." },
+            { term: "MicroVM", def: "A lightweight, fully isolated virtual computer used to keep one agent session's data from leaking into another's." },
+            { term: "RAG — Retrieval-Augmented Generation", def: "Pulling relevant documents into an AI model's prompt so it answers using real, searchable information instead of memory alone." },
+          ]}
+        />
+      </Section>
+
+      {/* RQ2: RELIABILITY */}
+      <Section id="rq2" title="RQ2 — What did it take to make a non-deterministic agent safe to run?">
+        <P>
+          <strong>Thesis to defend:</strong> making an autonomous, customer-facing agent reliable required treating
+          reliability as its own engineering discipline — built from layered guardrails, scheduled adversarial
+          testing, and hard limits — not something achieved simply by picking a smarter underlying model.
+        </P>
+        <P>
+          Tabaré Gowon, Cox's Lead Architect, frames the core difficulty directly: agentic systems are "a soft way of
+          programming... not deterministic," meaning "agents have agency, they can do what they want" (Cox Automotive
+          &amp; AWS re:Invent 2025). A deterministic program, given the same input, always produces the same output —
+          that is what lets classical software be tested once and trusted. A non-deterministic agent can, in
+          principle, produce a different response to an identical customer message on a different day. That means a
+          system cannot be certified safe once and left alone; the guarding has to keep working continuously, not
+          just at launch.
+        </P>
+        <P>
+          Cox built a five-layer mitigation stack around its autonomous dealership assistant (Cox Automotive &amp;
+          AWS re:Invent 2025). Hard guardrails, built using Amazon Bedrock Guardrails, block certain inputs or outputs
+          completely, before the underlying AI model is even called — the customer simply gets a message like "I
+          cannot help with that." Soft guardrails, configured through prompt and workflow design rather than a hard
+          block, let the AI redirect a conversation instead of refusing it outright — Tabaré's own example: a
+          customer trying to negotiate financing terms gets redirected to "our finance team, let me schedule an
+          appointment," rather than a blunt refusal. Red-teaming — deliberately trying to break the system, using
+          foreign-language prompts, garbled input, and attempts to extract the system's hidden instructions — happens
+          before every alpha release, before every beta release, and continuously in production; every successful
+          exploit is catalogued and fixed after every code deployment and every prompt change. Automated evaluation,
+          which Tabaré calls "LLM-as-judge" (using one AI model to score another AI model's output), generates test
+          conversations, runs them through the system, and scores the results on relevancy, completeness, and tone.
+          And circuit breakers set hard limits on cost-per-conversation-turn and on the number of turns a conversation
+          can run; once a limit trips, the conversation hands off to a human at the dealership. None of these five
+          layers is "use a smarter model" — every one of them is a process or architecture decision, independent of
+          which AI model sits underneath.
+        </P>
+        <P>
+          Even with this five-layer stack in place, one of the five products launched under the Labor Day deadline
+          still had to be pulled back and redesigned (Cox Automotive &amp; AWS re:Invent 2025) — a result covered
+          fully in the What Broke section. The stack reduces risk; it does not guarantee that every individual
+          project succeeds on its first attempt. There is also a real limit on how precisely this evidence can be
+          reused elsewhere: Tabaré's example of a circuit breaker tripping at "20 turns" was explicitly framed as
+          hypothetical ("let's say... 20 turns") — Cox has not disclosed its actual production thresholds for
+          cost-per-turn or turn count, so a reader should treat any specific number here as illustrative of the
+          pattern, not as Cox's real dial setting.
+        </P>
+        <P>
+          The split between hard and soft guardrails exists for a specific product reason, not only a safety reason.
+          A system that only blocks sensitive topics outright creates a poor customer experience in a
+          sales-and-service setting: Tabaré's financing-negotiation example needs a redirect, not a flat refusal, to
+          keep the conversation useful for the customer while staying inside company policy. That makes reliability
+          engineering for a customer-facing agent partly a product-design problem — what should the agent say instead
+          — as much as a pure safety problem of what it should never say.
+        </P>
+        <P>
+          Cox applied a structurally similar reliability pattern one layer down the stack — inside how its own
+          software gets written, not just inside how its agents talk to customers. By March 2026, 100 of Cox's 680
+          internal software development teams had begun shifting to an "agentic development model," using tools like
+          GitHub Copilot, Anthropic's Claude Code, and Claude Enterprise to help write code, governed by a risk-based
+          model for when an agent may act autonomously versus when a human must stay in the loop, plus a practice of
+          "agents watching agents" with automated anomaly alerts (CIO.com, 2026). Humans remain accountable for
+          anything that reaches production. This is a genuinely different case — agents writing code, not agents
+          talking to customers — but the underlying pattern is the same: bounded autonomy tied to a risk tier, plus a
+          supervisory layer watching the primary agent. Cox's own account states its model-drift evaluation tooling —
+          designed to catch a model quietly losing focus or context — was already in place "as early as 2024,"
+          before Cox had even adopted AgentCore (CIO.com, 2026), showing this reliability discipline predates, and is
+          broader than, the customer-facing agent work this section otherwise focuses on.
+        </P>
+        <div style={{ margin: "20px 0" }}>
+          <ReliabilityCascadeSVG />
+          <div style={{ textAlign: "center", fontSize: 13, color: "#555", marginTop: 8 }}>
+            Cox's reliability cascade, from guardrail to human handoff. The structural pattern (hard/soft guardrails,
+            red-teaming cadence, circuit breakers) is FACT, sourced to Cox Automotive &amp; AWS re:Invent 2025 session
+            IND3329. The "~20 turns" threshold is ILLUSTRATION — Tabaré Gowon presented it as a hypothetical example
+            ("let's say"), not a disclosed production value.
+          </div>
+          <SourceNote>FACT (cascade structure) — Cox Automotive &amp; AWS re:Invent 2025. ILLUSTRATION ("~20 turns" example only).</SourceNote>
+        </div>
+        <ChartQA
+          chartId="rq2_chart"
+          state={state}
+          dispatch={dispatch}
+          qs={[
+            {
+              kind: "QUALITATIVE / MECHANISM",
+              prompt: "Hard guardrails and soft guardrails both exist in this cascade, but they trigger at different points and produce different customer experiences. What specific product problem would Cox have created for itself if it had used ONLY hard guardrails (block-and-refuse) for every sensitive topic, including financing questions?",
+              authored: "If Cox had used only hard guardrails for every sensitive topic including financing, a customer trying to have a completely legitimate conversation about financing terms would hit a dead end (\"I cannot help with that\") instead of being moved toward a productive next step. In a sales-and-service context, an outright refusal on a normal customer question reads as broken, not safe, and likely pushes the customer toward a competitor rather than toward a human at the dealership. Soft guardrails exist precisely to avoid trading safety for a dead-end customer experience on topics that are sensitive but not actually prohibited.",
+            },
+            {
+              kind: "SO-WHAT / KILL-CRITERIA",
+              prompt: "If the circuit breaker's turn-count or cost-per-turn threshold were set too low, what customer-facing failure would show up first, and what observed pattern in production — for example, handoff rate by conversation topic — should tell Cox to raise the threshold rather than assume the agent itself is broken?",
+              authored: "If the threshold were set too low, the customer-facing failure that would show up first is unnecessary hand-offs — conversations that were going fine getting kicked to a human simply because they ran a bit long or covered a lot of ground, not because the agent was actually failing. The production signal that should trigger raising the threshold, rather than assuming the agent itself is broken: a rising hand-off rate concentrated in specific topics or conversation types that are legitimately longer, like multi-vehicle service-history questions, rather than a hand-off rate spread evenly across all topics, which would look more like a genuine agent-quality problem.",
+            },
+          ]}
+        />
+        <MCQ
+          id="rq2_tb"
+          label="TYPE T-B — TECHNICAL TREND REASONING"
+          prompt={"Cox's reliability stack combines hard guardrails, soft guardrails, red-teaming before alpha and beta and after every deployment, LLM-as-judge evaluation, and circuit breakers — and none of the five layers is \"use a smarter model.\" If a competitor's engineering blog claimed \"we solved agent reliability by upgrading to a more capable foundation model,\" what does the pattern in Cox's stack most likely indicate about that claim?"}
+          options={[
+            "The claim is probably accurate, because Cox's own criteria for choosing between Claude models — latency, cost, and accuracy — are essentially the same qualities that make a customer-facing agent reliable, so a stronger model on those dimensions should deliver similar gains.",
+            "The claim is likely true only for the one of five projects that ultimately failed, since that specific project may have been built on an older, less capable underlying model than the other four teams working under the same deadline.",
+            "The claim conflates model capability with reliability engineering — Cox's five layers (guardrails, red-teaming, evaluation, circuit breakers) are process and architecture decisions independent of the underlying model, so a model upgrade alone would not reproduce Cox's documented outcomes.",
+            "The claim cannot be evaluated at all, because Cox has never disclosed which specific model versions power its dealership assistant, and without that detail no comparison to a competitor's claim is possible in any meaningful sense.",
+          ]}
+          correct={2}
+          distractorErrors={{ 0: "metricCause", 1: "singleCause", 3: "scopeCreep" }}
+          transferNote="the same check applies to any 'we solved reliability by upgrading the model' claim: look for whether guardrails, evaluation, or circuit breakers also changed at the same time before crediting the model alone."
+          scaffold="Notice that all five of Cox's reliability layers are described as process and architecture decisions, not model choices — Section RQ2's own evidence never credits model quality as one of the five layers that made the dealership assistant safe to run autonomously."
+          state={state}
+          dispatch={dispatch}
+          onScore={onScore}
+        />
+        <MCQ
+          id="rq2_tc"
+          label="TYPE T-C — PM CONSULTING CASE (WEAKEST LINK)"
+          prompt="Case Prompt: a regional insurance brokerage (not automotive) wants to launch an autonomous agent that emails policy renewal quotes to small-business customers without a human reviewing each email first, using the same hard-guardrail / soft-guardrail / circuit-breaker pattern Cox Automotive used for its dealership assistant. The brokerage's VP of Product argues: 'Cox proved this pattern works for autonomous customer-facing agents, so we should be safe copying it.' Which assumption must hold for that recommendation to create value, and what evidence in this article is thinnest in supporting it?"
+          options={[
+            "That insurance customers and automotive customers hold similar risk tolerance for receiving an AI-generated message without human review, since both industries involve regulated financial transactions, and neither currently requires disclosure that a message was AI-generated.",
+            "That red-teaming and evaluation effort scale down along with the guardrail pattern — Cox red-teamed before alpha, before beta, and after every deployment and prompt change, an ongoing cost this article never quantifies, so the brokerage cannot assume that cadence is affordable.",
+            "That Amazon Bedrock AgentCore is available in the brokerage's specific cloud region, since the guardrail-and-circuit-breaker pattern Cox used only functions correctly when built on AWS infrastructure and cannot be reproduced on any other cloud provider's agent platform.",
+            "That Cox's reported three-times-higher VinSolutions response rate — measured on a small, early pilot sample — will also apply directly to insurance renewal emails, since both are relationship-driven sales communications aimed at existing customers who already know the company.",
+          ]}
+          correct={1}
+          distractorErrors={{ 0: "restatement", 2: "irrelevant", 3: "scopeCreep" }}
+          transferNote="this generalizes to any team copying a safety pattern from a published case study: the visible pattern (guardrail layers) is usually cheaper to copy than the invisible operating cost (the cadence that keeps it current)."
+          scaffold="Ask what Cox's own account actually discloses about cost: it names the red-teaming cadence (before alpha, before beta, after every deployment and prompt change) but never states how many staff-hours that cadence requires. That silence is the thinnest evidence in the whole case for a smaller team assuming the pattern is affordable."
+          state={state}
+          dispatch={dispatch}
+          onScore={onScore}
+          style={{ amber: true }}
+        />
+        <TrueFalse
+          id="rq2_tg"
+          prompt="True or False: Cox Automotive's layered guardrail-and-circuit-breaker system made its five-week agentic launch fully successful. Justify your answer in one sentence naming the specific evidence that confirms or breaks the claim."
+          correctAnswer={false}
+          authoredJustification="False — one of the five products launched under that same five-and-a-half-week deadline was pulled back and redesigned (Cox Automotive & AWS re:Invent 2025). The reliability stack got three of five projects to a production beta and reduced overall risk, but it did not make the initiative fully successful in the sense of five-for-five."
+          reasoningError="necessarySufficient"
+          state={state}
+          dispatch={dispatch}
+        />
+        <PrincipleGate id="rq2_principle" state={state} dispatch={dispatch} />
+        <PatternTransfer
+          id="rq2_transfer"
+          prompt="The principle from this section: an autonomous, customer-facing agent's reliability comes from layered process (guardrails, red-teaming, evaluation, circuit breakers), not from model choice, and that layered process reduces but does not eliminate failure. Apply this to a payroll-processing company's own internal software team adopting agentic coding tools. Name the principle accurately, describe a genuinely non-trivial application, and name a new failure mode that would not appear anywhere in Cox's customer-facing dealership example."
+          state={state}
+          dispatch={dispatch}
+        />
+        <P>
+          <em>What this evidence supports, and what it doesn't:</em> the evidence supports that layered,
+          process-based reliability engineering reduces, but does not eliminate, agent failure — and that the same
+          underlying pattern (bounded autonomy plus a supervisory check) shows up independently in two very different
+          parts of Cox's business. It does not tell us which of the five layers mattered most: all five were
+          deployed together, and Cox has not published a controlled test isolating any single layer's individual
+          contribution to the outcome.
+        </P>
+        <Glossary
+          terms={[
+            { term: "Hard guardrail", def: "A rule that blocks certain AI actions completely, before the AI model is even asked to respond." },
+            { term: "Soft guardrail", def: "A rule built into the AI's own instructions that steers it toward a safer response instead of blocking it outright." },
+            { term: "Red-teaming", def: "Deliberately trying to make an AI system fail or misbehave, on purpose, to find weaknesses before real users do." },
+            { term: "Circuit breaker (in agent systems)", def: "A hard limit — like cost or number of conversation turns — that automatically stops an AI agent and hands the task to a human once it's crossed." },
+            { term: "LLM-as-judge", def: "Using one AI model to automatically score another AI model's output against criteria like accuracy or tone, instead of a human reviewing every response." },
+          ]}
+        />
+      </Section>
+
+      {/* RQ3: EVALUATION */}
+      <Section id="rq3" title="RQ3 — How do you measure an autonomous agent once manual review stops scaling?">
+        <P>
+          <strong>Thesis to defend:</strong> once manual review of agent conversations could no longer scale, Cox had
+          to build a way to measure an autonomous agent's quality automatically and continuously — not just once, at
+          launch.
+        </P>
+        <P>
+          Tabaré Gowon states the ceiling directly: manual review "will work for a couple dozen conversations, maybe
+          a couple hundred conversations," but Cox's actual target volume is "tens of thousands of transactions
+          daily" (Cox Automotive &amp; AWS re:Invent 2025). Using round numbers for those two phrases — about 200
+          conversations a human process can realistically cover, against roughly 10,000-plus needed daily — that is
+          somewhere between a 50-fold and 1,000-fold gap between what manual review can handle and what production
+          volume actually requires.
+        </P>
+        <P>
+          Cox's answer is LLM-as-judge: generate test conversations, run them through the live system, and score the
+          results against named metrics — relevancy, completeness, and tone (Cox Automotive &amp; AWS re:Invent 2025).
+          This runs continuously, tracked over time, and is paired with the hard circuit breakers described in the
+          Reliability Engineering section as a safety net for anything the evaluation system does not catch quickly
+          enough. Together, these two mechanisms are what let Cox check whether an autonomous agent is actually
+          serving the things that matter to the business, not simply whether it "works" in some generic sense.
+        </P>
+        <P>
+          What Cox's public account names is what it measures — relevancy, completeness, tone — not the acceptance
+          thresholds that decide when a score counts as good enough, which AI model serves as the judge, or how often
+          the judge's own scores were checked against real human judgment. That last gap matters: a real evaluation
+          system has to guard against its judge model sharing the same blind spots as the model it is judging, and
+          Cox's own public account does not address this risk directly.
+        </P>
+        <P>
+          As of a December 2025 feature update, Amazon Bedrock AgentCore itself now ships a formal "AgentCore
+          Evaluations" service with 13 pre-built evaluators — covering correctness, helpfulness, tool-selection
+          accuracy, safety, goal-success rate, and context relevance — plus support for custom evaluators (About
+          Amazon, Dec 2025). This is a distinct, newer capability from the custom LLM-as-judge harness Tabaré
+          described building for the dealership assistant earlier in 2025. Cox's own evaluation work predates, and is
+          more custom-built than, the managed service the platform now offers — a reminder that Cox was solving an
+          evaluation problem the platform had not yet productized at the time it needed a solution.
+        </P>
+        <div style={{ margin: "20px 0" }}>
+          <ResponsiveContainer width="100%" height={200}>
+            <BarChart data={evalCapacityData} margin={{ left: 10, right: 10, bottom: 30 }}>
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis dataKey="name" tick={{ fontSize: 10.5 }} height={50} />
+              <YAxis label={{ value: "Conversations / day (order of magnitude)", angle: -90, position: "insideLeft", fontSize: 10.5 }} />
+              <Tooltip />
+              <Bar dataKey="value" fill="#d97706">
+                <LabelList dataKey="value" position="top" />
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+          <SourceNote>
+            Both figures are Cox's own approximate, rounded language (Cox Automotive &amp; AWS re:Invent 2025) — not
+            precise counts. Shown here as order-of-magnitude bars to make the scale gap visible.
+          </SourceNote>
+        </div>
+        <ChartQA
+          chartId="rq3_chart"
+          state={state}
+          dispatch={dispatch}
+          qs={[
+            {
+              kind: "QUANTITATIVE REASONING",
+              prompt: "If manual review tops out around 200 conversations and Cox needs to cover roughly 10,000-plus daily, what rough MULTIPLE separates what a human review process can cover from what automated evaluation has to cover, and what does that multiple imply about whether \"add more reviewers\" was ever a viable fallback plan?",
+              authored: "10,000 ÷ 200 = a rough 50-times gap — and likely higher, since \"10,000-plus\" is a floor, not a ceiling. That multiple implies \"just hire more reviewers\" was never a realistic fallback plan: covering a 50x gap by adding headcount alone would mean roughly 50 times the review staff Cox needed for the couple-hundred-conversation baseline, which is a staffing commitment no company scales into instead of building automated evaluation.",
+            },
+            {
+              kind: "SO-WHAT / SEGMENTATION",
+              prompt: "Given a roughly 50-times-or-larger gap between manual review capacity and required daily volume, how would you SEGMENT which conversations still deserve a human reviewer's attention, even with LLM-as-judge running, versus which can rely on automated scoring alone?",
+              authored: "A sensible segmentation is by consequence and novelty, not by convenience: conversations involving financing terms, unusual multi-vehicle situations, or anything the circuit breaker already flagged for human hand-off deserve continued human review, because they carry the highest cost if the agent gets it wrong or if the judge model shares a blind spot with the agent. Routine, low-stakes conversations, like a simple service-appointment scheduling exchange, can rely on automated scoring alone. A smaller team without Cox's volume should borrow the segmentation logic itself — review by consequence, not by convenience — even if its own headcount and daily volume are both far smaller.",
+            },
+          ]}
+        />
+        <MCQ
+          id="rq3_tb"
+          label="TYPE T-B — TECHNICAL TREND REASONING"
+          prompt="The manual-review ceiling (~200 conversations) and the required daily volume (~10,000+) both come from Tabaré Gowon's own rounded, spoken figures at a live conference session, not from a published metrics dashboard. What does relying on this kind of figure most likely indicate about how precisely Cox has quantified the gap between manual review and automated evaluation?"
+          options={[
+            "Because the figures came from a live conference talk instead of a written report, they should be discounted entirely and treated as unreliable evidence for any conclusion drawn anywhere else in this article.",
+            "Since Cox never gave an exact number for either figure, no automated evaluation system could have been reasonably justified, which means Cox's investment in LLM-as-judge evaluation was probably a mistaken use of engineering time.",
+            "The rounded figures suggest Cox's actual daily conversation volume is shrinking over time, since \"tens of thousands\" is a smaller number than the 2.3 billion online interactions the article cites for the company as a whole each year.",
+            "The gap is real and large enough to justify building LLM-as-judge evaluation, but the exact multiple is only as precise as a rounded verbal estimate — treating it as an audited statistic would misread an approximation as a measurement.",
+          ]}
+          correct={3}
+          distractorErrors={{ 0: "scopeCreep", 1: "singleCause", 2: "scopeMismatch" }}
+          transferNote="the same caution applies to any spoken, rounded figure from a conference talk or interview: treat it as directionally real, scale-defining evidence, not as a precise, audited statistic you can do exact arithmetic on with false confidence."
+          scaffold="Notice the words Tabaré actually used: 'a couple hundred' and 'tens of thousands' are both explicitly rounded, spoken approximations, not numbers pulled from a metrics dashboard. That does not make the underlying gap fake — it means the exact size of the gap is uncertain, which is different from the gap being unreal or unusable."
+          state={state}
+          dispatch={dispatch}
+          onScore={onScore}
+        />
+        <MCQ
+          id="rq3_th"
+          label="TYPE T-H — CRITICAL REASONING (WEAKEN)"
+          prompt="Cox's argument is: because manual review cannot scale to tens of thousands of daily conversations, LLM-as-judge automated evaluation is what makes it safe to run the dealership assistant autonomously. Which new piece of evidence, if true, would most WEAKEN this argument?"
+          options={[
+            "Manual review of a small sample of conversations is still cheaper in absolute dollar terms than running a continuous LLM-as-judge evaluation pipeline in production every single day of the year, even accounting for reviewer salaries.",
+            "Cox's LLM-as-judge system also tracks conversation tone as one of its three scored metrics, and tone is inherently more subjective and harder to define precisely than either relevancy or completeness, which are more objectively checkable.",
+            "An independent audit found that Cox's LLM-as-judge model shares the same training-data biases as the dealership assistant's model, so the judge rates certain errors, like subtly wrong pricing statements, as acceptable far more often than a human reviewer would.",
+            "Cox has not published the exact prompt used to instruct its LLM-as-judge model, which makes the automated evaluation process difficult for outside researchers or auditors to independently replicate or verify in detail.",
+          ]}
+          correct={2}
+          distractorErrors={{ 0: "irrelevant", 1: "irrelevant", 3: "irrelevant" }}
+          transferNote="this generalizes to any LLM-as-judge design: a judge model that shares training data or biases with the model it evaluates can share its blind spots too, which is the load-bearing risk of the entire automated-evaluation approach, not a minor caveat."
+          scaffold="Ask which option would, if true, actually contradict the claim that automated evaluation makes autonomy safe — not just scalable. Cost, subjectivity, and reproducibility are all real concerns, but none of them shows the evaluation system failing to catch the errors it exists to catch."
+          state={state}
+          dispatch={dispatch}
+          onScore={onScore}
+        />
+        <Fermi
+          id="rq3_fermi"
+          prompt="Cox's own stated ceiling is that manual review 'works for a couple dozen, maybe a couple hundred' conversations (~200, Cox Automotive & AWS re:Invent 2025), while the dealership assistant needs to cover 'tens of thousands of transactions daily' (~10,000+, same source). Name your decomposition path, then estimate: roughly how many additional full-time human reviewers would Cox need to hire to cover that daily volume through manual review alone, assuming one reviewer can carefully review somewhere between 50 and 100 conversations per 8-hour shift — a reasonable illustrative assumption you should state, not a number Cox has disclosed."
+          unit="full-time reviewers"
+          correctValue={133}
+          openLogRange={[50, 300]}
+          openEnded={true}
+          decomposition="About 10,000 daily ÷ about 75 conversations per reviewer per shift (the midpoint of the stated 50-100 illustrative range) ≈ 133 full-time reviewers, order of magnitude roughly 100-200. Anchor facts (FACT, cited): the ~200-conversation manual ceiling and the ~10,000-plus-per-day target. The reviewer-productivity rate (50-100 per shift) is your own stated illustrative assumption, exactly as a Fermi estimate requires — it is not a Cox-reported number, and it is not the fact being tested here. This question is scored on order of magnitude, so any answer roughly between 50 and 300 reviewers counts as correct. The most sensitive assumption is that productivity rate: doubling it to 150 conversations per shift roughly halves the reviewer count to about 67, which shows how much the final answer depends on an assumption Cox never actually discloses."
+          state={state}
+          dispatch={dispatch}
+        />
+        <PrincipleGate id="rq3_principle" state={state} dispatch={dispatch} />
+        <PatternTransfer
+          id="rq3_transfer"
+          prompt="The principle from this section is: once production volume exceeds what manual review can cover, automated evaluation — not just automated response generation — becomes the safety-critical system, and it inherits whatever blind spots exist between the judge and the thing it judges. Apply this to a payroll-processing company automating anomaly detection in paycheck runs with an LLM-based reviewer checking a separate LLM-based anomaly-flagging agent. What would the compliance team do differently in month one, and what failure mode would they face that did not appear in Cox's dealership-conversation example?"
+          state={state}
+          dispatch={dispatch}
+        />
+        <P>
+          <em>What this evidence supports, and what it doesn't:</em> the evidence supports that automated evaluation
+          is what makes an autonomous agent's quality checkable at production volume, in a way manual review
+          structurally cannot be. It does not tell us how accurate Cox's own LLM-as-judge scores actually are against
+          real customer sentiment, since no validation data against that kind of ground truth has been published.
+        </P>
+        <Glossary
+          terms={[
+            { term: "Order of magnitude", def: "A rough power-of-ten scale — is something closer to hundreds, thousands, or tens of thousands? — used when an exact number isn't available or needed." },
+            { term: "Fermi estimate", def: "A rough, structured calculation built by breaking a big unknown number into smaller, easier-to-estimate pieces multiplied together." },
+          ]}
+        />
+      </Section>
+
+      {/* WHAT BROKE */}
+      <Section id="whatbroke" title="What Broke" red>
+        <P>
+          Of the five agentic products Cox's Chief Product Officer challenged five teams to launch by Labor Day 2025
+          — starting from the second week of July 2025, a roughly five-and-a-half-week deadline — three reached
+          production in beta form, one was nearly ready to launch, and one was, in the words of Brian Lloyd Newberry,
+          Cox's AVP of Enterprise Architecture, speaking at the December 2025 AWS re:Invent conference, "taken back to
+          the drawing board and reimagined" (Cox Automotive &amp; AWS re:Invent 2025). Cox has not disclosed which of
+          the five projects this was, or the specific technical root cause. What is on the record is Newberry's own
+          framing: this failure is "probably some of the most valuable data we got — what didn't work."
+        </P>
+        <P>
+          Newberry's own diagnosis of the general difficulty — not the specific failed project — is that agentic
+          systems are "a soft way of programming... not deterministic," meaning "agents have agency, they can do what
+          they want," and that building guardrails and product logic around genuine non-determinism was, in his own
+          words, "a hard thing for people to wrap their mind around from a product point of view" (Cox Automotive
+          &amp; AWS re:Invent 2025). Combined with the five-and-a-half-week deadline and zero prior agentic-product
+          experience across all five teams, it is reasonable to infer — though not confirmed by Cox — that whichever
+          project failed likely under-invested in exactly the five-layer reliability stack the Reliability
+          Engineering section describes, relative to the other four projects, since building that stack correctly
+          under time pressure, with no prior practice, is where a team would most plausibly cut corners. This is the
+          article's own inference, not a Cox-confirmed root cause, and should be read as a reasoned guess, not a
+          stated fact.
+        </P>
+        <P>
+          Cox has not published a dollar figure or a headcount figure for reworking the failed project. What is
+          quantifiable is a different, but comparably-scaled, engineering cost from the same broader initiative: the
+          Architecture section's framework re-platform, from Agent Squad to Strands, took about two weeks instead of
+          the "several weeks" it would ordinarily have taken (Cox Automotive &amp; AWS re:Invent 2025). That is
+          offered here only as the best available proxy for what a mid-flight rework costs inside Cox's own five-week
+          program, not as a claim about the specific failed project's actual cost, which Cox has not disclosed.
+        </P>
+        <P>
+          The lesson: a shared foundation — AgentCore, Strands, and the five-layer reliability stack — measurably
+          compressed how fast four of the five teams reached production or near-production. It did not guarantee
+          that all five would succeed on the first attempt. The most important lesson from Cox's own account is that
+          the company treated this failure as a deliverable worth naming publicly — "some of the most valuable data
+          we got" — rather than a footnote to bury. That is itself a rare, checkable behavior: most public AI case
+          studies report only survivors.
+        </P>
+        <div style={{ margin: "20px 0" }}>
+          <ResponsiveContainer width="100%" height={260}>
+            <PieChart>
+              <Pie data={outcomeData} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={55} outerRadius={95} label={(e) => e.name + ": " + e.value}>
+                {outcomeData.map((d, i) => (
+                  <Cell key={i} fill={OUTCOME_COLORS[i]} />
+                ))}
+              </Pie>
+              <Legend />
+              <Tooltip />
+            </PieChart>
+          </ResponsiveContainer>
+          <SourceNote>FACT — Cox Automotive &amp; AWS re:Invent 2025 (per Brian Lloyd Newberry): of 5 products launched under the July-to-Labor-Day 2025 deadline, 3 reached production beta, 1 was about to launch, 1 was redesigned.</SourceNote>
+        </div>
+        <ChartQA
+          chartId="whatbroke_chart"
+          state={state}
+          dispatch={dispatch}
+          qs={[
+            {
+              kind: "QUANTITATIVE REASONING",
+              prompt: "1 of 5 projects (20%) launched under this same deadline, foundation, and reliability stack had to be redesigned. If a peer enterprise ran ten similar five-week agentic sprints across its history at that same 20% redesign rate, roughly how many total projects would you expect to need rework, and what does that imply about whether a single \"took it back to the drawing board\" result is a red flag or an expected base rate?",
+              authored: "10 × 20% = 2 projects total would be expected to need rework, at that same rate. That implies a single \"sent back to the drawing board\" result, on its own, looks less like a red flag about Cox's specific execution and more like it could be an expected base rate for fast, high-autonomy launches under tight deadlines — though with only one five-week sprint on the public record, Cox cannot yet confirm whether 20% is actually its typical rate or a one-time result.",
+            },
+            {
+              kind: "FAILURE-CASE / HINDSIGHT",
+              prompt: "Given that Newberry calls the failed project \"some of the most valuable data\" Cox got, which assumption in the ORIGINAL five-week plan was most likely held by all five teams as uncontroversial at the time — the shared foundation, the shared deadline, or the shared assumption that a working demo would generalize to production traffic — and why was that specific assumption the one most likely to be wrong under time pressure?",
+              authored: "Of the three shared assumptions, \"a working demo will generalize to real production traffic\" is the one most likely to have been wrong under time pressure. A shared foundation and a shared deadline are structural facts every team could see and plan around; \"the demo will generalize\" is a belief, not a fact, and it is exactly the kind of belief that goes untested when a team has weeks, not months, to build and is seeing agentic customer traffic for the first time. Newberry's own quote about non-determinism being hard to \"wrap your mind around\" points at precisely this gap between how an agent behaves in a demo and how it behaves across the full range of real customer inputs.",
+            },
+          ]}
+        />
+        <MCQ
+          id="whatbroke_mcq"
+          label="FAILURE CASE QUESTION"
+          prompt="Cox has not disclosed the specific root cause of the one redesigned project. Given everything else in this article, which explanation should a careful reader treat as LEAST supported by the evidence, even though it sounds plausible?"
+          options={[
+            "The failed project may have under-invested in the same five-layer reliability stack — guardrails, red-teaming cadence, evaluation, and circuit breakers — that this article shows Cox built for its most successful product, given the shared time pressure and shared inexperience across all five teams.",
+            "Cox's own account attributes the general difficulty of the five-week sprint to agentic systems being non-deterministic, since agents \"have agency\" and can act unpredictably, a challenge that applied equally to all five teams, not only the one that failed.",
+            "Cox treated the failed project as valuable data rather than a footnote, suggesting the company's own read is that the failure taught it something generalizable about its process, not just about one team's individual execution.",
+            "The failed project chose a fundamentally different underlying AI model than the other four projects used, and that model choice alone is what explains why it fell behind the other four teams.",
+          ]}
+          correct={3}
+          distractorErrors={{ 0: "scopeCreep", 1: "singleCause", 2: "hindsight" }}
+          transferNote="this generalizes to reading any incident report: the explanation that names a specific, dramatic technical cause not actually mentioned anywhere in the source is usually the least-supported one, even when it sounds the most satisfying."
+          scaffold="Check each option against what the article actually states. Three of the four options trace directly to a named quote or a fact already established in earlier sections. Only one option requires a detail — which specific model the failed project used — that no source anywhere in this article discloses."
+          state={state}
+          dispatch={dispatch}
+          onScore={onScore}
+        />
+      </Section>
+
+      {/* LEARNING SUMMARY */}
+      {showSummary && (
+        <Section id="summary" title="Learning Summary">
+          <P>
+            <strong>Score breakdown:</strong> {score} correct answers recorded this session across the scored
+            multiple-choice questions above (two T-B questions in RQ2 and RQ3, the T-A question in RQ1, the T-C
+            consulting case in RQ2, the T-H critical-reasoning question in RQ3, the failure-case question in What
+            Broke, and the T-E present-day question in the Conclusion). For any question you answered incorrectly,
+            scroll back to that question's revealed explanation — it always names the specific reasoning error, never
+            just "incorrect." For the True/False question in RQ2 and the two numeric estimation (T-D) questions,
+            compare your own answer against the authored justification or anchor value shown after each submission;
+            if your Fermi estimates landed low on both, that is a signal of under-estimating how fast a shared
+            foundation can compress engineering timelines and how large the gap is between manual and automated
+            review capacity. {warmUpDone ? "Warm-up: reviewed before this session." : `Warm-up skipped — ${warmUpSkippedCount || WARMUPS.length} prior principles not reviewed this session.`}
+          </P>
+          <P>
+            <strong>Principle production review:</strong> look back at what you wrote in each "Principle in one
+            sentence" box across Sections RQ1 through RQ3. Which of your three stated principles surprised you most
+            when compared against this article's own framing — the shared-foundation-versus-framework-churn
+            distinction in RQ1, the five-layer reliability stack in RQ2, or the manual-review-ceiling-versus-
+            automated-evaluation gap in RQ3? Write one sentence on why, revising your answer in the boxes above if
+            you want.
+          </P>
+          <ApplyIt
+            id="insight_slot"
+            title="THREE INSIGHT SLOTS"
+            prompt="You have now seen evidence across architecture, reliability, and evaluation. Before comparing to the authored insights below, write the single most non-obvious insight from this article that you would defend to a skeptical CTO."
+            fields={["Your single most non-obvious insight, stated as a claim (not a summary of the article)."]}
+            state={state}
+            dispatch={dispatch}
+          />
+          <div style={{ background: "#eef2ff", borderRadius: 10, padding: 16, marginTop: 4, marginBottom: 20 }}>
+            <div style={{ fontWeight: 700, marginBottom: 8 }}>How your insight compares — three authored insight cards</div>
+            <P>1. The expensive part of scaling an agent platform is not the runtime or the memory service — it's the reliability engineering (guardrails, red-teaming cadence, evaluation) layered on top, and that cost does not shrink automatically just because the infrastructure underneath is shared.</P>
+            <P>2. A shared foundation reduces the cost of platform churn (a two-week framework swap instead of several weeks); it does not prevent the churn itself, and it did not stop one of Cox's five parallel launches from needing a full redesign.</P>
+            <P>3. Companies that publish AI case studies vary enormously in what they're willing to disclose — Cox's own account is unusually strong evidence precisely because it names an admitted failure ("the most valuable data we got") across three independent public sources, not just its wins.</P>
+          </div>
+          <ApplyIt
+            id="ls_applyit_present"
+            title="APPLY IT — PRESENT-DAY VARIANT"
+            prompt="Apply the governing principle — a shared foundation, not a smarter model, is what lets agent production scale, and reliability has to be engineered continuously on top of it — to a similar-sized enterprise (thousands of employees, multiple legacy brands, no existing agentic infrastructure) that you know or can reasonably imagine, the way Cox Automotive looked in mid-2025."
+            fields={[
+              "One-sentence so-what thesis: what should this company do differently, in Cox's terms?",
+              "The load-bearing assumption your recommendation depends on.",
+              "The strongest disconfirming evidence from this article against your own recommendation.",
+              "One-line pre-mortem: 'If this fails in 12 months, the most likely reason is ___.'",
+            ]}
+            state={state}
+            dispatch={dispatch}
+          />
+          <ApplyIt
+            id="ls_applyit_2027"
+            title="APPLY IT — 2027 FORWARD-LOOKING VARIANT"
+            prompt="Given the same business constraints Cox faced in 2025 — multiple legacy brands, no existing agentic infrastructure, a compressed launch timeline — but assuming 2027-level foundation models (longer context, cheaper inference, more reliable native tool-calling), what would you design or decide differently, and which load-bearing assumption from Cox's 2025 evidence does the 2027 version replace?"
+            fields={[
+              "What changes in your recommendation given 2027-level model capability.",
+              "The specific load-bearing assumption from Cox's evidence that the 2027 version replaces.",
+              "What would have to be true for the 'shared infrastructure over model quality' principle to stop mattering by 2027.",
+              "One observation that would tell you, in practice, that this has actually happened.",
+            ]}
+            state={state}
+            dispatch={dispatch}
+          />
+          <P>
+            <strong>Principles to revisit:</strong> if you missed the RQ1 architecture question (T-A) or either T-B
+            question, revisit "which layer of an orchestrator-based agent system actually degrades first as domains
+            are added, and why crediting a model upgrade for a process fix is a category error." If you missed the
+            RQ2 consulting case (T-C) or the True/False question, revisit "why a published safety pattern's visible
+            guardrails are usually cheaper to copy than its invisible ongoing operating cost." If you missed the RQ3
+            critical-reasoning question (T-H), revisit "what would actually make an LLM-as-judge evaluation system
+            unsafe, versus what is merely a separate concern about cost or transparency." If you missed the
+            failure-case question or the present-day T-E question, revisit "why the most specific-sounding
+            explanation for a failure is not automatically the best-supported one."
+          </P>
+        </Section>
+      )}
+
+      {/* CONCLUSION */}
+      {showConclusion && (
+        <Section id="conclusion" title="Conclusion">
+          <P>
+            The governing principle, stress-tested by both the evidence and the failure case in equal measure: shared
+            infrastructure compresses the time and cost of reaching production, but it does not guarantee any single
+            project's success — reliability still has to be engineered per project, continuously, not inherited
+            automatically just because the platform is shared. Partial failure of this principle looks exactly like
+            Cox's own five-week program: three successes, one near-success, and one full redesign, all built on the
+            identical shared foundation.
+          </P>
+          <P>
+            For an AI product manager, this principle changes a specific budgeting decision. Assuming "the platform
+            will make this fast" is only half right. A realistic project timeline should separate infrastructure time
+            — which a shared foundation can compress to days or weeks — from reliability-engineering time —
+            guardrails, a red-teaming cadence, and an evaluation harness — which Cox's own account suggests scales
+            with the risk and novelty of the specific use case, not with how many other agents already share the same
+            platform.
+          </P>
+          <P>
+            For a future CTO, the organizational lesson is not "adopt Bedrock AgentCore." It is that making a
+            platform bet before general availability, as Cox did, is a real, uninsured technical risk that happened
+            to pay off in this case; a CTO reading this should ask what the downside would have looked like if AWS's
+            own roadmap had shifted, not just admire the upside that actually happened. Separately, Cox's decision to
+            publish its own failure — one of five redesigned — as "valuable data," rather than suppress it, is itself
+            a governance choice a future CTO can copy directly, independent of any specific vendor platform.
+          </P>
+          <P>
+            The most important unresolved question this case does not answer: which of the five reliability layers —
+            hard guardrails, soft guardrails, red-teaming cadence, LLM-as-judge evaluation, or circuit breakers —
+            mattered most to the four projects that succeeded, or whether the one that failed was simply missing a
+            specific layer rather than running out of time. Until Cox, or a peer company, publishes a controlled
+            comparison isolating one layer at a time, that remains an open engineering question, not a solved one.
+          </P>
+          <MCQ
+            id="te_present"
+            label="TYPE T-E — FORWARD-LOOKING IMPLICATION (PRESENT-DAY VARIANT)"
+            prompt="Given everything in this article, what is the most important decision a PM or CTO at a similar-sized enterprise (thousands of employees, multiple legacy brands or business units, no existing agentic infrastructure) should make in the next six months?"
+            options={[
+              "Stand up the shared foundation — a standardized runtime, memory layer, identity system, and observability stack — before greenlighting more than one or two pilot agent projects, since this foundation let framework churn and team inexperience get absorbed cheaply, not expensively, later.",
+              "Wait for Amazon Bedrock AgentCore, or an equivalent platform, to reach a longer and more mature track record before starting any agentic pilots at all, since Cox's own five-layer reliability stack still let one of five launched projects fail and require a full redesign.",
+              "Prioritize selecting the single best-performing foundation model across latency, cost, and accuracy before building any shared agent infrastructure, since Cox's own model-evaluation criteria compared providers on exactly those three dimensions first, before any architecture work began.",
+              "Mandate that every new agent project share one single orchestrator agent across the entire company starting on day one, since Cox's dealership assistant used an orchestrator-and-sub-agent pattern successfully once it reached production earlier in the same year.",
+            ]}
+            correct={0}
+            distractorErrors={{ 1: "baseRate", 2: "metricCause", 3: "scopeCreep" }}
+            transferNote="this generalizes to any enterprise adopting agentic AI: infrastructure that many teams can share is normally worth building before multiplying pilots, because it is the piece that gets exponentially more expensive to retrofit once several teams are already depending on incompatible, ad hoc versions of it."
+            scaffold="Reread what Cox's own evidence actually credits for its speed: a shared runtime, memory, identity, and observability foundation that existed before the five-team sprint began. None of the article's evidence points to model selection, an orchestrator mandate, or waiting for platform maturity as the decisive variable."
+            state={state}
+            dispatch={dispatch}
+            onScore={onScore}
+          />
+          <ApplyIt
+            id="te_2027"
+            title="TYPE T-E — 2027 FORWARD-LOOKING VARIANT (WITH FALSIFICATION)"
+            prompt="Assume by 2027 foundation models offer meaningfully longer context windows, cheaper inference, and better native tool-calling reliability than what Cox had available in 2025. Given the same business constraints (multiple legacy brands, no existing agentic infrastructure, a compressed launch timeline), what would you design or decide DIFFERENTLY than Cox did, and what load-bearing assumption from this article's evidence would that 2027 version replace? State the one observation that would most WEAKEN this article's governing principle — that shared infrastructure, not model quality, is the primary lever for scaling agent production."
+            fields={[
+              "What you would design or decide differently by 2027, given longer context windows, cheaper inference, and more reliable native tool-calling.",
+              "The specific load-bearing assumption from today's evidence that a 2027 version would replace.",
+              "The one observation that would most WEAKEN this article's governing principle, stated specifically.",
+            ]}
+            state={state}
+            dispatch={dispatch}
+          />
+          <PatternTransfer
+            id="final_transfer"
+            prompt="FINAL QUESTION. The governing principle in this article: a production agent system scales because of a shared foundation — one runtime, memory layer, identity system, and observability stack — that turns each new agent into a business-logic project instead of an infrastructure project, and reliability has to be engineered continuously on top of that foundation, not inherited from it automatically. Apply this principle to a regional airline building its first three agents — one for baggage-claim resolution, one for flight-rebooking during weather delays, and one for crew-scheduling assistance — with no existing agent platform today. Name the principle accurately, describe a genuinely non-trivial application (not a relabeling of Cox's automotive case), and name a new failure mode that would not appear anywhere in this article's Cox Automotive evidence."
+            state={state}
+            dispatch={dispatch}
+          />
+          <div style={{ marginTop: 32, padding: 16, background: "#fafafa", borderRadius: 10, border: "1px solid #eee" }}>
+            <div style={{ fontWeight: 700, marginBottom: 10 }}>Sources</div>
+            {SOURCES.map((s) => (
+              <div key={s.url} style={{ fontSize: 13, marginBottom: 10 }}>
+                <div><strong>[{s.tier}]</strong> {s.name}</div>
+                <div><a href={s.url} target="_blank" rel="noreferrer">{s.url}</a></div>
+                <div style={{ color: "#666" }}>{s.use}</div>
+              </div>
+            ))}
+          </div>
+        </Section>
+      )}
+
+      <div style={{ height: 80 }} />
+    </div>
+  );
+}
+
+const root = ReactDOM.createRoot(document.getElementById("root"));
+root.render(<App />);
+</script>
+</body>
+</html>

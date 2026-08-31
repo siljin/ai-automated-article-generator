@@ -47,7 +47,7 @@ Read these files in order before implementation:
 
 ## Report Types
 
-There are 10 report categories. When given a topic, select the type whose lens best fits the topic's primary value to the target audience.
+There are 13 report categories. When given a topic, select the type whose lens best fits the topic's primary value to the target audience.
 
 **Phase 0 — AI Product Lifecycle Spine** (generate once, auto-prerequisite)
 A navigational map artifact. Introduces the full lifecycle (Feasibility → Design → Build → Evaluate → Deploy → Scale → Govern) using one end-to-end real company narrative. Every other artifact references this map. Shorter than a full article — orientation, not depth.
@@ -79,6 +79,15 @@ What broke in production, why, and what recovery actually cost. Anchored in real
 **Type 9 — CTO Scaling Playbook**
 How engineering leaders scale AI infrastructure and teams: org design decisions, build/buy/partner frameworks, platform abstraction choices, AI governance, technical debt in model-dependent systems. Real examples: OpenAI infrastructure scaling, Anthropic multi-agent research system, Shopify AI tooling strategy.
 
+**Type 10 — AI Unit Economics & Margin Playbook**
+How PMs manage the cost structure unique to probabilistic features — inference cost per query, margin erosion as usage scales, and pricing models that stay profitable even as underlying model costs and context-window usage fluctuate quarter to quarter. Covers cost-to-serve modeling for token-based features, when to cache/route to cheaper models vs. premium ones, and the tradeoff between generous usage limits (adoption) and margin protection. Real examples: Cursor's shift from flat subscription to usage-based pricing as inference costs outpaced flat fees, Jasper's margin compression when underlying LLM API costs rose, Perplexity's tiered model routing to balance free-tier costs against paid-tier quality.
+
+**Type 11 — AI Product Strategy Playbook**
+How PMs decide what to build vs. buy vs. partner for AI capabilities, sequence roadmaps under model uncertainty, and monetize AI features without cannibalizing core product. Covers build/buy decisions when foundation models commoditize your differentiation, roadmap sequencing when underlying model quality shifts quarterly, and pricing AI features (per-seat vs. usage-based vs. bundled). Real examples: GitHub Copilot's evolution from autocomplete to agentic workflows, Notion AI's feature bundling strategy, Salesforce Einstein Copilot's build-vs-partner bets across its ecosystem.
+
+**Type 12 — AI Trust & Adoption Playbook**
+How PMs manage user trust and organizational change when AI features disrupt existing workflows — transparency and explainability tradeoffs, guardrails and human-escalation paths, and driving adoption against skepticism or fear of job displacement. Real examples: Intercom Fin's rollout of AI-first customer support with escalation fallbacks, Klarna's public reversal on fully-automated customer service, Microsoft 365 Copilot's enterprise change-management playbook for driving seat adoption.
+
 ## End-to-End Workflow
 
 1. Identify the governing principle — the single transferable mental model the reader will carry out. State it before selecting the case.
@@ -106,7 +115,11 @@ How engineering leaders scale AI infrastructure and teams: org design decisions,
 - **Forward-looking Apply It.** The Apply It prompt always includes a forward-looking variant: given the same constraints, what would the reader build or decide differently in 2027 as foundation model capabilities change?
 - **No answer leakage.** Never ask for a fact stated in the immediately preceding prose, caption, or visible chart label.
 - **Pattern transfer is the highest-order question.** It appears last in every section and in Apply It. It is never a filler question.
-- **Plain language.** Write so a reader new to AI systems follows every sentence on first read — short sentences, common words, no filler, every technical term/acronym/model name explained in plain words on first use. Simpler language, not simpler thinking; rigor, architecture detail, and citations stay intact.
+- **One insight per question.** Within a section, no two questions — across chart interpretations, MCQ, Fermi, consulting case, and pattern transfer — may test the same facet of the governing principle restated in different words. Each must carry a distinct one-clause insight tag (mechanism, magnitude, transfer-without-the-advantage, or falsification). See the Insight Budget rule in chart-and-question-design.md. Repetition is not thoroughness — it is one idea filling several question slots that should each teach something new.
+- **Adjacent breadth per section.** Every evidence section includes one paragraph that introduces a related technique, capability, or comparison beyond the section's core thesis (see article-structure.md, evidence-section step 6), so depth on one insight never comes at the cost of the reader's broader map of the topic.
+- **No length tell on multiple-choice questions.** A correct answer must never be identifiable simply because it is the longest or most hedged option. Word-count all four options and balance them (correct option within ~20% of the average) before finalizing any MCQ.
+- **Question type variety.** Beyond T-A through T-F, every article includes at least one T-G (true/false with justification) and one T-H (critical reasoning: strengthen/weaken/assumption) question, positioned wherever they best fit the evidence.
+- **Plain language.** Write so a reader new to AI systems follows every sentence on first read — short sentences, common words, no filler, every technical term/acronym/model name explained in plain words on first use. Simpler language, not simpler thinking; rigor, architecture detail, and citations stay intact. Every sentence must add information the reader did not already have — do not restate an already-made point in new words merely to fill space.
 - **Per-page glossary.** Every page ends with a short glossary of the new terms, acronyms, and model names it introduced (acronyms spelled out, one-line plain definitions); pages with no new terms omit it.
 - **Two interpretation questions per chart.** Every chart carries exactly two interpretation questions of two different kinds (so-what, quantitative reasoning, qualitative/mechanism, or causal/comparative) — never two so-whats, and at least one must not be a so-what.
 - **Production before consumption (chart-level only).** Chart values are always visible, but at every chart the reader submits an answer to both interpretation prompts before each prompt's authored answer reveals. This production-before-consumption rule applies to chart interpretation prompts and to the principle prompt; it never locks section navigation.

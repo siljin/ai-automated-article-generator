@@ -1,0 +1,808 @@
+/* ============================================================================
+   The Cure Nobody Buys — gene therapy pricing paradox
+   Domain: Healthcare, Science, Medicine & BioTech (ER-08).
+   Data tiers: FACT (cited, verified), ESTIMATE (derived arithmetic),
+   ILLUSTRATION (disclosed synthetic teaching values). App code + CSS inlined.
+   ========================================================================== */
+const {useState,useEffect,useRef} = React;
+const R = window.Recharts;
+const {ResponsiveContainer,ComposedChart,BarChart,Bar,Cell,LineChart,Line,ScatterChart,Scatter,
+  XAxis,YAxis,CartesianGrid,Tooltip,ReferenceLine,ReferenceArea,LabelList,Legend} = R;
+
+/* ---------- DATA ------------------------------------------------------------ */
+// Chart 1 — list price vs ICER value-based ceiling (FACT: list prices — ProPublica/Sci Am/FDA;
+// ICER benchmarks — ICER press releases / Health Advances summary, 2019-2023)
+const c1 = [
+  {name:"Zolgensma (SMA)", value:1.9, list:2.125},
+  {name:"Casgevy (sickle cell)", value:2.05, list:2.2},
+  {name:"Hemgenix (hemophilia B)", value:2.9, list:3.5},
+].map(d=>({...d, gap:+(d.list-d.value).toFixed(3)}));
+
+// Chart 2 — commercial status of the 8 blood-disorder one-time gene therapies approved
+// 2022-2023 (Zynteglo, Skysona, Hemgenix, Roctavian, Elevidys, Casgevy, Lyfgenia, Beqvez),
+// share active vs discontinued/withdrawn. ESTIMATE: simple count of 8 named products by status
+// at each date; not a reported industry statistic. FACTs behind each: BioPharma Dive (Beqvez,
+// Feb 2025), BioMarin company statement (Roctavian, Feb 2026).
+const c2 = [
+  {period:"2024 (1–2 yrs post-launch)", active:8, discontinued:0},
+  {period:"2026 (3–4 yrs post-launch)", active:6, discontinued:2},
+];
+
+// Chart 3 — hemophilia B lifetime cost bridge (FACT inputs: $788,491/yr extended half-life
+// factor IX, CHESS US/JMCP; $21.09M lifetime standard FIX cost, Tandfonline decision-analytic
+// model; $3.5M Hemgenix list price, CSL Behring/Sci Am). Bridge arithmetic is an ESTIMATE.
+const c3 = [
+  {name:"Lifetime factor IX cost", base:0, delta:21.09, kind:"total"},
+  {name:"− one-time Hemgenix price", base:17.59, delta:3.5, kind:"down"},
+  {name:"Net theoretical savings", base:0, delta:17.59, kind:"total"},
+];
+
+// Chart 4 — Casgevy commercial funnel, launch (Dec 2023) through Sept 30, 2025 (FACT: CRISPR
+// Therapeutics Q3 2025 business update/financial results, Nov 10, 2025). Log-scale dot plot.
+const c4 = [
+  {stage:"Eligible (N. America + Europe)", n:37000},
+  {stage:"Referred to treatment center", n:300},
+  {stage:"Completed cell collection", n:165},
+  {stage:"Received infusion", n:39},
+];
+
+// Chart 5 — CMS Cell and Gene Therapy Access Model coverage (FACT: CMS press release, Jul 15 2025)
+const c5 = [{name:"Medicaid SCD beneficiaries covered", val:84}];
+
+/* ---------- small helpers -------------------------------------------------- */
+function Tier({t}){const m={FACT:"fact",ESTIMATE:"est",ILLUSTRATION:"ill"};return <span className={"tier "+m[t]}>{t}</span>;}
+
+/* ---------- Interpretation prompt (gated reveal) --------------------------- */
+function Interp({id,label,question,authored,onSubmit}){
+  const [txt,setTxt]=useState(""); const [done,setDone]=useState(false);
+  return (
+    <div className="prompt">
+      <div className="lbl">{label}</div>
+      <div className="q">{question}</div>
+      {!done && <>
+        <textarea value={txt} onChange={e=>setTxt(e.target.value)} placeholder="Write at least one sentence (15+ characters) before the authored answer appears."/>
+        <button className="btn sm" disabled={txt.trim().length<15} onClick={()=>{setDone(true);onSubmit&&onSubmit(id,txt);}}>Reveal authored answer</button>
+      </>}
+      {done && <>
+        <div className="yours"><b>Your answer:</b> {txt}</div>
+        <div className="authored"><div className="h">Compare to the authored answer</div>{authored}</div>
+      </>}
+    </div>
+  );
+}
+
+/* ---------- Multiple choice (no confidence capture) ------------------------ */
+function MC({q,onScore}){
+  const [sel,setSel]=useState(null);
+  const [sub,setSub]=useState(false);
+  const submit=()=>{ if(sel==null) return; setSub(true); onScore(q.id, sel===q.correct, "mc", {correct:sel===q.correct}); };
+  return (
+    <div className={"q-card"+(q.kind==="case"?" case":"")}>
+      <div className="q-type">{q.typeLabel}{q.kind==="case"?" · Case Prompt":""}</div>
+      <div className="q-stem">{q.stem}</div>
+      {q.client && <p style={{marginTop:0,fontSize:14,color:"#555"}}><b>Client:</b> {q.client}</p>}
+      {q.options.map((o,i)=>{
+        let cls="opt"; if(sub){ if(i===q.correct) cls+=" correct"; else if(i===sel) cls+=" wrong"; }
+        else if(i===sel) cls+=" sel";
+        return <div key={i} className={cls} onClick={()=>!sub&&setSel(i)}>
+          <span className="k">{"ABCD"[i]}</span><span>{o}</span></div>;
+      })}
+      {!sub && <button className="btn" disabled={sel==null} onClick={submit}>Submit</button>}
+      {sub && <div className="expl">
+        <span className={"cal "+(sel===q.correct?"ok":"no")}>{sel===q.correct?"Correct — ":"Incorrect — "}</span>
+        {sel===q.correct? q.why : q.wrongWhy[sel]}
+        <div className="gen">Where this generalizes: {q.generalizes}</div>
+      </div>}
+    </div>
+  );
+}
+
+/* ---------- Numeric estimation ---------------------------------------------- */
+function Numeric({q,onScore}){
+  const [val,setVal]=useState(q.min);
+  const [sub,setSub]=useState(false);
+  const within = ()=>{ if(q.log){ const r=val/q.actual; return r>=0.5 && r<=2; }
+    return Math.abs(val-q.actual) <= q.tol; };
+  const submit=()=>{ setSub(true); onScore(q.id, within(), "num", {val, actual:q.actual}); };
+  const span=q.max-q.min;
+  const pos=x=>Math.max(0,Math.min(100,((x-q.min)/span)*100));
+  return (
+    <div className="q-card">
+      <div className="q-type">{q.typeLabel} · Numeric estimate</div>
+      <div className="q-stem">{q.stem}</div>
+      {q.skeleton && !sub && <div className="warmnote">{q.skeleton}</div>}
+      {!sub && <>
+        <div className="num-row">
+          <input type="number" value={val} onChange={e=>setVal(parseFloat(e.target.value)||0)} />
+          <input type="range" min={q.min} max={q.max} step={q.step} value={val} onChange={e=>setVal(parseFloat(e.target.value))}/>
+          <span style={{fontSize:13,color:"#666"}}>{q.unit}</span>
+        </div>
+        <button className="btn" onClick={submit}>Submit estimate</button>
+      </>}
+      {sub && <>
+        <div className="distax">
+          <div className="tick" style={{left:pos(q.min)+"%"}}></div><div className="lab" style={{left:pos(q.min)+"%"}}>{q.min}</div>
+          <div className="tick" style={{left:pos(q.max)+"%"}}></div><div className="lab" style={{left:pos(q.max)+"%"}}>{q.max}</div>
+          <div className="you" style={{left:pos(val)+"%"}}>you {val}</div>
+          <div className="act" style={{left:pos(q.actual)+"%"}}>actual {q.actual}</div>
+          <div className="tick" style={{left:pos(q.actual)+"%",background:"var(--good)"}}></div>
+          <div className="tick" style={{left:pos(val)+"%",background:"var(--accent)"}}></div>
+        </div>
+        <div className="expl">
+          <span className={"cal "+(within()?"ok":"no")}>{within()?"Within tolerance — ":"Outside tolerance — "}</span>
+          {q.how}
+          <div className="gen">Where this generalizes: {q.generalizes}</div>
+        </div>
+      </>}
+    </div>
+  );
+}
+
+/* ---------- Glossary -------------------------------------------------------- */
+function Glossary({items}){ if(!items||!items.length) return null;
+  return <div className="glossary"><div className="h">Glossary</div>
+    {items.map((g,i)=><p key={i}><b>{g.t}</b> — {g.d}</p>)}</div>;
+}
+
+/* ---------- Chart wrappers -------------------------------------------------- */
+function Chart1(){
+  return (
+    <div className="chartbox">
+      <div className="charttitle">List price vs. ICER's own value-based ceiling <Tier t="FACT"/></div>
+      <div className="chartsub">Dollars per one-time dose. Blue dot = the highest price ICER judged "cost-effective" at $100,000–$150,000 per quality-adjusted life year gained; red dot = actual list price. Sources: ICER press releases / Health Advances summary (2019–2023); ProPublica, Scientific American, FDA (list prices).</div>
+      <ResponsiveContainer width="100%" height={220}>
+        <ComposedChart data={c1} layout="vertical" margin={{left:8,right:44,top:8,bottom:4}}>
+          <CartesianGrid strokeDasharray="3 3" horizontal={false}/>
+          <XAxis type="number" domain={[0,4]} tickFormatter={v=>"$"+v+"M"} fontSize={11}/>
+          <YAxis type="category" dataKey="name" width={150} fontSize={11}/>
+          <Tooltip formatter={(v,n)=>["$"+v+"M", n]}/>
+          <Bar dataKey="value" stackId="a" fill="transparent"/>
+          <Bar dataKey="gap" stackId="a" fill="#ddd" barSize={6}/>
+          <Scatter dataKey="value" fill="#1f6feb" name="ICER value ceiling" shape="circle"/>
+          <Scatter dataKey="list" fill="#c0392b" name="List price" shape="circle"/>
+          <Legend fontSize={10} wrapperStyle={{fontSize:10.5}}/>
+        </ComposedChart>
+      </ResponsiveContainer>
+      <div className="note">Dumbbell (two-dot) chart chosen over a plain bar because the story is the gap between two values per therapy, not one ranked total.</div>
+    </div>
+  );
+}
+function Chart2(){
+  return (
+    <div className="chartbox">
+      <div className="charttitle">Share of the 8 blood-disorder gene therapies still commercially active <Tier t="ESTIMATE"/></div>
+      <div className="chartsub">Zynteglo, Skysona, Hemgenix, Roctavian, Elevidys, Casgevy, Lyfgenia, Beqvez — approved 2022–2023. ESTIMATE: simple count by commercial status at each date; not a reported industry statistic. Underlying FACTs: Pfizer discontinued Beqvez, Feb 2025 (BioPharma Dive); BioMarin withdrew Roctavian, Feb 2026 (BioMarin).</div>
+      <ResponsiveContainer width="100%" height={180}>
+        <BarChart data={c2} layout="vertical" stackOffset="expand" margin={{left:8,right:20,top:8,bottom:4}}>
+          <CartesianGrid strokeDasharray="3 3" horizontal={false}/>
+          <XAxis type="number" tickFormatter={v=>Math.round(v*100)+"%"} fontSize={11}/>
+          <YAxis type="category" dataKey="period" width={150} fontSize={11}/>
+          <Tooltip formatter={(v,n)=>[Math.round(v*100)+"%", n]}/>
+          <Bar dataKey="active" stackId="s" fill="#1f6feb" name="Still active">
+            <LabelList dataKey="active" position="insideLeft" formatter={v=>v} fill="#fff" fontSize={11}/>
+          </Bar>
+          <Bar dataKey="discontinued" stackId="s" fill="#c0392b" name="Discontinued/withdrawn">
+            <LabelList dataKey="discontinued" position="insideRight" formatter={v=>v||""} fill="#fff" fontSize={11}/>
+          </Bar>
+          <Legend fontSize={10} wrapperStyle={{fontSize:10.5}}/>
+        </BarChart>
+      </ResponsiveContainer>
+      <div className="note">100%-stacked bar chosen because the point is mix shift (share exited) across two time points, not the raw counts.</div>
+    </div>
+  );
+}
+function Chart3(){
+  return (
+    <div className="chartbox">
+      <div className="charttitle">The hemophilia B lifetime-cost bridge <Tier t="ESTIMATE"/></div>
+      <div className="chartsub">Dollars, one patient. FACT inputs: $21.09M lifetime cost of standard factor IX prophylaxis (Tandfonline decision-analytic model, 2021); $3.5M Hemgenix list price (CSL Behring / Scientific American, 2022). Bridge arithmetic is an ESTIMATE and ignores discounting.</div>
+      <ResponsiveContainer width="100%" height={260}>
+        <BarChart data={c3} margin={{left:6,right:12,top:16,bottom:44}}>
+          <CartesianGrid strokeDasharray="3 3" vertical={false}/>
+          <XAxis dataKey="name" fontSize={10} interval={0} tickLine={false} height={64} angle={-12} textAnchor="end"/>
+          <YAxis domain={[0,24]} tickFormatter={v=>"$"+v+"M"} fontSize={11}/>
+          <Tooltip formatter={(v,n)=> n==="delta"? "$"+v+"M" : null}/>
+          <Bar dataKey="base" stackId="a" fill="transparent"/>
+          <Bar dataKey="delta" stackId="a" radius={2}>
+            {c3.map((d,i)=><Cell key={i} fill={d.kind==="total"?"#111":"#c0392b"}/>)}
+            <LabelList dataKey="delta" position="top" formatter={v=>"$"+v+"M"} fontSize={10.5}/>
+          </Bar>
+        </BarChart>
+      </ResponsiveContainer>
+      <div className="note">Waterfall/bridge chosen because the point is contribution-to-change: how a lifetime bill nets down after one payment.</div>
+    </div>
+  );
+}
+function Chart4(){
+  return (
+    <div className="chartbox">
+      <div className="charttitle">Casgevy's commercial funnel, launch through Sept. 2025 <Tier t="FACT"/></div>
+      <div className="chartsub">Log scale — each step is roughly 90%+ smaller than the last. Source: CRISPR Therapeutics Q3 2025 business update, Nov. 10, 2025.</div>
+      <ResponsiveContainer width="100%" height={220}>
+        <ComposedChart data={c4} layout="vertical" margin={{left:8,right:44,top:4,bottom:4}}>
+          <CartesianGrid strokeDasharray="3 3" horizontal={false}/>
+          <XAxis type="number" scale="log" domain={[10,50000]} ticks={[10,100,1000,10000,40000]} tickFormatter={v=>v.toLocaleString()} fontSize={10.5}/>
+          <YAxis type="category" dataKey="stage" width={168} fontSize={10.5}/>
+          <Tooltip formatter={v=>v.toLocaleString()}/>
+          <Bar dataKey="n" barSize={3} fill="#bbb"/>
+          <Scatter dataKey="n" fill="#1f6feb">
+            <LabelList dataKey="n" position="right" formatter={v=>v.toLocaleString()} fontSize={10.5}/>
+          </Scatter>
+        </ComposedChart>
+      </ResponsiveContainer>
+      <div className="note">Dot plot (lollipop) on a log axis chosen because the values span 1,000x; a linear bar would flatten every stage but the first into invisibility.</div>
+    </div>
+  );
+}
+function Chart5(){
+  return (
+    <div className="chartbox">
+      <div className="charttitle">CMS Cell and Gene Therapy Access Model: Medicaid coverage reached <Tier t="FACT"/></div>
+      <div className="chartsub">Share of Medicaid beneficiaries with sickle cell disease covered by a participating state, vs. full national coverage. Source: CMS press release, Jul. 15, 2025.</div>
+      <ResponsiveContainer width="100%" height={130}>
+        <BarChart data={c5} layout="vertical" margin={{left:8,right:44,top:8,bottom:4}}>
+          <ReferenceArea x1={0} x2={50} y1={0} y2={1} fill="#f6e6e2"/>
+          <ReferenceArea x1={50} x2={80} y1={0} y2={1} fill="#fdf2e2"/>
+          <ReferenceArea x1={80} x2={100} y1={0} y2={1} fill="#e6f2ee"/>
+          <XAxis type="number" domain={[0,100]} tickFormatter={v=>v+"%"} fontSize={11}/>
+          <YAxis type="category" dataKey="name" width={0} tick={false}/>
+          <Tooltip formatter={v=>v+"%"}/>
+          <Bar dataKey="val" fill="#111" barSize={22}>
+            <LabelList dataKey="val" position="right" formatter={v=>v+"%"} fontSize={12}/>
+          </Bar>
+          <ReferenceLine x={100} stroke="#111" strokeDasharray="4 3" label={{value:"target: 100%",position:"insideTopRight",fontSize:10}}/>
+        </BarChart>
+      </ResponsiveContainer>
+      <div className="note">Bullet chart chosen because the point is a single metric against a target and qualitative bands, not a series of comparable categories.</div>
+    </div>
+  );
+}
+
+/* ---------- Content sections ------------------------------------------------ */
+const SECTIONS = [
+  "Warm-Up","Introduction","Background","Q1 · Value math","Q2 · Uptake gap","Q3 · Payment fixes","Learning Summary","Conclusion"
+];
+
+/* ---------- App --------------------------------------------------------------*/
+function App(){
+  const [active,setActive]=useState(0);
+  const [answers,setAnswers]=useState({});
+  const [interp,setInterp]=useState({});
+  const refs=useRef(SECTIONS.map(()=>React.createRef()));
+
+  const score = Object.values(answers).filter(a=>a.ok).length;
+  const total = Object.keys(answers).length;
+
+  const onScore=(id,ok,type,meta)=> setAnswers(p=> p[id]?p:{...p,[id]:{ok,type,meta}});
+  const onInterp=(id,txt)=> setInterp(p=>({...p,[id]:txt}));
+
+  useEffect(()=>{
+    const badge=document.getElementById("scorebadge");
+    if(badge) badge.textContent="Score "+score+" / "+total;
+  },[score,total]);
+
+  useEffect(()=>{
+    const onScroll=()=>{
+      const y=window.scrollY+120; let idx=0;
+      refs.current.forEach((r,i)=>{ if(r.current && r.current.offsetTop<=y) idx=i; });
+      setActive(idx);
+      const h=document.documentElement;
+      const pct=(window.scrollY)/(h.scrollHeight-h.clientHeight)*100;
+      const pt=document.getElementById("progterm"); if(pt) pt.style.width=pct+"%";
+    };
+    window.addEventListener("scroll",onScroll); onScroll();
+    return ()=>window.removeEventListener("scroll",onScroll);
+  },[]);
+
+  const jump=i=>refs.current[i].current.scrollIntoView({behavior:"smooth"});
+
+  return (
+    <div className="wrap">
+      <nav className="navcol">
+        {SECTIONS.map((s,i)=>(
+          <a key={i} className={active===i?"active":""} onClick={()=>jump(i)}>{s}</a>
+        ))}
+      </nav>
+      <main className="col">
+
+        {/* ---- WARM-UP ---- */}
+        <section ref={refs.current[0]}>
+          <div className="kicker">Warm-Up · What stuck?</div>
+          <h1>Before today's topic: three ideas from recent articles</h1>
+          <p className="dek">Each question takes a principle from a prior article and drops it into a new setting far from gene therapy. Answer before reading on — these are scored.</p>
+          <MC onScore={onScore} q={{
+            id:"wu1",typeLabel:"Warm-Up · Type B",
+            stem:"A home insurer advertises a claims-denial rate of just 2%, far below the industry's reported 12%. Before concluding it treats customers better, what should a skeptical rival's actuary check first?",
+            options:[
+              "Whether the first insurer employs more claims adjusters",
+              "Whether the first insurer requires far more paperwork or has stricter filing deadlines, which could keep many claims from ever being formally filed — shrinking the denominator before a single claim is denied",
+              "Whether the first insurer's stock price is higher",
+              "Whether the first insurer's customers are younger on average"],
+            correct:1,
+            why:"A reported rate is a definition, not a fact of nature — it can be shrunk by changing what counts as a filed claim in the first place. Interrogate how a metric is measured before trusting its level (the private-credit lesson: appraisal smoothing shrinks reported volatility the same way a strict filing process shrinks a denial rate).",
+            wrongWhy:{
+              0:"Staffing levels affect how fast claims are processed, not what counts in the denominator of the rate.",
+              2:"Stock price has no bearing on how the denial-rate metric is defined or measured.",
+              3:"Customer age might affect true underlying risk, but it doesn't explain a definitional gap in what counts as 'denied.'"},
+            generalizes:"Any headline 'low-risk' or 'low-failure' rate — before comparing across firms, check whether the numerator and denominator are built the same way.",
+          }}/>
+          <MC onScore={onScore} q={{
+            id:"wu2",typeLabel:"Warm-Up · Type B",
+            stem:"A national gym chain announces it now has 2 million members, up from 1 million last year, and calls this proof the business is thriving. Which additional fact would most change your view of whether this makes the chain more profitable?",
+            options:[
+              "The total number of gym locations open nationwide",
+              "The chain's logo redesign completed last year",
+              "Average monthly revenue per member, compared with the fixed cost of running each location and its equipment",
+              "The number of new cities the chain entered"],
+            correct:2,
+            why:"In any business with large fixed costs (rent, equipment, staff), a membership count alone is a vanity metric; profit depends on revenue per member weighed against those fixed costs and the base needed to cover them (the streaming-profitability lesson).",
+            wrongWhy:{
+              0:"More locations usually means more fixed cost, not less — location count alone doesn't resolve profitability.",
+              1:"A logo redesign has no bearing on unit economics.",
+              3:"New cities typically add new fixed costs (leases, staff) before they add profit."},
+            generalizes:"Any 'user count doubled' headline — in subscriptions, apps, or memberships — pair it with revenue-per-user and the fixed-cost base before concluding the business is healthier.",
+          }}/>
+          <MC onScore={onScore} q={{
+            id:"wu3",typeLabel:"Warm-Up · Type E",
+            stem:"A school district triples its annual spending on a new tutoring software platform, and the vendor cites this as proof that 'AI tutoring is transforming education.' What is the strongest reason to be skeptical of that conclusion?",
+            options:[
+              "Software licenses are usually cheaper than textbooks",
+              "Teachers dislike the new software",
+              "The software company is privately held",
+              "The district's spending is simply the vendor's revenue — it shows the district is buying, not that students are learning more, and a reversible budget decision can be undone as easily as it was made"],
+            correct:3,
+            why:"A buyer's spending equaling a seller's revenue proves a purchase happened, not that it created value; that is the same capex-versus-revenue confusion behind the AI infrastructure story — spend is a rate/momentum fact, outcomes are a separate, unproven claim.",
+            wrongWhy:{
+              0:"Relative price to textbooks says nothing about whether learning outcomes improved.",
+              1:"Teacher sentiment is a real signal, but it isn't the strongest logical flaw in the vendor's causal claim.",
+              2:"Ownership structure (private vs. public) has no bearing on whether the software actually works."},
+            generalizes:"Any 'X spent record amounts on Y, therefore Y works' claim — spending proves demand for the purchase, not the outcome it was supposed to buy.",
+          }}/>
+          <Glossary items={[
+            {t:"Vanity metric",d:"A number that looks impressive but does not, on its own, tell you whether something is working or profitable."},
+            {t:"Volatility",d:"How much a value bounces around over time; often used, sometimes misleadingly, as a proxy for risk."},
+            {t:"Depreciation",d:"An accounting assumption about how fast an asset loses value; changing it changes reported profit without changing real cash flow."},
+          ]}/>
+          <div className="navbtns"><span/><button onClick={()=>jump(1)}>Next: Introduction →</button></div>
+        </section>
+
+        {/* ---- INTRODUCTION ---- */}
+        <section ref={refs.current[1]}>
+          <div className="kicker">Healthcare, Science, Medicine &amp; BioTech</div>
+          <h1>The Cure Nobody Buys: gene therapy's pricing paradox</h1>
+          <p className="lead">Eight one-time gene therapies for inherited blood disorders, priced from $2.2 million to $3.5 million a dose, mostly clear the same cost-effectiveness bar regulators use to judge whether any drug is worth its price (ICER, 2019–2023). Yet by 2026 a quarter of them had been pulled from the US market for lack of demand, and the biggest surviving launch reaches a small fraction of one percent of its eligible patients each year.</p>
+          <p>The scale is easy to miss because each price tag is so large it reads as a one-off headline rather than a pattern. Zolgensma, for spinal muscular atrophy, listed at $2.125 million when it launched in 2019 (ProPublica, 2025). Hemgenix, for hemophilia B, listed at $3.5 million in 2022, then the single most expensive drug in the world (Scientific American, 2022). Casgevy, the first CRISPR-edited therapy ever approved, listed at $2.2 million for sickle cell disease in December 2023 (FDA, 2023). None of this is new: the first commercial gene therapy, Glybera, launched in Europe in 2012 at $1 million a dose and was withdrawn in 2017 after treating exactly one patient outside a clinical trial (NBC News, 2017).</p>
+          <p>Conventional theory predicts two different things here, and neither one is what is happening. Basic demand theory says a higher price should mean lower uptake — true, but it doesn't explain why manufacturers have abandoned products priced at or below levels their own economics called fair. And health-technology assessment says a price that clears a cost-effectiveness bar should be a green light for adoption — yet even the therapies that clear that bar most convincingly see almost no patients treated each year. Something other than price alone is doing the work.</p>
+          <p>This note addresses three questions. First, does the multi-million-dollar sticker price actually reflect economic value once the lifetime cost of the chronic disease it replaces is taken into account, or is "it's a cure" a justification untethered from cost or value math? Second, if the price passes standard cost-effectiveness tests, why has real-world uptake fallen so far short of pre-launch expectations, and why have manufacturers abandoned products priced at levels their own economics called fair? Third, do new payment structures, including the federal government's outcomes-based Cell and Gene Therapy Access Model, actually fix the mismatch between a one-time price tag and an annual health budget, or do they just relabel the same risk?</p>
+          <Glossary items={[
+            {t:"Gene therapy",d:"A treatment that changes or replaces a patient's genetic material, often given as a single, one-time dose intended to last for years or a lifetime."},
+            {t:"One-time (curative) therapy",d:"A treatment given once, as opposed to a chronic drug taken repeatedly for the rest of a patient's life."},
+            {t:"Cost-effectiveness analysis",d:"A method that compares a treatment's price to the health benefit it produces, usually measured in extra years of healthy life gained."},
+            {t:"Orphan drug",d:"A drug developed for a rare disease, which US law rewards with extended market exclusivity to encourage development despite a small number of patients."},
+          ]}/>
+          <div className="navbtns"><button onClick={()=>jump(0)}>← Warm-Up</button><button onClick={()=>jump(2)}>Next: Background →</button></div>
+        </section>
+
+        {/* ---- BACKGROUND ---- */}
+        <section ref={refs.current[2]}>
+          <div className="kicker">Background · Trajectory &amp; structure</div>
+          <h2>From a $1 million flop to a $3.5 million industry</h2>
+          <p>Gene therapy has more than a decade of pricing history, and it starts with a warning. Glybera, approved in the European Union in 2012 for a rare fat-metabolism disorder, cost about $1 million per dose. It never won reimbursement in any European country, treated a single patient commercially, and its manufacturer let the approval lapse in 2017 rather than keep funding the infrastructure to support it (NBC News, 2017). The modern era began in 2017, when the US Food and Drug Administration (FDA) approved the first American cell and gene therapies — Kymriah, Yescarta, and Luxturna. Zolgensma followed in 2019 at $2.125 million. Then came a concentrated wave: Zynteglo and Skysona in 2022, Hemgenix at $3.5 million in late 2022, and in 2023 alone, Roctavian, Elevidys, Casgevy, and Lyfgenia — each priced between $2.2 million and $3.2 million. By mid-2025, more than 40 cell and gene therapy products had been approved in the US in total, across many diseases (industry tracker aggregation, 2025).</p>
+          <p>Eight of those products target inherited blood disorders — hemophilia A and B, sickle cell disease, and beta-thalassemia — making them the cleanest peer group for comparing price against outcome. All eight launched within about 18 months of each other (2022–2023), all target diseases with well-documented, decades-long chronic treatment costs, and all were framed by their manufacturers as replacing a lifetime of care with a single infusion.</p>
+          <Chart1/>
+          <Interp id="c1p1" label="Interpretation 1 of 2 · Predict a ratio (quantitative, pre-reveal)"
+            question="Before comparing the dots: for Hemgenix, predict whether the list price sits above or below its ICER value-based ceiling, and by roughly what percentage."
+            authored={<span>Above, by about 21% ($3.5M list vs. $2.9M ceiling — a $0.6M gap on a $2.9M base). Across all three therapies shown, list price runs only 7%–21% above its own value ceiling, not the multiple-fold markup a $2–3.5 million sticker often implies at first glance.</span>}
+            onSubmit={onInterp}/>
+          <Interp id="c1p2" label="Interpretation 2 of 2 · So what (decision)"
+            question="If you were a state Medicaid director deciding whether to spend political capital fighting the list price or fixing the payment structure, what does this narrow price-to-value gap tell you to prioritize?"
+            authored={<span>Since prices sit close to, not wildly above, their own value ceiling, renegotiating price buys at most a 10%–20% saving; the larger lever is restructuring payment timing — installments, reinsurance, multi-year risk-sharing — so a single budget cycle doesn't have to absorb the full $2–3.5 million at once.</span>}
+            onSubmit={onInterp}/>
+          <MC onScore={onScore} q={{
+            id:"bg-a1",typeLabel:"Type A · Chart reading",
+            stem:"For Hemgenix, the list price is $3.5 million against a $2.9 million ICER value ceiling. What is the closest correct read of that gap, and what does it most usefully tell a payer preparing to negotiate?",
+            options:[
+              "The list price is roughly 3 times the value ceiling, so payers should refuse to cover Hemgenix entirely",
+              "The gap is meaningless because ICER's estimates are not real prices",
+              "The list price is about 50% above the ceiling, justifying an aggressive public campaign against the manufacturer",
+              "The list price is about 21% above the ceiling ($0.6M on a $2.9M base) — a real but modest premium, so the more productive negotiating lever is a rebate close to that gap, not a wholesale rejection of the therapy's value case"],
+            correct:3,
+            why:"$3.5M ÷ $2.9M ≈ 1.21, a 21% premium — small enough that the underlying value case is a different claim than 'the price is unjustifiable.' Reading the actual multiple, not eyeballing the sticker shock, is what makes the gap actionable.",
+            wrongWhy:{
+              0:"3x overstates the actual ratio (1.21x); mistaking a modest premium for a multiple-fold markup leads to the wrong negotiating target.",
+              1:"ICER's benchmarks are built from real trial data and standard cost-per-QALY thresholds used across health-technology assessment; dismissing them throws away the one apples-to-apples yardstick available.",
+              2:"50% is not supported by the numbers ($0.6M/$2.9M ≈ 21%, not 50%); overstating the gap invites an unproductive negotiating stance."},
+            generalizes:"Any 'price vs. benchmark' comparison — compute the actual ratio before deciding whether the gap is a rounding error or a scandal.",
+          }}/>
+          <p>The deeper structural change is not the price level but the price shape. A chronic drug is billed a little at a time, year after year — a recurring line item a payer can reassess, negotiate, or drop coverage for going forward. A one-time gene therapy asks a single payer to prepay, in one lump sum, a bill that a chronic model would have spread across ten, twenty, or forty years. That shift, from an annuity to a lump sum, is the structural gap this article keeps returning to: it does not change how much total value the treatment delivers, but it changes who has to write the check and when.</p>
+          <Chart2/>
+          <Interp id="c2p1" label="Interpretation 1 of 2 · Quantitative"
+            question="Two of the eight therapies were pulled between 2024 and 2026. Express that as a share of the original cohort, and state whether that share is rising or falling as more time passes since launch."
+            authored={<span>25% of the original eight-therapy cohort (2 of 8) had exited by 2026, up from 0% two years earlier — and the direction matters: an exit share that keeps rising years after launch, not one that spikes right at launch, is the signature of genuine post-launch commercial failure rather than early jitters.</span>}
+            onSubmit={onInterp}/>
+          <Interp id="c2p2" label="Interpretation 2 of 2 · Causal / mechanism"
+            question="Why would the discontinued share be zero in the first year or two of commercialization almost by construction, regardless of whether a product was destined to fail?"
+            authored={<span>Manufacturers rarely withdraw a newly launched product within its first year or two; a withdrawal follows one or more full commercial cycles of weak orders and, as BioMarin describes for Roctavian, a failed search for a buyer. So an early 0%-discontinued reading is not evidence of early success — it reflects the minimum time it takes weak demand to surface as an exit decision.</span>}
+            onSubmit={onInterp}/>
+          <MC onScore={onScore} q={{
+            id:"bg-trap",typeLabel:"Type A · Statistical trap",
+            stem:"Of the eight one-time gene therapies for hemophilia, sickle cell disease, and beta-thalassemia approved in 2022–2023, zero had been discontinued as of 2024. By 2026, two (Beqvez and Roctavian) had been pulled. Which statement about that change is correct?",
+            options:[
+              "The discontinued share rose by 25 percentage points (0% to 25%); expressed as a percent increase, a rise from a zero baseline is undefined, so only the percentage-point framing is meaningful here",
+              "The discontinued share rose by 25%, which is the same as saying it rose by 25 percentage points",
+              "Since two therapies were discontinued, exactly two more will be discontinued by 2028",
+              "The 0%-to-25% change is too small to matter for policy"],
+            correct:0,
+            why:"0% to 25% is a move of 25 percentage points — the plain arithmetic difference between two shares. A 'percent increase' from a zero base is mathematically undefined, so percentage points is the only sound way to describe this change.",
+            wrongWhy:{
+              1:"Percent and percentage points are different units; treating them as interchangeable is the classic version of this trap, and it is especially wrong here because the percent version isn't even defined.",
+              2:"A two-year trend of two exits does not mechanically project forward at a fixed rate; that is an unsupported extrapolation from an extremely small sample.",
+              3:"A one-quarter exit rate within four years of launch, for products marketed as durable cures, is a large signal for a market this new and this expensive — dismissing it ignores the sample's real weight."},
+            generalizes:"Any 'share went from X% to Y%' claim — state the change in percentage points, and watch for a zero starting share, where a 'percent change' cannot be computed at all.",
+          }}/>
+          <p>Two forces push the other way. On the tailwind side, orphan drug exclusivity and priority regulatory pathways let manufacturers recoup enormous development costs from a genuinely tiny population, which is part of why prices are so high in the first place. On the headwind side, manufacturing each dose is bespoke — cells are drawn from an individual patient, edited or transduced, quality-checked, and re-infused into that same patient — so there is no factory-scale cost curve to bring the price down the way there would be for a pill. Layered on top of both: most US health coverage runs on annual budget cycles, and the average enrollee changes health plans well before a multi-decade payoff can mature.</p>
+          <MC onScore={onScore} q={{
+            id:"bg-case",typeLabel:"Type C",kind:"case",
+            client:"A hospital system's finance committee, deciding whether to flag one-time gene therapies as categorically 'unaffordable' in its formulary policy based on list price alone.",
+            stem:"Which is the strongest reason this list-price-only framing is incomplete?",
+            options:[
+              "List prices are always negotiable, so the true price is irrelevant to policy",
+              "A one-time price ignores what it replaces: for hemophilia B, the alternative is a multi-decade treatment bill estimated near $21 million, which a $3.5 million one-time therapy could substantially undercut — so 'affordable' has to be judged against that baseline, not in isolation",
+              "Gene therapies always cure the underlying disease completely, so cost is not a relevant consideration",
+              "Hospitals never actually pay list price for any drug"],
+            correct:1,
+            why:"A price only looks unaffordable if compared to zero, rather than to the cost of the status quo it replaces. Judging affordability requires the counterfactual, not just the sticker.",
+            wrongWhy:{
+              0:"Negotiability affects the final price paid, but doesn't resolve whether the underlying comparison — one-time vs. lifetime cost — was made at all.",
+              2:"Not all gene therapies achieve complete, permanent cure for every patient, and treating cost as irrelevant ignores the actual budget decision a payer faces.",
+              3:"Even at a negotiated price, the same 'compared to what' logic applies; the flaw is the missing baseline, not the specific dollar figure."},
+            generalizes:"Any 'this costs too much' judgment on a one-time expenditure — capital equipment, infrastructure, a major treatment — is incomplete without naming what it replaces and over what time horizon.",
+          }}/>
+          <Glossary items={[
+            {t:"Quality-adjusted life year (QALY)",d:"A unit combining how long and how well a patient lives, used to compare very different treatments on one scale."},
+            {t:"Value-based price benchmark",d:"The highest price an independent assessor judges a treatment can charge and still be considered a good use of health-care money."},
+            {t:"Vaso-occlusive crisis (VOC)",d:"A severe, painful episode in sickle cell disease caused by misshapen red blood cells blocking blood flow."},
+            {t:"Myeloablative conditioning",d:"High-dose chemotherapy given before some gene therapies to clear a patient's bone marrow so edited cells can take hold."},
+          ]}/>
+          <div className="navbtns"><button onClick={()=>jump(1)}>← Introduction</button><button onClick={()=>jump(3)}>Next: Value math →</button></div>
+        </section>
+
+        {/* ---- Q1 ---- */}
+        <section ref={refs.current[3]}>
+          <div className="kicker">Research Question 1</div>
+          <h2>Is "it's a cure" a real value claim, or a slogan?</h2>
+          <p>The first question is whether the multi-million-dollar price reflects real economic value once you account for what it replaces, or whether "it's a cure" is pricing shorthand untethered from cost or value math. The independent assessor most often used to answer this in the US is the Institute for Clinical and Economic Review (ICER), which prices a treatment against standard thresholds of $100,000 to $150,000 per quality-adjusted life year gained — the same yardstick used for cancer drugs, vaccines, and everything in between.</p>
+          <p>Hemophilia B is the cleanest test case because its chronic-treatment cost is unusually well documented. Extended half-life factor IX prophylaxis, the standard preventive treatment, costs about $788,000 a year for an adult with severe disease (CHESS US/JMCP data). Modeled over a patient's remaining lifetime, standard factor IX prophylaxis totals about $21.09 million (Tandfonline decision-analytic model, 2021). Hemgenix, the one-time gene therapy for the same disease, lists at $3.5 million.</p>
+          <Chart3/>
+          <Interp id="c3p1" label="Interpretation 1 of 2 · Predict a multiple (quantitative, pre-reveal)"
+            question="Before revealing: roughly how many times larger is the lifetime cost of standard factor IX treatment than the one-time Hemgenix price? Predict a multiple."
+            authored={<span>About 6 times ($21.09M ÷ $3.5M ≈ 6.0). Even after paying $3.5 million once, the model implies roughly $17.6 million in avoided lifetime spending — the same arithmetic behind ICER's "value-based benchmark" math, and the reason the price can pass a value test while still breaking a single year's budget.</span>}
+            onSubmit={onInterp}/>
+          <Interp id="c3p2" label="Interpretation 2 of 2 · So what (decision)"
+            question="For a health plan whose average enrolled member stays only a few years, what does this bridge imply about who actually captures the $17.6 million in modeled savings?"
+            authored={<span>The plan that pays the $3.5 million upfront may never see most of the offsetting savings, because members typically change employers or health plans well before a multi-decade payoff completes — the savings likely accrue to a future insurer, Medicare, or Medicaid, not to whoever wrote the original check. That mismatch, not the arithmetic, is the harder problem.</span>}
+            onSubmit={onInterp}/>
+          <p>By this logic, the price is not obviously an act of unjustified profiteering. Across the three therapies with published ICER benchmarks (Zolgensma, Casgevy, Hemgenix), list prices run only 7% to 21% above their own value ceilings — a modest premium, not the multiple-fold markup often assumed at first glance (ICER press releases / Health Advances summary, 2019–2023). That is the strongest evidence for the thesis that gene therapy pricing tracks value math reasonably closely.</p>
+          <Numeric onScore={onScore} q={{
+            id:"q1-D",typeLabel:"Type D",
+            stem:"Extended half-life factor IX prophylaxis costs about $788,000 a year. Hemgenix's one-time list price is $3.5 million. Estimate: after how many years of continuous factor IX treatment would cumulative spending exceed the one-time gene therapy price?",
+            skeleton:"Decomposition skeleton: years = one-time price ÷ annual cost = 3,500,000 ÷ 788,000.",
+            min:0,max:15,step:0.5,actual:4.4,tol:1,unit:"years",log:false,
+            how:"$3,500,000 ÷ $788,000 ≈ 4.4 years. Tolerance is tight (±1 year) because this is direct division of two stated values, not a Fermi guess. The breakeven arrives in under five years, decades before the roughly $21 million lifetime bill a patient would otherwise accumulate — the arithmetic reason ICER-style models call this price cost-effective. Note this ignores discounting (the time value of money), which would push the true breakeven slightly later, since future costs are worth less today — a real limitation, not a reason to discard the estimate.",
+            generalizes:"For any 'one large payment vs. an ongoing cost' comparison — subscription vs. purchase, lease vs. buy, upfront capital vs. recurring fees — divide the big number by the recurring one to find the breakeven point before judging which option is cheaper.",
+          }}/>
+          <p>But passing a value test is necessary, not sufficient, and the limits matter as much as the math. The bridge above ignores discounting: a dollar spent avoiding cost twenty years from now is worth less today than a dollar spent right now, so the true value case is a little weaker than the raw $17.6 million gap suggests. More importantly, "cost-effective" assumes the treatment's benefit is durable at the scale trial data suggests — an assumption real-world safety events can undercut. In 2025, Sarepta's Elevidys, a gene therapy for Duchenne muscular dystrophy priced at $3.2 million, was linked to two patient deaths from acute liver failure; the company's stock fell more than 40% in a single day, and shipments were paused for certain patients. A value calculation built on assumed durability and safety is only as solid as those assumptions hold up once thousands of real patients, not dozens of trial participants, receive the treatment.</p>
+          <MC onScore={onScore} q={{
+            id:"q1-b",typeLabel:"Type B",
+            stem:"Multiple gene therapies pass standard cost-effectiveness tests at their current list prices. A state Medicaid director nonetheless worries about her program's total budget if uptake grows. Which best resolves the apparent contradiction?",
+            options:[
+              "There is no real contradiction; if a price is cost-effective, it must also be affordable at any volume",
+              "Cost-effectiveness estimates are always wrong for gene therapies specifically",
+              "Per-patient cost-effectiveness (a ratio: cost per health gain) and total budget impact (a sum: price times the number of patients treated) are different questions, so a price can pass the first test and still strain a program if the eligible population or treatment pace is large",
+              "Medicaid programs are legally required to cover any cost-effective drug regardless of budget"],
+            correct:2,
+            why:"This is the same distinction that applied to GLP-1 obesity drugs: a per-unit value verdict (cost-effectiveness) and an aggregate budget verdict (price times volume) are not the same calculation, and a favorable answer to one does not guarantee a favorable answer to the other.",
+            wrongWhy:{
+              0:"This conflates a ratio with a total; a good per-patient ratio can still produce an unmanageable total if enough patients are treated in one budget cycle.",
+              1:"Cost-effectiveness estimates rely on real trial data and standard methods; calling them 'always wrong' is an unsupported overgeneralization, not a resolution of the budget tension.",
+              3:"Coverage mandates vary by program and drug, and even where coverage is required, the separate budget-impact concern remains real."},
+            generalizes:"Any 'this is worth it per unit' claim about a scarce or newly scaling good — always ask the follow-up question: worth it in total, at what volume, over what time frame?",
+          }}/>
+          <p>The honest section-level conclusion: the price is largely defensible by standard cost-effectiveness logic, and the value math is not the obvious villain of this story. That means the paradox — near-zero uptake despite value-justified pricing — must be explained somewhere else.</p>
+          <Glossary items={[
+            {t:"Cost per quality-adjusted life year",d:"How much a treatment costs for each extra year of healthy life it produces; the standard yardstick for judging if a price is fair."},
+            {t:"Discounting (time value of money)",d:"The idea that a dollar of cost or saving in the future is worth less than a dollar today, so future amounts should be reduced before comparing them to a price paid now."},
+            {t:"Breakeven point",d:"The point at which cumulative spending on one option catches up to and passes the cost of an alternative."},
+          ]}/>
+          <div className="navbtns"><button onClick={()=>jump(2)}>← Background</button><button onClick={()=>jump(4)}>Next: Uptake gap →</button></div>
+        </section>
+
+        {/* ---- Q2 ---- */}
+        <section ref={refs.current[4]}>
+          <div className="kicker">Research Question 2</div>
+          <h2>If the price passes the math, why is almost nobody buying?</h2>
+          <p>If the pricing largely passes a value test, the uptake failure has to be explained elsewhere. Pfizer discontinued its hemophilia B gene therapy Beqvez in February 2025, citing "the limited interest patients and their doctors have demonstrated in hemophilia gene therapies to date" — the company disclosed no sales at all before pulling it (BioPharma Dive, 2025). BioMarin's Roctavian, for hemophilia A, generated about $36 million in 2025 sales before BioMarin withdrew it from the market in February 2026 after failing to find a buyer, taking roughly $240 million in inventory and impairment charges in the process (FierceHarma reporting on company disclosures, 2025–2026; BioMarin, 2026).</p>
+          <p>Casgevy, the most closely watched sickle cell disease launch, shows the same pattern even without a withdrawal. More than 60,000 people are eligible for Casgevy across its approved markets, including roughly 37,000 in North America and Europe combined. From its December 2023 launch through September 30, 2025 — about 21 months — nearly 300 patients had been referred to an authorized treatment center, about 165 had completed the first step of cell collection, and just 39 had actually received an infusion (CRISPR Therapeutics Q3 2025 business update, 2025).</p>
+          <Chart4/>
+          <Interp id="c4p1" label="Interpretation 1 of 2 · Predict a share (quantitative, pre-reveal)"
+            question="Before comparing all four dots: predict what percentage of the eligible North America + Europe pool (about 37,000 people) had actually received a Casgevy infusion by September 2025."
+            authored={<span>About 0.1% (39 ÷ 37,000 ≈ 0.11%). Even the earliest visible stage — roughly 300 people referred to a treatment center — is under 1% of the eligible pool. This is not a rounding error in the launch; it is the central commercial fact of it.</span>}
+            onSubmit={onInterp}/>
+          <Interp id="c4p2" label="Interpretation 2 of 2 · Mechanism"
+            question="Name the biggest reason this funnel narrows so sharply at each step, beyond price alone."
+            authored={<span>Casgevy requires collecting the patient's own blood stem cells, then high-dose chemotherapy to clear the bone marrow so the edited cells can engraft — a process that takes months, carries real medical risk including infertility, and cannot be undone once started. That clinical burden, not the invoice, screens out patients and clinicians long before an insurer is ever asked to pay.</span>}
+            onSubmit={onInterp}/>
+          <MC onScore={onScore} q={{
+            id:"q2-causal",typeLabel:"Type B · Causal",
+            stem:"Among one-time gene therapies for blood disorders, the ones requiring high-dose chemotherapy before infusion (Casgevy, Lyfgenia) show markedly slower uptake than approval date or price alone would predict. Which is the strongest reason NOT to conclude that treatment burden alone explains the slow uptake?",
+            options:[
+              "Because uptake is slow, the therapies probably don't work as well as trials suggested",
+              "Patients dislike hospitals in general",
+              "Chemotherapy is not actually required for any gene therapy",
+              "The same patients facing high treatment burden are often also weighing an existing, less invasive standard of care, and payers' unresolved views on multi-year outcomes-based contracts — burden, alternative options, and payer uncertainty move together, so isolating burden as the sole cause overstates what a correlation alone can show"],
+            correct:3,
+            why:"Treatment burden and the availability of a credible, less invasive existing alternative are confounded here: both apply most strongly to the same subset of diseases. Attributing all of the slow uptake to burden alone, without accounting for the parallel effect of alternatives and payer uncertainty, is the correlation-versus-causation error.",
+            wrongWhy:{
+              0:"Efficacy data comes from controlled trials with defined outcomes (freedom from severe pain crises, in Casgevy's case); slow commercial uptake is a market and behavior fact, not evidence against the clinical results.",
+              1:"General hospital aversion doesn't explain why burden correlates so specifically with these particular therapies rather than with hospital procedures broadly.",
+              2:"Casgevy and Lyfgenia both explicitly require pre-treatment chemotherapy as part of their approved protocol; this option denies a stated fact."},
+            generalizes:"Whenever a plausible single cause lines up with a subgroup that also differs in other ways, look for the confound before crowning one cause the whole explanation.",
+          }}/>
+          <p>Some of this friction is procedural rather than financial. Gene therapy manufacturing is bespoke and slow: cells must be drawn, shipped, edited, quality-tested, and returned, a process that can stretch from referral to infusion across the better part of a year. But procedure alone does not explain every case. Elevidys, an intravenous infusion that needs no chemotherapy conditioning at all, still faced a serious 2025 safety scare, and even Zolgensma, available since 2019 with a simple one-time IV infusion in infancy, still contends with gaps in newborn screening and insurer prior-authorization delays that slow diagnosis-to-treatment time. Burden is a large part of the story, but not the entire story.</p>
+          <MC onScore={onScore} q={{
+            id:"q2-c",typeLabel:"Type C",kind:"case",
+            client:"A large self-insured employer's benefits team, deciding how to prepare for coverage of Casgevy given that its workforce includes employees with sickle cell disease.",
+            stem:"Given the funnel from eligible patients to completed infusions, which is the most important operational risk the benefits team should plan for, beyond price?",
+            options:[
+              "The multi-month process — referral, chemotherapy, infusion, recovery — means an employee approved today may not complete treatment for the better part of a year, and may need extended leave and case-management support well beyond the moment coverage is approved",
+              "The therapy is unlikely to be effective for any of their employees",
+              "No employee will ever want the treatment, so budgeting for it is unnecessary",
+              "The main risk is that competitors will offer better coverage first"],
+            correct:0,
+            why:"The funnel shows large drop-offs between referral, cell collection, and infusion, driven by a genuinely long clinical process, not employee reluctance to enroll. A benefits team's real planning risk is the extended timeline and leave/case-management needs, separate from the coverage decision itself.",
+            wrongWhy:{
+              1:"Trial data (93.5% freedom from severe pain crises at two years) supports meaningful efficacy for eligible patients; dismissing it is not supported by the evidence.",
+              2:"The article shows real, if slow, uptake — some patients do pursue treatment — so budgeting for zero demand is unjustified.",
+              3:"Competitive positioning is a secondary concern next to the operational reality of a multi-month clinical process the benefits team must actually support."},
+            generalizes:"For any benefit or program with a long approval-to-completion pipeline, plan around the pipeline's real duration and drop-off points, not just the moment of nominal approval.",
+          }}/>
+          <Numeric onScore={onScore} q={{
+            id:"q2-D",typeLabel:"Type D · Open-ended",
+            stem:"CRISPR Therapeutics and Vertex reported 39 Casgevy infusions worldwide from launch (December 2023) through September 2025, against more than 37,000 eligible patients in North America and Europe alone. Before entering a number, name your own decomposition path — think about a rate per year, divided into a total pool. At that pace, how many YEARS would it take to work through just the North America + Europe eligible pool?",
+            skeleton:"No skeleton this time — decide for yourself what to divide by what before estimating.",
+            min:0,max:5000,step:50,actual:1650,tol:0,unit:"years",log:true,
+            how:"Pace: 39 infusions over about 1.75 years ≈ 22 infusions per year. Years to clear the pool: 37,000 ÷ 22 ≈ 1,650 years. Bounds: even doubling that pace (about 44/year, a generous read of ramping up) still implies roughly 840 years; halving it implies roughly 3,300 years. Any of these numbers lands in the same place: at anything resembling the current commercial run-rate, the existing backlog alone outlives everyone currently waiting for it, before counting new patients who become eligible each year and refill the pool. The base rate that makes a 'how long to clear a backlog' question tractable is always the same: divide the stock (people waiting) by the flow (people processed per year).",
+            generalizes:"Any backlog question — visa applications, transplant waiting lists, unemployment claims, hospital wait times — divide the stock by the annual clearing rate, then sanity-check by doubling and halving that rate to bound the answer.",
+          }}/>
+          <p>The policy backdrop makes the mismatch sharper still. Regulatory designations like Priority Review, Orphan Drug status, and Regenerative Medicine Advanced Therapy speed a product to approval, but none of them guarantee the reimbursement infrastructure, subspecialist capacity, or authorized treatment centers a real launch needs. Manufacturers built pricing models assuming an addressable population would convert steadily; the "last mile" of finding, referring, clearing, and treating each patient turned out to be the binding constraint, not the invoice.</p>
+          <p>The honest section-level conclusion: uptake failure is mostly a demand-and-logistics story layered on top of, not caused by, the pricing question in Section 1. Fixing the price would not, by itself, fix a funnel this narrow.</p>
+          <Glossary items={[
+            {t:"Authorized treatment center",d:"A hospital or clinic specifically certified to deliver a complex gene therapy, since not every hospital can perform the procedure."},
+            {t:"Eligible (addressable) population",d:"The number of patients who meet a treatment's approved criteria, as distinct from everyone who has the underlying disease."},
+          ]}/>
+          <div className="navbtns"><button onClick={()=>jump(3)}>← Value math</button><button onClick={()=>jump(5)}>Next: Payment fixes →</button></div>
+        </section>
+
+        {/* ---- Q3 ---- */}
+        <section ref={refs.current[5]}>
+          <div className="kicker">Research Question 3</div>
+          <h2>Can new payment models fix what price cuts can't?</h2>
+          <p>The third question is whether new payment structures close the gap between a fair one-time price and a payer's annual budget cycle. The most ambitious attempt so far is the federal Cell and Gene Therapy (CGT) Access Model, announced by the Centers for Medicare &amp; Medicaid Services (CMS) in July 2025. Under the model, CMS negotiates outcomes-based agreements directly with gene therapy manufacturers on behalf of state Medicaid programs: if a therapy fails to deliver its promised benefit, the manufacturer rebates part of what the state paid. Thirty-three states, plus Washington DC and Puerto Rico, joined — together representing about 84% of Medicaid beneficiaries with sickle cell disease nationwide (CMS, 2025).</p>
+          <Chart5/>
+          <Interp id="c5p1" label="Interpretation 1 of 2 · Quantitative"
+            question="How many percentage points of coverage remain to reach 100%, and name one plausible reason the remaining states have not joined."
+            authored={<span>16 percentage points remain. Plausible reasons a state has not joined: uncertainty about administering the outcomes-based rebate mechanics, a small in-state sickle-cell Medicaid caseload that makes the fixed implementation support (up to $9.55 million per state) hard to justify, or simply an unfinished negotiation, since participation is voluntary and start dates run into 2026.</span>}
+            onSubmit={onInterp}/>
+          <Interp id="c5p2" label="Interpretation 2 of 2 · So what (decision)"
+            question="If you advised a non-participating state's Medicaid office, what does an 84% national coverage level imply about the urgency of joining?"
+            authored={<span>A holdout state is now the exception rather than the rule, since most of the national Medicaid sickle-cell population is already covered; joining mainly trades a small, capped implementation cost for real downside protection through outcomes-based rebates, which makes the case for joining stronger the longer a state waits and watches peers absorb the same risk successfully.</span>}
+            onSubmit={onInterp}/>
+          <MC onScore={onScore} q={{
+            id:"q3-mc",typeLabel:"Type B",
+            stem:"The CMS model uses outcomes-based agreements that refund states if a therapy underperforms. What is the strongest reason this model reduces, but does not eliminate, the payer-churn mismatch described in Section 1?",
+            options:[
+              "It doesn't help at all, since Medicaid never pays for gene therapy",
+              "The rebate protects the state Medicaid program specifically against clinical underperformance, but a patient who moves from Medicaid to private insurance (or vice versa) still shifts the eventual savings to whichever payer holds their coverage when those savings would have arrived — the model manages performance risk, not the multi-payer handoff risk",
+              "The model guarantees every patient will complete treatment",
+              "Outcomes-based agreements make the therapy completely free for states"],
+            correct:1,
+            why:"An outcomes-based rebate addresses the risk that the therapy fails to deliver its promised clinical benefit; it does not address the separate risk that the patient changes payers before the offsetting cost savings materialize. The model is a real fix for one mismatch (performance) but not the other (payer churn) named earlier.",
+            wrongWhy:{
+              0:"Medicaid is exactly the payer the CMS model is built for; this option contradicts the stated facts.",
+              2:"The model changes financial terms, not clinical logistics; it does not guarantee completion of the multi-month treatment process shown in Section 2's funnel.",
+              3:"Outcomes-based agreements adjust price based on results; they reduce risk, they do not make the therapy free."},
+            generalizes:"When a new contract structure fixes one named risk, check whether a second, separate risk remains — a single fix rarely closes every gap in a multi-step problem.",
+          }}/>
+          <p>The model's own design offers evidence it is more than symbolic: BioMarin, even while withdrawing Roctavian entirely from the market, stated it would continue to "honor existing outcomes-based agreements with payers" for patients already treated (BioMarin, 2026) — a sign the contractual mechanism has some durability independent of a product's ongoing commercial fate. That is meaningful evidence the approach works as designed, at least for the risk it was built to manage.</p>
+          <MC onScore={onScore} q={{
+            id:"q3-case",typeLabel:"Type C",kind:"case",
+            client:"A state Medicaid director proposing to expand the outcomes-based CGT Access Model approach to other high-cost one-time therapies, reasoning that any therapy cheaper than the lifetime cost it replaces will 'pay for itself' for the state.",
+            stem:"Which assumption must hold for that reasoning to work, and where is the evidence in this article thinnest in supporting it?",
+            options:[
+              "That the therapy has FDA approval — already true and not in question",
+              "That the manufacturer's list price is negotiable — a minor factor next to the bigger risk",
+              "That the same payer (here, the state Medicaid program) will still be covering the patient years later, when the offsetting lifetime savings would actually show up — and this article's evidence on typical multi-year Medicaid and plan turnover is the thinnest link in that chain",
+              "That gene therapies never have side effects"],
+            correct:2,
+            why:"The 'it pays for itself' argument depends on the same payer capturing both the upfront cost and the long-run savings. Patients cycling between Medicaid, employer coverage, and other plans over a multi-decade horizon is exactly the load-bearing assumption most likely to fail, and it is the piece of the argument this article supports the least with hard data.",
+            wrongWhy:{
+              0:"Approval status is a precondition, not the assumption that determines whether the pay-for-itself logic actually works financially.",
+              1:"Negotiability affects the size of the gap, not whether the payer sticking around long enough to capture the savings is realistic.",
+              3:"Side effects (see Elevidys in Section 1) are a real clinical risk, but they are not the financial argument's load-bearing assumption."},
+            generalizes:"For any 'this pays for itself over time' argument — capital investment, subscription switch, insurance decision — name the party expected to hold the asset long enough to capture the payoff, and test whether that holding period is realistic.",
+          }}/>
+          <p>Outside Medicaid, no equivalent federal coordination exists yet. Private employer plans and their reinsurers experiment separately, sometimes through installment-style riders or stop-loss coverage for a single catastrophic claim, but nothing analogous to the CMS model's 33-state coordination has emerged commercially. The honest section-level conclusion: payment redesign is a necessary step to make a value-justified price affordable within one budget cycle, but Section 2 already showed it is not sufficient — the uptake gap is a compound problem of payment timing, treatment burden, and institutional caution, and the CMS model addresses only the first of those three.</p>
+          <Glossary items={[
+            {t:"Outcomes-based agreement",d:"A contract in which a manufacturer's payment depends partly on whether the treatment actually delivers its promised health result."},
+            {t:"Medicaid",d:"The joint federal-state health insurance program in the US for people with low incomes."},
+          ]}/>
+          <div className="navbtns"><button onClick={()=>jump(4)}>← Uptake gap</button><button onClick={()=>jump(6)}>Next: Learning Summary →</button></div>
+        </section>
+
+        {/* ---- LEARNING SUMMARY ---- */}
+        <section ref={refs.current[6]}>
+          <div className="kicker">Learning Summary</div>
+          <h2>What you did, and what to carry forward</h2>
+          <Summary answers={answers} interp={interp}/>
+          <div className="navbtns"><button onClick={()=>jump(5)}>← Payment fixes</button><button onClick={()=>jump(7)}>Next: Conclusion →</button></div>
+        </section>
+
+        {/* ---- CONCLUSION ---- */}
+        <section ref={refs.current[7]}>
+          <div className="kicker">Conclusion</div>
+          <h2>A fair price is not the same as a working market</h2>
+          <p>The central challenge is that gene therapy pricing mostly clears the bar economists and regulators use to judge value, yet the market for these cures remains vanishingly thin. Under partial success — some states adopting outcomes-based models, some manufacturers improving referral logistics — uptake will likely creep up from near-zero to still-modest over the next several years, not snap to full coverage of the addressable population.</p>
+          <p>For payers, employers, and investors, the implication is to stop treating price as the main lever. Payers should prioritize payment-timing redesign over price renegotiation, since Section 1 showed prices sit only 7%–21% above their own value ceilings. Investors underwriting the next wave of gene therapies should model uptake curves closer to Casgevy's actual multi-year, sub-1%-per-year pace than to launch-year analyst projections, since the industry-wide track record — Glybera, Beqvez, Roctavian — shows commercial failure risk is real even for clinically effective, fairly priced products.</p>
+          <p>Institutionally, the CMS model is a genuine innovation worth extending beyond Medicaid and beyond sickle cell disease, but its scope — one disease, one payer type — means most of the market-wide uptake problem remains unaddressed. The harder fix is standardizing multi-payer risk-sharing so the party paying upfront and the party capturing the downstream savings are less often different insurers entirely.</p>
+          <MC onScore={onScore} q={{
+            id:"concl",typeLabel:"Type E · Implication + falsification",
+            stem:"Given everything in this article, which real-world decision is best supported, paired with the observation that would most FALSIFY the article's central thesis?",
+            options:[
+              "Decision: payers and manufacturers should prioritize redesigning payment timing (installments, reinsurance pools, multi-payer risk-sharing) over further price cuts. Falsifier: if a therapy priced well below its own ICER value ceiling, with full outcomes-based and installment payment terms already in place, still saw uptake stuck below 1% of its eligible pool for several years — that would show the constraint is not price or payment plumbing at all, but something else, such as irreducible clinical burden or persistent distrust of irreversible treatments",
+              "Decision: regulators should ban list prices above $1 million for any gene therapy. Falsifier: any drug that costs less than $1 million",
+              "Decision: patients should always choose the one-time gene therapy over chronic treatment. Falsifier: none needed, since cures are always better",
+              "Decision: insurers should stop covering gene therapy entirely until prices fall to zero. Falsifier: a therapy that costs any amount of money"],
+            correct:0,
+            why:"The article's evidence — prices close to ICER's own value ceilings, but uptake stuck under 1% even for value-justified therapies — points to payment structure and treatment burden, not price level, as the main constraint. The sharpest falsifier is a case where even full payment-plumbing fixes fail to move uptake, which would point to a different, non-financial cause.",
+            wrongWhy:{
+              1:"An arbitrary price cap ignores the article's own finding that prices are not wildly divorced from value math; its falsifier is trivial and doesn't test the actual mechanism.",
+              2:"Declaring cures 'always better' ignores real clinical risk (Elevidys, Section 1) and irreversibility concerns documented in this article, and a claim with no possible falsifier is not a testable thesis.",
+              3:"This ignores that some value-justified uptake is real and growing, and its falsifier — any positive price — is so broad it could never meaningfully test the claim."},
+            generalizes:"Any policy recommendation drawn from a data-rich case should come with its own falsifier — the single observation that, if seen, would force you to abandon the recommended course.",
+          }}/>
+          <p style={{marginTop:18}}>The most important unresolved question is whether uptake failure reflects a temporary adjustment period, as logistics and financing mature, or a durable ceiling set by patients' and physicians' rational caution toward an irreversible, high-risk, one-time treatment — and only years more of real-world data, not another round of price debate, will settle it.</p>
+          <Sources/>
+          <Glossary items={[
+            {t:"Falsifier",d:"A specific observation that, if seen, would prove a claim wrong; naming one is what makes a claim testable."},
+          ]}/>
+          <div className="navbtns"><button onClick={()=>jump(6)}>← Learning Summary</button><span/></div>
+        </section>
+
+      </main>
+    </div>
+  );
+}
+
+/* ---------- Learning Summary component -------------------------------------- */
+function Summary({answers,interp}){
+  const [gov,setGov]=useState(""); const [govDone,setGovDone]=useState(false);
+  const [applyA,setApplyA]=useState(""); const [applyB,setApplyB]=useState("");
+  const [evalOut,setEvalOut]=useState(null);
+
+  const entries=Object.entries(answers);
+  const byType={}; entries.forEach(([id,a])=>{const t=a.type;byType[t]=byType[t]||{ok:0,n:0};byType[t].n++;if(a.ok)byType[t].ok++;});
+  const nCorrect=entries.filter(([,a])=>a.ok).length;
+
+  const nums=entries.filter(([,a])=>a.type==="num"&&a.meta);
+  let bias=null;
+  if(nums.length){ const s=nums.map(([,a])=>(a.meta.val-a.meta.actual)/Math.abs(a.meta.actual));
+    const avg=s.reduce((x,y)=>x+y,0)/s.length; bias=Math.round(avg*100); }
+
+  const principleMap={
+    wu1:"A reported rate is a definition — check how the numerator and denominator are set before trusting it",
+    wu2:"Vanity metrics need a revenue/cost pairing before they say anything about profit",
+    wu3:"A buyer's spending is not proof the purchase created value",
+    "bg-a1":"Compute the actual ratio before judging whether a price gap is a rounding error or a scandal",
+    "bg-trap":"Percentage points vs. percent — both are meaningless or undefined when the baseline is zero",
+    "bg-case":"Judge a one-time cost against what it replaces, not in isolation",
+    "q1-b":"Per-unit value and aggregate budget impact are different questions",
+    "q1-D":"Divide the big one-time number by the recurring one to find breakeven before judging cost",
+    "q2-causal":"Confounded causes need separating before crowning one the explanation",
+    "q2-c":"Plan around a pipeline's real duration and drop-off points, not the approval moment",
+    "q2-D":"Divide a stock by a flow to size any backlog, then bound by doubling/halving the rate",
+    "q3-mc":"A fix for one named risk may leave a second risk untouched",
+    "q3-case":"Name the party expected to hold the asset long enough to capture the payoff",
+    concl:"A strong recommendation names its own falsifier",
+  };
+  const missed=entries.filter(([,a])=>!a.ok).map(([id])=>principleMap[id]).filter(Boolean);
+
+  function evaluateApply(a,b){
+    const txt=a.toLowerCase();
+    const gaps=[];
+    const hasThesis=a.trim().length>25;
+    const hasAssume=/assum|depend|requir|must hold|relies|hinge/.test(txt);
+    const hasDis=/disconfirm|undermin|falsif|against|counter|contradic|weakest|thin/.test(txt);
+    const hasPre=/pre-?mortem|if this fails|fail|12 month|most likely reason|because/.test(txt);
+    if(!hasThesis) gaps.push("a clear one-sentence so-what thesis");
+    if(!hasAssume) gaps.push("the single load-bearing assumption that must hold");
+    if(!hasDis) gaps.push("the evidence that would most undermine your thesis");
+    if(!hasPre) gaps.push("a one-line pre-mortem (if it fails in 12 months, the likely reason)");
+    const climbs=/so |therefore|which means|implies|should|because/.test(txt) && /\d/.test(a);
+    let verdict;
+    if(gaps.length===0) verdict = climbs
+      ? "All four parts are present and your reasoning climbs from observation to a quantified, decision-relevant implication. Strongest next step: pressure-test the assumption you named against the disconfirming evidence you cited."
+      : "All four parts are present, but the response stays descriptive. Push it to an implication: name what a decision-maker should DO and attach a number.";
+    else verdict = "Weakest or missing: "+gaps.join("; ")+". A transfer thesis needs all four — recommendation, load-bearing assumption, disconfirming evidence, and pre-mortem — before it's decision-ready.";
+    const bCheck = b.trim().length<20 ? " (Also add prompt (b): name one prior article's principle that reinforces or conflicts with today's.)" : "";
+    return verdict+bCheck;
+  }
+
+  return (
+    <div>
+      <h3>1 · Your score</h3>
+      <div className="scoregrid">
+        <div>Total correct</div><div className="v">{nCorrect} / {entries.length||0}</div>
+        {Object.entries(byType).map(([t,o])=>(
+          <React.Fragment key={t}>
+            <div>{t==="mc"?"Multiple choice":"Numeric estimates"}</div><div className="v">{o.ok} / {o.n}</div>
+          </React.Fragment>
+        ))}
+      </div>
+      {bias!==null && <p style={{fontSize:14}}>Numeric bias: on average your estimates were {bias>0?"about "+bias+"% high":bias<0?"about "+Math.abs(bias)+"% low":"right on"} versus the actual values{bias<0?" — you tend to under-estimate magnitudes.":bias>0?" — you tend to over-estimate magnitudes.":"."}</p>}
+
+      <h3>2 · Your governing insight (write before revealing ours)</h3>
+      <p style={{fontSize:14}}>You saw five charts. Write the single most non-obvious insight you would defend to a skeptical hospital-system CFO.</p>
+      {!govDone && <>
+        <textarea value={gov} onChange={e=>setGov(e.target.value)} placeholder="One or two sentences…"/>
+        <button className="btn" disabled={gov.trim().length<20} onClick={()=>setGovDone(true)}>Reveal the article's three insights</button>
+      </>}
+      {govDone && <>
+        <div className="yours"><b>Your insight:</b> {gov}</div>
+        <div style={{marginTop:10}}>
+          <div className="insight-card"><b>1.</b> Gene-therapy list prices track their own ICER value ceilings within about 7%–21%, not the multiple-fold markup critics assume — sticker shock is mostly a distraction from the real constraint, which is payment timing, not price level.</div>
+          <div className="insight-card"><b>2.</b> A one-time cure only pays off the payer who wrote the check if that payer still holds the patient's coverage when the offsetting decades of savings arrive; with plan tenure far shorter than a gene therapy's payoff horizon, outcomes-based and installment models exist precisely because the payer and the beneficiary of the savings are usually different parties.</div>
+          <div className="insight-card"><b>3.</b> Uptake is not a rounding error away from complete: at the current pace, clearing just the existing eligible backlog for a therapy like Casgevy would take over a thousand years, showing that treatment burden, irreversibility, and prescriber caution — not price or insurance approval alone — are binding constraints that no payment redesign fixes by itself.</div>
+        </div>
+      </>}
+
+      <h3>3 · Apply it</h3>
+      <p style={{fontSize:14}}><b>(a) Transfer to a new domain.</b> A city government is deciding whether to replace its diesel bus fleet with electric buses. Rough numbers: a diesel bus costs about $500,000 upfront with about $45,000/year in fuel and maintenance; an electric bus costs about $800,000 upfront with about $18,000/year in energy and maintenance; both have a roughly 12-year service life; city transit budgets are approved annually, and the average city council member serves about 4 years. In four labeled parts, write: (1) a one-sentence so-what thesis about whether the city should switch, (2) the single load-bearing assumption that must hold, (3) the strongest evidence that would undermine it, and (4) a one-line pre-mortem: "If this fails in 12 months, the most likely reason is ___."</p>
+      <textarea value={applyA} onChange={e=>setApplyA(e.target.value)} placeholder="1) Thesis…  2) Assumption…  3) Disconfirming evidence…  4) Pre-mortem…"/>
+      <p style={{fontSize:14,marginTop:12}}><b>(b) Cross-link to a prior article.</b> Name one principle from an earlier article (private credit's measurement artifact, streaming's fixed-cost scale, the AI capex-revenue gap, GLP-1's per-unit-vs-aggregate distinction, or Baumol's cost disease) that most reinforces or conflicts with today's gene-therapy pricing lesson, and say why.</p>
+      <textarea value={applyB} onChange={e=>setApplyB(e.target.value)} placeholder="Prior principle + how it connects…"/>
+      <button className="btn" disabled={applyA.trim().length<30} onClick={()=>setEvalOut(evaluateApply(applyA,applyB))}>Evaluate my reasoning</button>
+      {evalOut && <div className="authored"><div className="h">Reasoning check (local evaluator)</div>{evalOut}</div>}
+
+      <h3>4 · Principles to revisit</h3>
+      {missed.length===0
+        ? <p style={{fontSize:14}}>Nothing missed so far — as you answer more questions, any you miss will appear here by the principle they test.</p>
+        : <div>{missed.map((m,i)=><div key={i} className="miss"><span className="tag">revisit</span>{m}</div>)}</div>}
+    </div>
+  );
+}
+
+/* ---------- Sources ----------------------------------------------------------*/
+function Sources(){
+  return (
+    <div style={{marginTop:24}}>
+      <h3>Sources</h3>
+      <div className="src">
+        <p>• ProPublica, "What a $2 Million Per Dose Gene Therapy Reveals About Drug Pricing," 2025 — Zolgensma $2.125M list price. <a href="https://www.propublica.org/article/zolgensma-sma-novartis-drug-prices-gene-therapy-avexis" target="_blank" rel="noopener">propublica.org</a></p>
+        <p>• Scientific American, "$3.5-Million Hemophilia Gene Therapy Is World's Most Expensive Drug," 2022 — Hemgenix price. <a href="https://www.scientificamerican.com/article/3-5-million-hemophilia-gene-therapy-is-worlds-most-expensive-drug/" target="_blank" rel="noopener">scientificamerican.com</a></p>
+        <p>• FDA, "FDA Approves First Gene Therapies to Treat Patients with Sickle Cell Disease," Dec. 8, 2023 — Casgevy/Lyfgenia approval; ~100,000 US sickle cell patients; trial data (44 treated, 29/31 evaluable achieving the primary endpoint). <a href="https://www.fda.gov/news-events/press-announcements/fda-approves-first-gene-therapies-treat-patients-sickle-cell-disease" target="_blank" rel="noopener">fda.gov</a></p>
+        <p>• ICER, press release on Zolgensma approval, 2019, and Health Advances, "Impact of ICER on Cell and Gene Therapy Pricing and Access," 2023 — value-based benchmarks (Zolgensma $1.1–1.9M; Casgevy $1.35–2.05M; Hemgenix $2.9M). <a href="https://icer.org/news-insights/press-releases/icer_comment_on_zolgensma_approval/" target="_blank" rel="noopener">icer.org</a> / <a href="https://www.healthadvances.com/insights/blog/impact-of-the-institute-for-clinical-and-economic-review-icer-on-cell-and-gene-therapy-pricing-and-access" target="_blank" rel="noopener">healthadvances.com</a></p>
+        <p>• CRISPR Therapeutics, "Business Update and Third Quarter 2025 Financial Results," Nov. 10, 2025 — Casgevy funnel (nearly 300 referred, ~165 cell collections, 39 infusions since Dec. 2023 launch through Sept. 30, 2025); eligible population (60,000+ globally, ~37,000 North America + Europe). <a href="https://ir.crisprtx.com/news-releases/news-release-details/crispr-therapeutics-provides-business-update-and-reports-third-6/" target="_blank" rel="noopener">ir.crisprtx.com</a></p>
+        <p>• BioMarin, "BioMarin Voluntarily Withdraws ROCTAVIAN from the Market," Feb. 23, 2026 — withdrawal confirmed, not related to efficacy/safety; commitment to honor existing outcomes-based agreements. <a href="https://www.biomarin.com/news/company-statements/biomarin-voluntarily-withdraws-roctavian-from-the-market/" target="_blank" rel="noopener">biomarin.com</a></p>
+        <p>• FiercePharma, "BioMarin officially pulls plug on hemophilia gene therapy Roctavian, taking $119M write-after" (reporting on company disclosures) — 2025 Roctavian sales ~$36M; ~$240M Q4 2025 charges; $2.9M price. <a href="https://www.fiercepharma.com/pharma/biomarin-officially-pulls-plug-hemophilia-gene-therapy-roctavian-taking-119m-write-after" target="_blank" rel="noopener">fiercepharma.com</a></p>
+        <p>• BioPharma Dive, "Pfizer stops selling hemophilia gene therapy, citing weak demand," Feb. 21, 2025 — Beqvez discontinuation; no disclosed sales. <a href="https://www.biopharmadive.com/news/pfizer-beqvez-hemophilia-halt-sales-gene-therapy/740590/" target="_blank" rel="noopener">biopharmadive.com</a></p>
+        <p>• CMS, "CMS Expands Access to Lifesaving Gene Therapies Through Innovative State Agreements," Jul. 15, 2025 — Cell and Gene Therapy Access Model; 33 states + DC + Puerto Rico; ~84% of Medicaid sickle-cell beneficiaries; up to $9.55M/state implementation support. <a href="https://www.cms.gov/newsroom/press-releases/cms-expands-access-lifesaving-gene-therapies-through-innovative-state-agreements" target="_blank" rel="noopener">cms.gov</a></p>
+        <p>• Tandfonline (Journal of Medical Economics), "Adult lifetime cost of hemophilia B management in the US," 2021 — lifetime cost $21.09M (standard factor IX prophylaxis). <a href="https://www.tandfonline.com/doi/full/10.1080/13696998.2021.1891088" target="_blank" rel="noopener">tandfonline.com</a></p>
+        <p>• PMC (CHESS US/US+ population surveys) and Journal of Managed Care &amp; Specialty Pharmacy — annual hemophilia B treatment cost, extended half-life factor IX ≈ $788,000/year. <a href="https://pmc.ncbi.nlm.nih.gov/articles/PMC7981988/" target="_blank" rel="noopener">pmc.ncbi.nlm.nih.gov</a> / <a href="https://www.jmcp.org/doi/10.18553/jmcp.2024.23328" target="_blank" rel="noopener">jmcp.org</a></p>
+        <p>• NBC News, "Company stops offering $1 million gene therapy that no one wants," 2017 — Glybera withdrawal; one commercial patient treated. <a href="https://www.nbcnews.com/health/health-news/firm-pulls-world-s-first-gene-therapy-treatment-no-one-n748906" target="_blank" rel="noopener">nbcnews.com</a></p>
+      </div>
+      <p style={{fontSize:12.5,color:"#777",marginTop:8}}>Note on estimates: the hemophilia B lifetime-cost bridge (Chart 3) and the commercial-status share (Chart 2) are ESTIMATEs — simple arithmetic or counts built from the FACTs above, not separately reported statistics. The cumulative count of "more than 40" FDA-approved cell and gene therapy products (Background) draws on secondary industry-tracker aggregation rather than a single primary count and is rounded accordingly. Cell and gene therapy market-size projections from analyst firms varied by more than 3x across sources found during research and were excluded from this article rather than cited as fact.</p>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);

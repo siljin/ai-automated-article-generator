@@ -28,21 +28,21 @@ Status: `[ ]` pending · `[x]` done
 ## Type 2 — AI Product Teardown
 
 - [x] Type 2 | Cursor | How Cursor actually works — multi-model routing, codebase indexing, context management, and the PM tradeoffs behind the editor | https://www.evidentlyai.com/ml-system-design → PR-06-cursor-architecture-teardown/index.html
-- [ ] Type 2 | GitHub | GitHub Copilot's architecture — prompt construction, telemetry-driven iteration, and the product decisions that shaped the suggestion UX | https://github.blog/engineering
-- [ ] Type 2 | Perplexity AI | Perplexity's answer engine — real-time retrieval pipeline, citation grounding, and the latency vs quality tradeoff at query time | https://www.evidentlyai.com/ml-system-design
-- [ ] Type 2 | Notion | Notion AI — how Notion integrated generative features into a structured document product without breaking the core editing mental model | https://www.notion.so/blog/notion-ai
-- [ ] Type 2 | Replit | Replit Agent — agentic code execution, sandboxing, error recovery, and the product surface for non-developers running AI-generated code | https://blog.replit.com
+- [x] Type 2 | GitHub | GitHub Copilot's architecture — prompt construction, telemetry-driven iteration, and the product decisions that shaped the suggestion UX | https://github.blog/engineering → PR-07-github-copilot-architecture-teardown/index.html
+- [x] Type 2 | Perplexity AI | Perplexity's answer engine — real-time retrieval pipeline, citation grounding, and the latency vs quality tradeoff at query time | https://www.evidentlyai.com/ml-system-design → PR-08-perplexity-answer-engine/index.html
+- [x] Type 2 | Notion | Notion AI — how Notion integrated generative features into a structured document product without breaking the core editing mental model | https://www.notion.so/blog/notion-ai → PR-09-notion-ai-architecture-teardown/index.html
+- [x] Type 2 | Replit | Replit Agent — agentic code execution, sandboxing, error recovery, and the product surface for non-developers running AI-generated code | https://blog.replit.com → PR-10-replit-agent-architecture-teardown/index.html
 
 ---
 
 ## Type 3 — Agentic System Architecture
 
-- [ ] Type 3 | Meta | Meta's unified AI agents for infrastructure optimization — reusable agent skills, automated PR generation, and performance regression detection at hyperscale | https://engineering.fb.com/2026/04/16/developer-tools/capacity-efficiency-at-meta-how-unified-ai-agents-optimize-performance-at-hyperscale
-- [ ] Type 3 | Cox Automotive | Cox Automotive's 17 enterprise AI agent solutions in under a year using Amazon Bedrock AgentCore — architecture, rollout, and reliability | https://aws.amazon.com/solutions/case-studies/cox-auto-case-study
-- [ ] Type 3 | Amazon | How Amazon builds and evaluates agentic systems — intent detection, tool selection accuracy, multi-turn function calling, and production reliability lessons | https://aws.amazon.com/blogs/machine-learning/evaluating-ai-agents-real-world-lessons-from-building-agentic-systems-at-amazon
-- [ ] Type 3 | OpenAI | OpenAI Harness Engineering — agent-first software development with Codex, CI integration, test generation, observability, and feedback loops | https://openai.com/index/harness-engineering
-- [ ] Type 3 | LangChain | Top 5 LangGraph agents in production — Replit, LinkedIn, Uber, Elastic, AppFolio: how controllable vertical agents are architected differently from general-purpose agents | https://www.langchain.com/blog/top-5-langgraph-agents-in-production-2024
-- [ ] Type 3 | Anthropic | Anthropic's multi-agent research system — agent coordination, tool design, prompt engineering, evaluation, and the path from prototype to production | https://www.anthropic.com/engineering/multi-agent-research-system
+- [x] Type 3 | Meta | Meta's unified AI agents for infrastructure optimization — reusable agent skills, automated PR generation, and performance regression detection at hyperscale | https://engineering.fb.com/2026/04/16/developer-tools/capacity-efficiency-at-meta-how-unified-ai-agents-optimize-performance-at-hyperscale → PR-11-meta-capacity-efficiency-agents/index.html
+- [x] Type 3 | Cox Automotive | Cox Automotive's 17 enterprise AI agent solutions in under a year using Amazon Bedrock AgentCore — architecture, rollout, and reliability | https://aws.amazon.com/solutions/case-studies/cox-auto-case-study → PR-12-cox-automotive-agentcore-blueprint/index.html
+- [x] Type 3 | Amazon | How Amazon builds and evaluates agentic systems — intent detection, tool selection accuracy, multi-turn function calling, and production reliability lessons | https://aws.amazon.com/blogs/machine-learning/evaluating-ai-agents-real-world-lessons-from-building-agentic-systems-at-amazon → PR-13-amazon-agent-evaluation-framework/index.html
+- [x] Type 3 | OpenAI | OpenAI Harness Engineering — agent-first software development with Codex, CI integration, test generation, observability, and feedback loops | https://openai.com/index/harness-engineering → PR-14-openai-harness-engineering/index.html
+- [x] Type 3 | LangChain | Top 5 LangGraph agents in production — Replit, LinkedIn, Uber, Elastic, AppFolio: how controllable vertical agents are architected differently from general-purpose agents | https://www.langchain.com/blog/top-5-langgraph-agents-in-production-2024 → PR-15-langgraph-controllable-agents/index.html
+- [x] Type 3 | Anthropic | Anthropic's multi-agent research system — agent coordination, tool design, prompt engineering, evaluation, and the path from prototype to production | https://www.anthropic.com/engineering/multi-agent-research-system → PR-16-anthropic-multi-agent-research-system/index.html
 
 ---
 

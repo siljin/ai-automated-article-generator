@@ -1,0 +1,1909 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>The Buyback Paradox — ER-21</title>
+<style>
+/* ER-21 styles — minimalist light theme */
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: #ffffff;
+  color: #111111;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  font-size: 16px;
+  line-height: 1.7;
+}
+.app-root { position: relative; }
+
+.progress-bar-track {
+  position: fixed;
+  top: 0; left: 0; right: 0;
+  height: 4px;
+  background: #eee;
+  z-index: 50;
+}
+.progress-bar-fill {
+  height: 100%;
+  background: #2563eb;
+  transition: width 0.3s ease;
+}
+.score-badge {
+  position: fixed;
+  top: 12px;
+  right: 16px;
+  background: #111;
+  color: #fff;
+  padding: 6px 12px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  z-index: 50;
+}
+
+.section-nav {
+  position: fixed;
+  top: 60px;
+  left: 12px;
+  width: 190px;
+  z-index: 40;
+  font-size: 13px;
+}
+.nav-item {
+  padding: 8px 10px;
+  border-left: 3px solid transparent;
+  color: #555;
+  cursor: pointer;
+  border-radius: 4px;
+  margin-bottom: 2px;
+}
+.nav-item:hover { background: #f5f5f5; }
+.nav-active {
+  border-left: 3px solid #2563eb;
+  background: #eef2ff;
+  color: #111;
+  font-weight: 600;
+}
+
+.content-column {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 48px 20px 120px;
+}
+@media (min-width: 1160px) {
+  .content-column { margin-left: 230px; }
+}
+
+.article-header { margin-bottom: 32px; }
+.kicker { color: #2563eb; font-weight: 700; font-size: 13px; letter-spacing: 0.04em; text-transform: uppercase; margin-bottom: 8px; }
+h1 { font-size: 30px; line-height: 1.25; margin: 0; }
+h2 { font-size: 22px; margin-top: 56px; margin-bottom: 16px; border-bottom: 1px solid #eee; padding-bottom: 8px; }
+h3 { font-size: 17px; margin-top: 32px; margin-bottom: 8px; }
+p { margin: 0 0 16px; }
+
+.warmup-source-tag {
+  font-size: 12px;
+  color: #6b7280;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  margin-top: 20px;
+  margin-bottom: -4px;
+}
+
+.src-tag {
+  font-size: 12px;
+  color: #2563eb;
+  text-decoration: none;
+  margin-left: 2px;
+}
+.src-tag:hover { text-decoration: underline; }
+
+.glossary-panel {
+  background: #f9fafb;
+  border: 1px solid #eee;
+  border-radius: 8px;
+  padding: 14px 18px;
+  margin-top: 32px;
+  font-size: 14px;
+}
+.glossary-label { font-weight: 700; font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; color: #6b7280; margin-bottom: 8px; }
+.glossary-panel ul { margin: 0; padding-left: 18px; }
+.glossary-panel li { margin-bottom: 6px; }
+
+.chart-card {
+  border: 1px solid #eee;
+  border-radius: 10px;
+  padding: 16px;
+  margin: 24px 0;
+}
+.chart-title { font-weight: 700; font-size: 15px; margin-bottom: 8px; }
+.chart-meta { display: flex; align-items: center; gap: 8px; margin-top: 6px; font-size: 12px; color: #6b7280; flex-wrap: wrap; }
+.tier-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-weight: 700;
+  font-size: 11px;
+  text-transform: uppercase;
+}
+.tier-fact { background: #dcfce7; color: #166534; }
+.tier-estimate { background: #fef3c7; color: #92400e; }
+.tier-illustration { background: #f3f4f6; color: #374151; }
+
+.interp-block { margin-top: 16px; border-top: 1px dashed #e5e7eb; padding-top: 12px; }
+.interp-prompt { margin-bottom: 16px; }
+.interp-kind { font-size: 11px; text-transform: uppercase; letter-spacing: 0.03em; color: #2563eb; font-weight: 700; margin-bottom: 4px; }
+.interp-question { font-size: 14px; margin-bottom: 8px; }
+.interp-input-row textarea {
+  width: 100%;
+  min-height: 60px;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-family: inherit;
+  font-size: 14px;
+  resize: vertical;
+}
+.interp-input-row { display: flex; flex-direction: column; gap: 8px; }
+.interp-revealed { background: #fafafa; border-radius: 8px; padding: 10px 12px; }
+.reader-answer p, .authored-answer p { margin: 4px 0 10px; font-size: 14px; }
+.tag-you, .tag-authored { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; color: #6b7280; }
+.tag-authored { color: #2563eb; }
+
+.small-multiples-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+@media (max-width: 640px) { .small-multiples-grid { grid-template-columns: 1fr; } }
+.panel-title { font-size: 13px; font-weight: 600; margin-bottom: 4px; text-align: center; }
+
+.question-card {
+  border: 1px solid #ddd;
+  border-radius: 10px;
+  padding: 16px 18px;
+  margin: 20px 0;
+}
+.case-card { background: #fffbeb; border-left: 3px solid #d97706; }
+.case-label { font-weight: 700; font-size: 12px; text-transform: uppercase; color: #d97706; margin-bottom: 8px; }
+.q-type-tag { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; color: #6b7280; margin-bottom: 8px; }
+.q-prompt { font-size: 15px; font-weight: 500; margin-bottom: 12px; }
+
+.option-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
+.option-card {
+  display: flex;
+  gap: 10px;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  padding: 10px 12px;
+  cursor: pointer;
+  font-size: 14px;
+}
+.option-card:hover { border-color: #999; }
+.option-selected { border-color: #2563eb; background: #eef2ff; }
+.option-correct { border-color: #16a34a; background: #f0fdf4; }
+.option-wrong { border-color: #dc2626; background: #fef2f2; }
+.option-letter { font-weight: 700; color: #6b7280; }
+
+.btn-primary, .btn-secondary {
+  border: none;
+  border-radius: 8px;
+  padding: 10px 16px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.btn-primary { background: #111; color: #fff; }
+.btn-primary:disabled { background: #ccc; cursor: not-allowed; }
+.btn-secondary { background: #eef2ff; color: #2563eb; align-self: flex-start; }
+.btn-secondary:disabled { background: #f3f4f6; color: #aaa; cursor: not-allowed; }
+
+.explanation-block { margin-top: 12px; border-radius: 8px; padding: 12px 14px; font-size: 14px; }
+.explanation-correct { background: #f0fdf4; border: 1px solid #bbf7d0; }
+.explanation-wrong { background: #fef2f2; border: 1px solid #fecaca; }
+.calibration-note { font-weight: 700; margin-bottom: 6px; }
+.transfer-cue { font-style: italic; color: #444; margin-top: 8px; }
+
+.numeric-card .numeric-input-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.numeric-input-row input[type="number"] { width: 140px; padding: 8px; border: 1px solid #ddd; border-radius: 8px; font-size: 14px; }
+.numeric-input-row input[type="range"] { flex: 1; min-width: 140px; }
+.path-input { margin-bottom: 10px; }
+.path-input label { display: block; font-size: 13px; margin-bottom: 4px; color: #444; }
+.path-input input[type="text"] { width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 8px; font-size: 14px; }
+.numeric-compare { margin-bottom: 12px; }
+.axis-track { position: relative; height: 40px; background: #f3f4f6; border-radius: 6px; margin: 10px 0; }
+.axis-marker { position: absolute; top: -4px; transform: translateX(-50%); font-size: 11px; text-align: center; }
+.axis-marker span { white-space: nowrap; background: #fff; border: 1px solid #ccc; border-radius: 4px; padding: 2px 6px; }
+.your-marker span { border-color: #2563eb; color: #2563eb; }
+.actual-marker span { border-color: #111; color: #111; }
+.how-to-estimate { margin-top: 8px; }
+
+.score-table { border-collapse: collapse; width: 100%; margin: 12px 0; font-size: 14px; }
+.score-table th, .score-table td { border: 1px solid #e5e7eb; padding: 6px 10px; text-align: left; }
+
+.insight-input textarea, .apply-textarea {
+  width: 100%;
+  min-height: 70px;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  padding: 10px;
+  font-family: inherit;
+  font-size: 14px;
+  margin-bottom: 10px;
+  resize: vertical;
+}
+.insight-cards { padding-left: 20px; }
+.insight-card { margin-bottom: 10px; font-size: 14px; }
+.apply-eval-block { background: #f9fafb; border: 1px solid #eee; border-radius: 8px; padding: 12px 14px; margin-top: 12px; font-size: 14px; }
+.revisit-list { font-size: 14px; }
+
+.source-list { font-size: 14px; padding-left: 18px; }
+.source-list li { margin-bottom: 8px; }
+.source-list a { color: #2563eb; text-decoration: none; }
+.source-list a:hover { text-decoration: underline; }
+
+.back-next-controls {
+  position: fixed;
+  bottom: 16px;
+  right: 16px;
+  display: flex;
+  gap: 8px;
+  z-index: 45;
+}
+.btn-backnext {
+  background: #111;
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  padding: 10px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.15);
+}
+.btn-backnext:hover { background: #333; }
+
+@media (max-width: 480px) {
+  h1 { font-size: 24px; }
+  .score-badge { font-size: 11px; padding: 4px 8px; }
+}
+</style>
+<script crossorigin src="https://unpkg.com/react@18.3.1/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/prop-types@15.8.1/prop-types.min.js"></script>
+<script crossorigin src="https://unpkg.com/recharts@2.12.7/umd/Recharts.js"></script>
+<script src="https://unpkg.com/@babel/standalone@7.24.7/babel.min.js"></script>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel" data-presets="env,react">
+/* ER-21: The Buyback Paradox — Business & Strategy
+   Readable source copy. This exact code is inlined into index.html. */
+
+const { useState, useEffect, useRef, useMemo } = React;
+const {
+  ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
+  Legend, ReferenceLine, BarChart, Bar, Cell, ComposedChart, Scatter, LabelList,
+} = Recharts;
+
+/* ---------------------------------------------------------------------- */
+/* DATA                                                                    */
+/* ---------------------------------------------------------------------- */
+
+const SOURCES = [
+  { id: "spdji", label: "S&P Dow Jones Indices, quarterly and annual S&P 500 buyback press releases, 2016–2025", url: "https://www.spglobal.com/spdji/en/corporate-news/article/sp-500-buybacks-set-quarterly-and-12-month-records-again" },
+  { id: "spq12025", label: "S&P Dow Jones Indices, \"S&P 500 Q1 2025 Buybacks Set Quarterly Record at $293 Billion\" (2025)", url: "https://www.nasdaq.com/press-release/sp-500-q1-2025-buybacks-set-quarterly-record-293-billion-206-helping-eps-growth" },
+  { id: "spq32025", label: "S&P Dow Jones Indices, \"S&P 500 Q3 2025 Buybacks Post Modest 6.2% Gain\" (2025)", url: "https://www.prnewswire.com/news-releases/sp-500-q3-2025-buybacks-post-modest-6-2-gain-to-249-0-billion-after-declining-20-1-amidst-uncertainty-in-q2-q4-2025-expenditures-expected-to-post-similar-growth-as-2025-anticipates-a-record-1-trillion-302645583.html" },
+  { id: "spq42024", label: "S&P Dow Jones Indices, \"S&P 500 Q4 2024 Buybacks... 2024 Expenditure Sets New Record\" (Mar. 2025)", url: "https://www.prnewswire.com/news-releases/sp-500-q4-2024-buybacks-increase-7-4-and-2024-expenditure-sets-new-record-by-increasing-18-5-earnings-per-share-increases-from-buybacks-decline-for-the-quarter-as-q1-2025s-impact-is-expected-to-increase-302405380.html" },
+  { id: "kahlestulz", label: "Kahle, K. & Stulz, R. \"Are Corporate Payouts Abnormally High in the 2000s?\" NBER Working Paper 26958 (2020)", url: "https://www.nber.org/digest/jul20/buybacks-dividends-and-internal-corporate-investment" },
+  { id: "gutierrezphilippon", label: "Gutiérrez, G. & Philippon, T. \"Investmentless Growth: An Empirical Investigation.\" NBER Working Paper 23583 / Brookings Papers on Economic Activity (2017)", url: "https://www.nber.org/system/files/working_papers/w22897/w22897.pdf" },
+  { id: "sec10b18", label: "U.S. SEC, Division of Trading and Markets, FAQ Concerning Rule 10b-18 \"Safe Harbor\" for Issuer Repurchases", url: "https://www.sec.gov/rules-regulations/staff-guidance/trading-markets-frequently-asked-questions/division-trading-markets-answers-frequently-asked-questions-concerning-rule-10b-18-safe-harbor" },
+  { id: "crs47397", label: "Gravelle, J. \"The 1% Excise Tax on Stock Repurchases (Buybacks).\" Congressional Research Service Report R47397 (2023)", url: "https://www.everycrsreport.com/reports/R47397.html" },
+  { id: "fredpnfia", label: "Bureau of Economic Analysis via FRED, \"Private Nonresidential Fixed Investment\" (series PNFIA)", url: "https://fred.stlouisfed.org/series/PNFIA" },
+  { id: "ncses", label: "National Center for Science and Engineering Statistics (NSF), Business Enterprise R&D Survey releases", url: "https://ncses.nsf.gov/pubs/nsf25353" },
+  { id: "japantimes", label: "\"Listed Japanese firms' share buybacks hit record in 2024,\" The Japan Times (Jan. 20, 2025)", url: "https://www.japantimes.co.jp/business/2025/01/20/markets/record-share-buybacks-2024/" },
+  { id: "nippon", label: "\"Japan's Share Buybacks on Track for Record High in Fiscal 2025,\" Nippon.com", url: "https://www.nippon.com/en/japan-data/h02676/" },
+  { id: "cmcmagnificent7", label: "\"Magnificent 7 Earnings, Part 2: Massive AI Capex,\" CMC Markets (Feb. 12, 2026)", url: "https://www.cmcmarkets.com/en/optox/magnificent-7-earnings-part-2-massive-ai-capex" },
+  { id: "cryptobriefing", label: "\"Big Tech drives surge in US corporate bond sales amid AI investments,\" Crypto Briefing (Jul. 25, 2026)", url: "https://cryptobriefing.com/big-tech-corporate-bond-surge-ai-investments/" },
+  { id: "macdailynews", label: "Sean Williams, via MacDailyNews, \"Apple could have purchased any of 487 S&P 500 companies...\" (Jul. 6, 2026)", url: "https://macdailynews.com/2026/07/06/apple-could-have-purchased-any-of-487-sp-500-companies-but-ceo-tim-cook-chose-853-billion-in-buybacks-instead/" },
+  { id: "techcrunchmeta", label: "\"Meta to spend up to $72B on AI infrastructure in 2025...\" TechCrunch (Jul. 30, 2025)", url: "https://techcrunch.com/2025/07/30/meta-to-spend-up-to-72b-on-ai-infrastructure-in-2025-as-compute-arms-race-escalates/" },
+];
+
+const srcTag = (id) => `[${id}]`;
+
+// Chart 1 — indexed line: S&P 500 buybacks, 2015-2024
+const BUYBACK_TREND = [
+  { year: "2015", indexVal: 100.0, raw: 572.2 },
+  { year: "2016", indexVal: 93.7, raw: 536.4 },
+  { year: "2017", indexVal: 90.8, raw: 519.4 },
+  { year: "2018", indexVal: 141.0, raw: 806.4 },
+  { year: "2019", indexVal: 127.4, raw: 728.7 },
+  { year: "2020", indexVal: 90.9, raw: 519.8 },
+  { year: "2021", indexVal: 154.1, raw: 881.7 },
+  { year: "2022", indexVal: 161.3, raw: 922.7 },
+  { year: "2023", indexVal: 139.0, raw: 795.2 },
+  { year: "2024", indexVal: 164.7, raw: 942.5 },
+];
+
+// Chart 2 — waterfall/bridge: payout-ratio shift, pre-2000 -> 2000-2017
+const PAYOUT_BRIDGE = [
+  { label: "Pre-2000 payout ratio", base: 0, delta: 19.2, kind: "total" },
+  { label: "Dividend share, change", base: 18.8, delta: 0.4, kind: "decrease" },
+  { label: "Buyback share, change", base: 18.8, delta: 16.4, kind: "increase" },
+  { label: "2000–2017 payout ratio", base: 0, delta: 35.2, kind: "total" },
+];
+
+// Chart 3 — dumbbell: investment vs buybacks, 2021 -> 2024
+const CAPEX_VS_BUYBACK = [
+  { label: "Economy-wide nonresidential fixed investment (BEA)", before: 3087.2, after: 4022.9, unit: "$B" },
+  { label: "S&P 500 buybacks (S&P Dow Jones Indices)", before: 881.7, after: 942.5, unit: "$B" },
+];
+
+// Chart 4 — slope chart: Big Tech capex, 2025 actual -> 2026 guided midpoint
+const HYPERSCALER_CAPEX = [
+  { period: "2025 actual", amazon: 131, alphabet: 91.4, meta: 72.2 },
+  { period: "2026 guided (midpoint)", amazon: 200, alphabet: 180, meta: 125 },
+];
+
+// Chart 5 — small multiples: Japan vs U.S. buybacks, indexed to 100
+const JAPAN_INDEX = [
+  { period: "2023", indexVal: 100.0 },
+  { period: "2024", indexVal: 188.5 },
+  { period: "2025", indexVal: 233.2 },
+];
+const US_INDEX = [
+  { period: "2023", indexVal: 100.0 },
+  { period: "2024", indexVal: 118.5 },
+  { period: "2025", indexVal: 128.3 },
+];
+
+/* ---------------------------------------------------------------------- */
+/* CHART INTERPRETATION PROMPT CONTENT                                    */
+/* ---------------------------------------------------------------------- */
+
+const CHART_PROMPTS = {
+  chart1: [
+    {
+      kind: "quant",
+      prompt: "Estimate the ratio between the highest year's index value and the lowest year's index value shown (a peak-to-trough multiple), and say what that gap implies about how sensitive buybacks are to the macro/tax environment compared with a steadier payout like dividends.",
+      authored: "The peak (2024, index 164.7) is about 1.8× the trough (2020, index 90.9) — a swing dividends never come close to matching, because a board can pause a buyback program in a single quarter with none of the stigma a dividend cut carries. That volatility is the whole reason buybacks, not dividends, function as corporate America's shock absorber.",
+    },
+    {
+      kind: "sowhat",
+      prompt: "In one sentence: what should an equity analyst do differently after seeing 2018 (post tax-cut) and 2023 (post excise-tax) both show up as visible inflection points on this line?",
+      authored: "An analyst should treat buyback guidance as a policy-sensitive number, not a stable capital-return baseline — model a company's payout plans against the current corporate tax rate and any pending excise-tax changes rather than extrapolating last year's buyback total forward.",
+    },
+  ],
+  chart2: [
+    {
+      kind: "mechanism",
+      prompt: "Why is almost the entire increase in the bridge attributable to the buyback bar and almost none of it to the dividend bar? Name the underlying force.",
+      authored: "Dividends are sticky because cutting one signals financial distress to the market, so boards hold the dividend ratio nearly flat across both eras. Buybacks carry no comparable stigma and can be turned on or off discretionarily, so nearly all of the extra cash companies chose to pay out after 2000 flowed through the flexible channel, not the rigid one.",
+    },
+    {
+      kind: "quant",
+      prompt: "Predict, then check: does the total 2000–2017 payout ratio (35.2%) represent roughly a doubling, tripling, or near-quadrupling of the pre-2000 ratio (19.2%)? State the multiple.",
+      authored: "35.2 ÷ 19.2 ≈ 1.83×, so total payouts in the later period were not a doubling but a bit less than that — the popular \"doubling\" framing overstates the combined-ratio change even though the buyback component alone (4.8% → 21.2%) did rise by roughly 4.4×. Conflating the component's multiple with the total's multiple is an easy, common error.",
+    },
+  ],
+  chart3: [
+    {
+      kind: "causal",
+      prompt: "The chart shows economy-wide investment and S&P 500 buybacks both rising from 2021 to 2024, at very different rates. Does the fact that investment rose faster prove buybacks are not crowding out investment? Explain in one sentence.",
+      authored: "No — it does not prove that, because the two bars measure different populations at different scopes (the entire U.S. private economy vs. 500 large public companies), so a faster-growing whole-economy total could easily coexist with real crowding out inside a specific subset of large, concentrated firms; the aggregate comparison is simply too coarse to settle the question either way.",
+    },
+    {
+      kind: "sowhat",
+      prompt: "What should a reader do differently before citing an aggregate comparison like this one to settle a firm-level debate about crowding out?",
+      authored: "Check what population and scope each number in the comparison actually covers before treating a favorable-looking aggregate gap as proof; here, a reader should ask for firm-level or industry-level data (like Gutiérrez and Philippon's competition-based split) rather than resting the case on two mismatched national and large-cap totals.",
+    },
+  ],
+  chart4: [
+    {
+      kind: "quant",
+      prompt: "Estimate the average percentage increase in guided 2026 capex over 2025 actual capex across these three companies (not company-by-company, but roughly averaged), and say what that implies about how much cash flow AI infrastructure now consumes.",
+      authored: "Amazon rises about 53% (131→200), Alphabet about 97% (91.4→180), and Meta about 73% (72.2→125) — an average increase of roughly 74%. That means each of these firms is guiding to nearly double its already-record capital spending in a single year, a pace that mechanically consumes a much larger share of operating cash flow than these firms' historical capex ratios ever did.",
+    },
+    {
+      kind: "mechanism",
+      prompt: "Why would three competitors with different core businesses (retail/cloud, search/ads, social media/ads) all guide toward roughly doubling capex in the same year rather than staggering their spending?",
+      authored: "Because the underlying resource — GPU-based AI compute capacity — is a shared, capacity-constrained input that all three need for the same emerging use case (AI model training and inference) at the same moment; none can afford to wait a cycle without ceding ground to the others, which is exactly the dynamic that turns an efficiency race into a synchronized capital-spending surge.",
+    },
+  ],
+  chart5: [
+    {
+      kind: "quant",
+      prompt: "Predict which panel's line ends higher by 2025, then check: by roughly how many index points does Japan's 2025 value exceed the U.S.'s 2025 value?",
+      authored: "Japan ends at about 233 and the U.S. at about 128 — a gap of roughly 105 index points, meaning Japan's buyback total grew more than four times as fast, in percentage terms, as the U.S. total over the identical two-year window.",
+    },
+    {
+      kind: "sowhat",
+      prompt: "What should a reader conclude about comparing growth rates across two series that start at very different absolute levels and institutional histories?",
+      authored: "A reader should treat the steeper percentage growth in the catching-up series (Japan) as a base-effect artifact of decades of suppressed payouts, not as evidence Japanese boards became more shareholder-friendly than American ones overnight — the right comparison is each market against its own historical norm, not the two growth rates against each other.",
+    },
+  ],
+};
+
+/* ---------------------------------------------------------------------- */
+/* WARM-UP QUESTIONS (drawn from prior articles, not today's topic)       */
+/* ---------------------------------------------------------------------- */
+
+const WARMUP_QUESTIONS = [
+  {
+    id: "wu1",
+    sourceArticle: "ER-17, mortgage rate lock-in",
+    prompt:
+      "A city utility offers residents a 20-year fixed water-rate contract that can only be exited by paying the full remaining balance in cash. A neighboring city offers an identical 20-year fixed rate, but residents can exit anytime for a small $50 administrative fee. Rates fall sharply five years in. Applying the same lesson that explained why U.S. mortgage lock-in bites harder than Danish mortgage lock-in, which city's residents are more likely to stay \"trapped\" paying above-market rates, and why?",
+    options: [
+      { text: "The full-balance city, because the size of the exit cost — not the length of the fixed-rate term — is what determines whether people feel locked in.", correct: true, misconception: null },
+      { text: "The small-fee city, because a lower fee makes people less motivated to switch at all.", correct: false, misconception: "Inverts the mechanism — a cheap exit lowers the switching cost, which should increase switching, not decrease it." },
+      { text: "Both cities equally, because a 20-year fixed rate always produces the same lock-in regardless of exit terms.", correct: false, misconception: "Ignores the entire point of the original lesson: an identical headline design feature (rate length) can produce opposite outcomes depending on a second detail (exit cost)." },
+      { text: "Neither city, because falling rates only affect adjustable-rate contracts, not fixed-rate ones.", correct: false, misconception: "Confuses the lock-in effect (feeling stuck at a now-unfavorable fixed rate) with a rate-reset mechanism that doesn't apply here." },
+    ],
+    explanationCorrect:
+      "Correct — this generalizes the mortgage lock-in lesson: a 30-year fixed mortgage in the U.S. and in Denmark share the identical headline feature (rate length), yet U.S. borrowers get locked in far more severely because Denmark's callable-bond design lets them exit near market price, while the U.S. offers no equivalent cheap exit. The size of the exit cost, not the contract length, is the load-bearing variable.",
+    transferCue: "Where this generalizes: any long-term fixed commitment — a phone contract, a fixed-rate loan, even a multi-year vendor agreement — locks people in proportional to how expensive the exit is, not how long the headline term is.",
+  },
+  {
+    id: "wu2",
+    sourceArticle: "ER-18, AI prior authorization denials",
+    prompt:
+      "A software company reports that only 4% of bug reports filed through its formal ticketing system are confirmed as \"critical severity.\" A skeptical engineer points out that most users who hit a critical bug just uninstall the app rather than filing a ticket. Applying the same lesson that applied to a healthcare insurer's denial-appeal data, what should the skeptical engineer conclude about the 4% figure?",
+    options: [
+      { text: "The 4% figure is a reliable estimate of the true critical-bug rate, since it comes from the company's own official system.", correct: false, misconception: "Assumes an official-looking data source is automatically representative, ignoring who self-selects into using that system." },
+      { text: "The 4% figure is almost certainly a floor, not an estimate, on the true critical-bug rate, because it is measured only over the self-selected group of users who bothered to file a ticket rather than leave.", correct: true, misconception: null },
+      { text: "The 4% figure is likely an overestimate, because engineers exaggerate severity to get bugs fixed faster.", correct: false, misconception: "Guesses at a bias in the wrong direction without addressing the actual sampling problem (who is in the denominator)." },
+      { text: "The figure cannot be interpreted at all without knowing the company's total user count.", correct: false, misconception: "Overcorrects — user count would help estimate an absolute number of affected users, but it doesn't change the core sampling-bias problem with the 4% rate itself." },
+    ],
+    explanationCorrect:
+      "Correct — this is the same base-rate-of-reporting lesson as the prior-authorization denial data: a rate computed only over people who chose to report, appeal, or complain is a lower bound on the true population rate, not an unbiased estimate of it, because the people who silently leave (uninstall, switch insurers, drop the claim) are excluded from the numerator and denominator alike.",
+    transferCue: "Where this generalizes: customer satisfaction surveys, product return rates, and workplace complaint statistics all undercount the true problem rate whenever the people most affected are also the most likely to disengage silently rather than formally report.",
+  },
+  {
+    id: "wu3",
+    sourceArticle: "ER-20, AI and entry-level jobs",
+    prompt:
+      "A retailer announces its shoplifting \"loss rate\" fell from 1.5% of sales to 1.3% of sales and calls this a \"13% decrease in theft\" in its press release. A trade journalist repeats the framing uncritically. Applying the same units-mismatch lesson used to question the \"AI is causing 2009-style job losses\" framing, what is the sharpest question a skeptical board member should ask before accepting the retailer's claim?",
+    options: [
+      { text: "Whether the retailer's stores are unionized, since that determines loss-rate reporting standards.", correct: false, misconception: "Introduces an irrelevant institutional detail that has nothing to do with the units-mismatch problem in the claim itself." },
+      { text: "Whether the press release was written by the marketing department or the finance department.", correct: false, misconception: "Focuses on organizational trivia rather than the substance of the statistical claim." },
+      { text: "Whether \"13% decrease\" is describing a 0.2-percentage-point drop in a rate, or an actual 13-percentage-point drop — because those are very different magnitudes, and only one of them matches the raw numbers given.", correct: true, misconception: null },
+      { text: "Nothing — a rate that falls by 0.2 percentage points is always fairly described as a percent decrease of similar size.", correct: false, misconception: "This is exactly the percent-vs-percentage-point error the question is testing: a 0.2-point drop from a 1.5% base is a 13.3% relative decrease, which is arithmetically defensible, but readers must be told which of the two very different-sounding numbers is meant." },
+    ],
+    explanationCorrect:
+      "Correct — this generalizes the lesson that a rate expressed in percentage points and a change expressed in percent are not interchangeable, and any claim that blurs the two (calling a 0.2-point move a \"13% decrease\" without clarifying it's relative, not an absolute point change) needs to be unpacked before it's repeated, exactly as the aggregate-unemployment-rate vs. subgroup-employment-level comparison needed to be unpacked in the AI/entry-level-jobs debate.",
+    transferCue: "Where this generalizes: any headline that reports a change as \"X% decrease/increase\" in something that was originally expressed as a percentage (a rate, a share, a ratio) should be checked for whether X% means X percentage points or X percent of the original rate — the two can differ by an order of magnitude.",
+  },
+];
+
+/* ---------------------------------------------------------------------- */
+/* GLOSSARIES (per page)                                                  */
+/* ---------------------------------------------------------------------- */
+
+const GLOSSARIES = {
+  intro: [
+    { term: "Buyback (share repurchase)", def: "when a company uses its own cash to buy its own shares on the open market, shrinking the number of shares outstanding." },
+    { term: "Free-cash-flow theory", def: "the idea that paying out cash a firm cannot profitably reinvest disciplines managers and prevents wasteful spending, so payouts are a safeguard, not a loss." },
+    { term: "Crowding out", def: "when money spent on one use, like buybacks, comes directly at the expense of money that would otherwise fund another use, like new equipment or research." },
+  ],
+  background: [
+    { term: "Operating income", def: "a company's profit from its core business before interest and taxes, used here as the denominator for how big a payout is relative to what the business generates." },
+    { term: "SEC Rule 10b-18", def: "the 1982 rule that gives companies a legal \"safe harbor\" for buying back their own stock, as long as they follow limits on timing, price, and trading volume." },
+    { term: "Excise tax", def: "a tax charged on a specific transaction or activity — here, a 1% federal tax on the value of stock a company repurchases." },
+  ],
+  rq1: [
+    { term: "Concentration (industry)", def: "a measure of how much of an industry's output is controlled by a small number of dominant firms; higher concentration usually means less competitive pressure." },
+    { term: "Nonresidential fixed investment", def: "spending by businesses on long-lived assets like factories, equipment, and data centers, excluding housing." },
+  ],
+  rq2: [
+    { term: "Corporate bond", def: "a loan a company takes from investors, who receive regular interest payments and get the principal back at a set future date." },
+    { term: "Free cash flow", def: "the cash a business generates from operations after covering its own capital spending, available to pay down debt, pay dividends, or buy back stock." },
+  ],
+  rq3: [
+    { term: "Payout ratio", def: "the share of a company's earnings distributed to shareholders through dividends and buybacks combined, rather than kept inside the business." },
+    { term: "Cross-shareholding", def: "when companies hold each other's stock, often to cement business ties or defend against takeovers, which can weaken outside shareholders' influence." },
+    { term: "Indexed (chart)", def: "rescaling a data series so its starting value equals 100, which makes it easier to compare growth rates between series that started at very different absolute levels." },
+  ],
+};
+
+/* ---------------------------------------------------------------------- */
+/* SCORED QUESTIONS                                                        */
+/* ---------------------------------------------------------------------- */
+
+const MC_QUESTIONS = [
+  {
+    id: "bg_a",
+    section: "background",
+    type: "A",
+    attachedTo: "chart1",
+    prompt:
+      "Between the 2020 trough (index 90.9) and the 2022 peak (index 161.3), buybacks rose sharply with no change at all to SEC Rule 10b-18, the legal permission that has stayed constant since 1982. What does that gap most directly imply about which factor does more work in explaining year-to-year buyback swings?",
+    options: [
+      { text: "The legal permission itself must be tightening and loosening year to year, since buybacks clearly fluctuate.", correct: false, misconception: "Invents a change in the legal rule that never happened — Rule 10b-18 has not been substantively altered since 1982, so it cannot explain a two-year swing." },
+      { text: "Nothing can be inferred, since index charts never reveal anything about underlying causes.", correct: false, misconception: "Overcorrects into total skepticism; a chart plus a known constant (the unchanged legal rule) can still support a specific, limited inference about what is NOT driving the swing." },
+      { text: "Because the swing happened without any legal change, legal permission must be irrelevant to buyback levels entirely.", correct: false, misconception: "Confuses 'not the proximate cause of a short-run swing' with 'irrelevant altogether' — the 1982 rule change is still the necessary precondition for buybacks at any scale, even if it doesn't explain year-to-year timing." },
+      { text: "Short-run swings are driven mainly by macroeconomic and tax conditions in a given year (like the pandemic dip and the 2022 rebound), not by legal permission, which has been a constant, always-available option since 1982.", correct: true, misconception: null },
+    ],
+    explanationCorrect:
+      "Correct — this separates a necessary background condition (legal permission, constant since 1982) from the proximate driver of short-run variation (the economic and tax environment in a given year). A constant cannot explain a swing; only a variable can, which is exactly why 2020's pandemic shock and 2022's rebound, not the SEC rule, explain this particular peak-to-trough move.",
+    transferCue: "Where this generalizes: whenever a rule or policy has stayed fixed while an outcome fluctuates, the fixed rule is at most a permission structure, not the explanation for the fluctuation — look for the variable that actually changed instead.",
+  },
+  {
+    id: "bg1",
+    section: "background",
+    type: "B",
+    attachedTo: null,
+    prompt:
+      "SEC Rule 10b-18 (1982) did not require any company to buy back stock — it only removed the legal risk that buybacks would be treated as market manipulation. Given that the buyback share of operating income then rose from 4.8% to 21.2% over the following decades, what does this sequence most strongly imply about the earlier, pre-1982 era?",
+    options: [
+      { text: "A meaningful amount of latent demand for large-scale buybacks likely existed before 1982, but legal risk suppressed it — the rule change didn't create the underlying incentive, it unlocked one that was already there.", correct: true, misconception: null },
+      { text: "Companies before 1982 had no excess cash to distribute, so the law change created new cash out of nothing.", correct: false, misconception: "Confuses a legal constraint on how cash could be distributed with a claim about how much cash existed — the rule change didn't create profits, it removed a distribution barrier." },
+      { text: "Dividends and buybacks are interchangeable, so this shift represents a mechanical accounting reclassification with no real economic difference.", correct: false, misconception: "Ignores that dividends and buybacks behave very differently under financial stress (sticky vs. flexible), which is the whole point of why the shift mattered." },
+      { text: "Because the rule was adopted in 1982 and the growth in buybacks appeared gradually afterward, the two events are unrelated coincidences.", correct: false, misconception: "Dismisses a well-documented causal channel (legal risk removal enabling a previously-constrained behavior) purely because the effect wasn't instantaneous." },
+    ],
+    explanationCorrect:
+      "Correct — this is the general pattern of regulatory unlocking: when a legal or reputational barrier is removed, behavior that was already economically attractive but suppressed by risk tends to expand gradually as norms catch up, rather than appearing instantly. The rule change is a necessary condition for the buyback boom, not its sole cause.",
+    transferCue: "Where this generalizes: any market where a longstanding legal or regulatory ambiguity is resolved — cannabis retail, gig-work classification, crypto custody — tends to show a similar gradual expansion pattern once the ambiguity clears, not an instant jump.",
+  },
+  {
+    id: "bg_c",
+    section: "background",
+    type: "C",
+    attachedTo: null,
+    isCase: true,
+    clientName: "Meridian Fasteners",
+    prompt:
+      "Case Prompt: Meridian Fasteners, a mid-cap industrial manufacturer, adopts a new capital-return policy: fix the dividend at exactly 14% of operating income every year, matching the historical average dividend share this section documented, while treating buybacks as fully discretionary. Based on the sticky-dividend / flexible-buyback distinction this section established, what should the board expect to happen to each payout tool if Meridian enters a sharp recession next year?",
+    options: [
+      { text: "Both the dividend and the buyback program will fall by roughly the same proportion, since both are simply percentages of operating income.", correct: false, misconception: "Ignores the entire point of the sticky vs. flexible distinction — a fixed 14% dividend policy, by construction, moves in lockstep with operating income, while buybacks are discretionary and can be cut far more sharply." },
+      { text: "The dividend will likely stay closer to its committed 14% level even as operating income dips, forcing a proportionally larger cut elsewhere, while the buyback program is the more likely candidate for a sharp, discretionary reduction or pause.", correct: true, misconception: null },
+      { text: "The buyback program is legally required to continue at its prior level regardless of the recession, since SEC Rule 10b-18 mandates consistency.", correct: false, misconception: "Misstates what Rule 10b-18 does — it is a safe harbor governing how buybacks may be executed, not a mandate requiring any company to continue or maintain a buyback program." },
+      { text: "Neither payout tool will change, since a company's payout policy is contractually fixed once announced and cannot be adjusted for economic conditions.", correct: false, misconception: "Overstates the bindingness of a self-imposed capital-return policy; boards can and do revise payout policies, especially discretionary buyback programs, in response to a recession." },
+    ],
+    explanationCorrect:
+      "Correct — this applies the section's own evidence directly: a fixed-percentage dividend commitment behaves like the historically flat ~14% dividend share, resistant to cuts because a reduction signals distress, while a discretionary buyback program behaves like the historically volatile buyback share, the natural shock absorber a board reaches for first when cash flow tightens.",
+    transferCue: "Where this generalizes: any organization with one rigid, reputation-linked spending commitment and one flexible, discretionary one will cut the flexible commitment first under stress, regardless of industry — the same logic applies to a nonprofit's core-program budget versus its discretionary grants, or a household's mortgage versus its subscription services.",
+  },
+  {
+    id: "rq1_causal",
+    section: "rq1",
+    type: "B",
+    attachedTo: "chart3",
+    prompt:
+      "The chart shows economy-wide investment and S&P 500 buybacks both rising from 2021 to 2024, with investment rising much faster. Which is the strongest reason NOT to conclude from this pattern that buybacks are failing to crowd out investment?",
+    options: [
+      { text: "Because investment grew faster than buybacks in dollar terms, buybacks must be causing some firms' investment to decline even faster elsewhere in the economy.", correct: false, misconception: "Invents an offsetting decline with no supporting evidence — a faster-growing aggregate does not imply a hidden decline somewhere else." },
+      { text: "Because the two series are measured over different populations (the whole economy vs. 500 large firms), no comparison between them is ever meaningful under any circumstances.", correct: false, misconception: "Overcorrects a real caveat (mismatched scope) into a blanket dismissal that would rule out all cross-population comparisons, even carefully qualified ones." },
+      { text: "Both series plausibly respond to a shared underlying driver — a surge in corporate profits and easy credit conditions after 2020 — so their co-movement at the aggregate level doesn't isolate whether one is trading off against the other inside any specific set of firms.", correct: true, misconception: null },
+      { text: "Because both series start at the same point in time, we can be confident they share a common cause.", correct: false, misconception: "Treats a shared starting year as proof of common causation, which is circular — sharing a time axis says nothing about whether a causal or correlational link exists." },
+    ],
+    explanationCorrect:
+      "Correct — this generalizes the standard confound problem: two series that move together after a common macro shock (here, the 2021–2024 profit and credit cycle) can look causally related to each other while actually both being driven by a third factor, and an aggregate comparison across mismatched populations cannot distinguish those possibilities without firm-level data.",
+    transferCue: "Where this generalizes: stock-market co-movement, matching hiring booms across unrelated industries, or two countries' GDP rising together after a global rate cut all carry the same risk of mistaking a shared cause for a direct causal link.",
+  },
+  {
+    id: "rq1_trap",
+    section: "rq1",
+    type: "B",
+    attachedTo: "chart3",
+    prompt:
+      "A pundit argues: \"Buybacks clearly aren't crowding out investment, because economy-wide investment grew 30.3% from 2021–2024 while S&P 500 buybacks grew only 6.9% over the same span.\" What statistical trap does this argument commit?",
+    options: [
+      { text: "It confuses a percentage-point change with a percent change.", correct: false, misconception: "Both figures here are already percent changes in levels, not percentage-point changes in a rate — this isn't the error being committed." },
+      { text: "It compares nominal dollars to inflation-adjusted (real) dollars without saying so.", correct: false, misconception: "Both series here are presented in comparable nominal terms; the mismatch is about population scope, not inflation adjustment." },
+      { text: "It suffers from survivorship bias, since only companies that avoided bankruptcy are included in either series.", correct: false, misconception: "Survivorship bias is a real statistical trap in general, but it is not the specific problem with comparing these two particular series, which is a scope/denominator mismatch." },
+      { text: "It treats two numbers measured over different denominators — the entire U.S. private economy vs. a 500-company subset — as if they answer the same question about the same population.", correct: true, misconception: null },
+    ],
+    explanationCorrect:
+      "Correct — this is a denominator and normalization trap: comparing growth rates across two series with fundamentally different scopes (all private U.S. investment vs. 500 large public companies' buybacks) produces a number that sounds precise but doesn't test the claim it's being used to support, because a real crowding-out effect inside a specific slice of large firms could be fully masked by a faster-growing, much broader aggregate.",
+    transferCue: "Where this generalizes: any time a national or industry-wide total is compared against a narrower subset's total (a country's GDP growth vs. one sector's revenue growth, a whole hospital system's outcomes vs. one department's), check that both numbers cover the same population before treating the comparison as informative.",
+  },
+  {
+    id: "rq2_a",
+    section: "rq2",
+    type: "A",
+    attachedTo: "chart4",
+    prompt:
+      "Across Amazon, Alphabet, and Meta, 2026 guided capex (using stated ranges' midpoints) implies an average increase of roughly 70–75% over 2025 actual capex. What does that magnitude most directly imply about these firms' free cash flow available for buybacks in 2026, holding operating cash flow growth roughly constant?",
+    options: [
+      { text: "It implies free cash flow available for buybacks will almost certainly shrink relative to 2025, because capex is claiming a much larger share of a cash-flow pool that is not growing at anywhere near a 70–75% clip.", correct: true, misconception: null },
+      { text: "It implies nothing about buybacks, because capex and buybacks are always funded from entirely separate pools of money at large technology companies.", correct: false, misconception: "Assumes a strict separation between capex and buyback funding sources that doesn't hold — both draw on the same underlying operating cash flow and balance sheet capacity." },
+      { text: "It implies these firms will need to cut dividends, since dividends and capex are the two payout categories most directly in competition for cash.", correct: false, misconception: "Misidentifies which payout category is most exposed; these firms' dividend policies are a small share of payouts compared with buybacks, and the section's evidence points to debt financing, not dividend cuts, as the actual response." },
+      { text: "It implies these firms' revenue must already be growing at a matching 70–75% rate, since capex and revenue always grow in lockstep.", correct: false, misconception: "Assumes a mechanical link between capex growth and revenue growth that the section's evidence does not support — capex here is forward-looking infrastructure spending, not a direct function of current revenue." },
+    ],
+    explanationCorrect:
+      "Correct — this is basic cash-flow arithmetic: if capex grows dramatically faster than operating cash flow, less residual cash flow is left over for other uses, including buybacks, unless the shortfall is filled by external financing such as debt — which is exactly the mechanism the next paragraphs document with the surge in hyperscaler bond issuance.",
+    transferCue: "Where this generalizes: any capital-intensive business (utilities building new plants, telecoms rolling out new networks) faces the same squeeze between rising capex and its other uses of cash, and watching whether the shortfall gets financed by debt or by cutting other payouts is the tell for how sustainable the spending pace really is.",
+  },
+  {
+    id: "rq2_case",
+    section: "rq2",
+    type: "C",
+    attachedTo: null,
+    isCase: true,
+    clientName: "GreenPeak Cloud",
+    prompt:
+      "Case Prompt: GreenPeak Cloud, a mid-sized public cloud provider, generates $2.1 billion in annual operating cash flow and has run a steady $600 million-a-year buyback program for the past three years. Its board is debating a $3 billion AI data-center build. The CFO proposes funding it entirely by suspending the buyback program for five years, arguing this avoids new debt and \"lets the balance sheet stay conservative.\" Which assumption must hold for this recommendation to actually create shareholder value, and what evidence from this article is thinnest in supporting it?",
+    options: [
+      { text: "The assumption that buybacks are always value-destroying, which is well-supported because Kahle and Stulz found buybacks reduce capital expenditure across the full sample of U.S. firms.", correct: false, misconception: "Misreads the cited research — Kahle and Stulz found no evidence that higher payouts reduced capex in the full sample, the opposite of what this option claims." },
+      { text: "The assumption that the $3 billion data center will generate a return above GreenPeak's cost of capital — an assumption the article's evidence on the sector's AI capex boom does not verify, since even the largest hyperscalers are financing similar bets with debt precisely because their own returns are not yet validated by matching revenue.", correct: true, misconception: null },
+      { text: "The assumption that suspending a buyback program has no signaling cost to the market, which is trivially true because only dividend cuts, never buyback pauses, affect investor perception.", correct: false, misconception: "Overstates the certainty of a real but secondary effect; the article's core evidence is about capital allocation and financing, not stock-price signaling, so this isn't the load-bearing assumption for whether the investment creates value." },
+      { text: "The assumption that GreenPeak's operating cash flow will grow fast enough to cover both the data center and a resumed buyback program after five years, which is unnecessary to assess since the CFO's plan already avoids this by suspending buybacks entirely.", correct: false, misconception: "Deflects from the central value-creation question (whether the investment itself is worth making) onto a downstream financing detail that the plan has already sidestepped." },
+    ],
+    explanationCorrect:
+      "Correct — the load-bearing assumption in any capital-allocation decision is not how the spending is financed (debt vs. foregone buybacks) but whether the investment itself clears the cost of capital; this article's own evidence — that even hyperscalers with vastly more data are financing similar bets with debt rather than certainty — shows this exact assumption is the thinnest-supported part of any AI capex decision right now, at any company's scale.",
+    transferCue: "Where this generalizes: in any capital-budgeting decision, the financing method (debt, equity, or foregone payouts) is a second-order question; the first-order, load-bearing question is always whether the underlying project return beats the hurdle rate, and that's usually the part with the least direct evidence at decision time.",
+  },
+  {
+    id: "rq3_mech",
+    section: "rq3",
+    type: "B",
+    attachedTo: "chart5",
+    prompt:
+      "Japan's buyback index rises far more steeply than the U.S.'s over the same 2023–2025 window. What is the most likely mechanism, based on the article's evidence?",
+    options: [
+      { text: "Japanese corporate boards became more skilled at capital allocation than American boards over this two-year period.", correct: false, misconception: "Introduces an unsupported claim about relative managerial skill that the article's evidence does not test or support." },
+      { text: "The Nikkei's roughly 20% rise in 2024 mechanically forces buyback totals to rise by a similar percentage, since share prices and buyback dollar totals are calculated the same way.", correct: false, misconception: "Confuses share-price performance with buyback dollar totals, which are separate decisions companies make about deploying cash, not a mechanical function of the index level." },
+      { text: "Japan started from a much lower, artificially suppressed payout base after decades of cash-hoarding and defensive cross-shareholding, so the same absolute policy push produced a much larger percentage change off a smaller starting number.", correct: true, misconception: null },
+      { text: "The Tokyo Stock Exchange made buybacks legally mandatory in March 2023, so the entire increase reflects compliance with a new legal requirement rather than voluntary corporate choice.", correct: false, misconception: "Overstates the nature of the TSE request, which was a call to improve capital efficiency, not a legal mandate to buy back stock specifically." },
+    ],
+    explanationCorrect:
+      "Correct — this is a base-effect lesson: the same percentage change means something very different depending on the starting level, and Japan's dramatic percentage growth reflects catching up from an unusually low, historically suppressed starting point rather than any inherent superiority in corporate decision-making.",
+    transferCue: "Where this generalizes: emerging-market growth rates that look far more impressive than developed-market growth rates often reflect the same base-effect dynamic — a smaller starting number makes the same absolute gain look like a much bigger percentage move.",
+  },
+  {
+    id: "rq3_case",
+    section: "rq3",
+    type: "C",
+    attachedTo: null,
+    isCase: true,
+    clientName: "Office of Senator (fictional)",
+    prompt:
+      "Case Prompt: A U.S. senator's staffer drafts testimony arguing: \"Japan's buyback total roughly tripled in two years after one policy nudge, proving a strong policy lever can reshape corporate payout behavior — so the U.S. should adopt an equally assertive policy, like raising the excise tax to 4%, to meaningfully cut American buybacks.\" Which assumption in this argument is most directly undermined by this section's own evidence about why Japan's percentage change was so large?",
+    options: [
+      { text: "The assumption that Japan's Financial Services Agency has any regulatory authority over cross-shareholdings, which this section shows is false.", correct: false, misconception: "Misreads the section's own evidence — the FSA's pressure on insurers to unwind cross-shareholdings is exactly what the section documents as real and effective." },
+      { text: "The assumption that the Tokyo Stock Exchange's 2023 request was a formal legal mandate, which this section shows is literally true, so the analogy is actually strong.", correct: false, misconception: "States the opposite of what the section says — the TSE's request was a call to improve capital efficiency, not a legal mandate, which is itself a reason the U.S.-Japan analogy is weaker than it looks, not stronger." },
+      { text: "The assumption that Toyota's ¥1.2 trillion buyback was related to unwinding cross-shareholdings, which this section shows is false.", correct: false, misconception: "Contradicts the section directly, which explicitly documents Toyota's buyback as tied to unwinding cross-shareholdings flagged by the regulator." },
+      { text: "The assumption that the size of a percentage change alone measures the strength of a policy lever — when Japan's outsized percentage change was driven mainly by its unusually low, suppressed starting base, so the same policy applied to a market already at a mature, high payout level (like the U.S.) would not be expected to produce a comparable percentage move.", correct: true, misconception: null },
+    ],
+    explanationCorrect:
+      "Correct — this is the same base-effect lesson applied to a policy argument: a percentage change's size depends on the starting level, so citing Japan's large percentage move as proof of a policy's strength, without accounting for how suppressed Japan's starting base was, overstates how much a similar policy would move a market that is not starting from a suppressed base, like the United States.",
+    transferCue: "Where this generalizes: any policy argument that cites a percentage change achieved in one context as evidence for how a similar policy will perform in a different context should be checked against each context's starting level — the same intervention can look powerful in one and negligible in the other purely because of where each one started.",
+  },
+];
+
+const NUMERIC_QUESTIONS = [
+  {
+    id: "d1",
+    section: "rq1",
+    type: "D",
+    scaffolded: true,
+    toleranceType: "tight",
+    tolerancePct: 8,
+    target: 1148.8,
+    prompt:
+      "Scaffolded estimate: S&P 500 buybacks were $881.7 billion in 2021. If they had grown at the same 30.3% rate that economy-wide nonresidential fixed investment grew between 2021 and 2024, instead of their actual 6.9%, what would the 2024 buyback total have been, in $ billions? (Decomposition: 2021 level × (1 + hypothetical growth rate).)",
+    unit: "$ billion",
+    lowBound: 900,
+    highBound: 1400,
+    decomposition:
+      "881.7 × (1 + 0.303) = 881.7 × 1.303 ≈ $1,148.8 billion. This is a pure arithmetic scaffold: take the known 2021 base and apply the alternative growth rate directly — no additional assumptions are required.",
+    whyActualDiffers:
+      "The actual 2024 figure ($942.5B) is about $206 billion below this hypothetical, which is exactly the gap this article's evidence would predict: buyback growth has structurally lagged capital-spending growth in the AI era because incremental cash flow is increasingly being redirected toward (and supplemented by debt for) infrastructure, not repurchases.",
+  },
+  {
+    id: "d2",
+    section: "rq2",
+    type: "D",
+    scaffolded: false,
+    toleranceType: "fermi",
+    target: 450,
+    prompt:
+      "Open-ended Fermi estimate: six major hyperscalers issued about $244 billion in bonds globally from the start of 2026 through mid-July 2026 (roughly 6.5 months), overwhelmingly to fund AI infrastructure. If they continued issuing bonds at that same average pace for the rest of calendar 2026, roughly how much total debt (in $ billions) would these six firms have issued for the full year? Name your own decomposition path before entering a number.",
+    unit: "$ billion",
+    lowBound: 225,
+    highBound: 900,
+    decomposition:
+      "Rate × time: $244B ÷ 6.5 months ≈ $37.5B per month. $37.5B × 12 months ≈ $450 billion for the full year. This assumes the pace observed in the first 6.5 months continues unchanged, which is a genuine Fermi assumption, not a certainty — actual full-year issuance could run higher (if the pace accelerates further, as several analysts expected through mid-2026) or lower (if credit markets push back on absorbing more hyperscaler debt).",
+    whyActualDiffers:
+      "This is a forward-looking extrapolation, not a value the article can verify after the fact within its own text — the point of the exercise is the decomposition (rate × time) and the explicit acknowledgment that a constant-pace assumption is fragile, not the precision of the final number.",
+  },
+];
+
+const CONCLUSION_QUESTION = {
+  id: "e1",
+  section: "conclusion",
+  type: "E",
+  prompt:
+    "Given what you have learned, which real-world decision is most directly supported by this article's evidence, and which risk would most threaten it?",
+  options: [
+    {
+      text: "A credit analyst covering hyperscaler bonds should weight the risk that AI infrastructure revenue arrives later or smaller than guided capex assumes — because if that happens, firms may face a genuine choice between servicing new AI-related debt and maintaining buyback programs, a trade-off that would falsify the article's current \"both records coexist because they're financed differently\" reading.",
+      correct: true,
+      misconception: null,
+    },
+    {
+      text: "A retail investor should avoid any company with a large buyback program, since buybacks are now conclusively shown to crowd out the investment that drives long-term growth.",
+      correct: false,
+      misconception: "Overreaches past what the evidence supports — the article shows crowding out is concentrated in specific, less-competitive industries, not a universal law, so a blanket avoidance rule is not supported.",
+    },
+    {
+      text: "A U.S. policymaker should immediately raise the buyback excise tax to 4%, since the current 1% rate has clearly failed to slow buyback growth at all.",
+      correct: false,
+      misconception: "Draws a policy conclusion the article's own evidence doesn't fully support — the tax's modest scale (well under 1% of operating earnings) makes it hard to isolate its effect from other forces like the AI capex cycle, and the article does not evaluate what a 4% rate would do.",
+    },
+    {
+      text: "A corporate board should treat debt-financed capex and cash-financed buybacks as functionally identical decisions, since both ultimately draw on the same balance sheet.",
+      correct: false,
+      misconception: "Collapses a distinction the article treats as central — debt financing introduces a repayment obligation and covenant risk that cash-financed buybacks do not carry, so the two are not functionally identical for risk purposes.",
+    },
+  ],
+  explanationCorrect:
+    "Correct — the article's central, falsifiable claim is that buybacks and AI capex can both set records because they are financed differently (cash flow vs. debt), not because crowding out has been disproven. The observation that would falsify this reading is exactly the one named: AI revenue disappointing relative to the capex and debt taken on to build it, forcing a real trade-off between debt service and buybacks. Until that trade-off actually appears, the current arrangement remains an open bet, not a settled resolution.",
+  transferCue:
+    "Where this generalizes: any two corporate programs that appear to coexist peacefully because they're funded from different sources should be re-examined the moment one of those funding sources (here, debt serviced by future revenue) comes under stress — that's when the coexistence gets tested for real.",
+};
+
+/* ---------------------------------------------------------------------- */
+/* SMALL UI PRIMITIVES                                                    */
+/* ---------------------------------------------------------------------- */
+
+function Glossary({ items }) {
+  if (!items || items.length === 0) return null;
+  return (
+    <div className="glossary-panel">
+      <div className="glossary-label">Glossary</div>
+      <ul>
+        {items.map((g, i) => (
+          <li key={i}>
+            <strong>{g.term}</strong> — {g.def}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function SourceTag({ id }) {
+  const s = SOURCES.find((x) => x.id === id);
+  if (!s) return null;
+  return (
+    <a className="src-tag" href={s.url} target="_blank" rel="noreferrer">
+      {srcTag(id)}
+    </a>
+  );
+}
+
+function ChartMeta({ tier, note }) {
+  return (
+    <div className="chart-meta">
+      <span className={"tier-badge tier-" + tier.toLowerCase()}>{tier}</span>
+      {note && <span className="chart-note">{note}</span>}
+    </div>
+  );
+}
+
+function ChartInterpretation({ chartKey, prompts, submitted, values, onSubmit }) {
+  const [drafts, setDrafts] = useState(["", ""]);
+  return (
+    <div className="interp-block">
+      {prompts.map((p, i) => {
+        const isSubmitted = submitted[i];
+        return (
+          <div className="interp-prompt" key={i}>
+            <div className="interp-kind">{promptKindLabel(p.kind)}</div>
+            <div className="interp-question">{p.prompt}</div>
+            {!isSubmitted && (
+              <div className="interp-input-row">
+                <textarea
+                  minLength={15}
+                  placeholder="Type your answer here (at least 15 characters)..."
+                  value={drafts[i]}
+                  onChange={(e) => {
+                    const next = drafts.slice();
+                    next[i] = e.target.value;
+                    setDrafts(next);
+                  }}
+                />
+                <button
+                  className="btn-secondary"
+                  disabled={drafts[i].trim().length < 15}
+                  onClick={() => onSubmit(chartKey, i, drafts[i])}
+                >
+                  Submit
+                </button>
+              </div>
+            )}
+            {isSubmitted && (
+              <div className="interp-revealed">
+                <div className="reader-answer">
+                  <span className="tag-you">Your answer</span>
+                  <p>{values[i]}</p>
+                </div>
+                <div className="authored-answer">
+                  <span className="tag-authored">Compare your answer to the authored one</span>
+                  <p>{p.authored}</p>
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function promptKindLabel(kind) {
+  switch (kind) {
+    case "sowhat": return "So-what / decision implication";
+    case "quant": return "Quantitative reasoning";
+    case "mechanism": return "Qualitative / mechanism";
+    case "causal": return "Causal / comparative";
+    default: return "Interpretation";
+  }
+}
+
+function MultipleChoice({ q, state, onSubmit }) {
+  const [selected, setSelected] = useState(null);
+  const submitted = state && state.submitted;
+  const letters = ["A", "B", "C", "D"];
+  return (
+    <div className={"question-card" + (q.isCase ? " case-card" : "")}>
+      {q.isCase && <div className="case-label">Case Prompt — {q.clientName}</div>}
+      <div className="q-type-tag">{typeLabel(q.type)}</div>
+      <p className="q-prompt">{q.prompt}</p>
+      <div className="option-list">
+        {q.options.map((opt, i) => {
+          let cls = "option-card";
+          if (submitted) {
+            if (opt.correct) cls += " option-correct";
+            else if (state.selectedOption === i) cls += " option-wrong";
+          } else if (selected === i) {
+            cls += " option-selected";
+          }
+          return (
+            <div
+              key={i}
+              className={cls}
+              onClick={() => !submitted && setSelected(i)}
+            >
+              <span className="option-letter">{letters[i]}</span>
+              <span className="option-text">{opt.text}</span>
+            </div>
+          );
+        })}
+      </div>
+      {!submitted && (
+        <button
+          className="btn-primary"
+          disabled={selected === null}
+          onClick={() => onSubmit(q.id, selected, q.options[selected].correct)}
+        >
+          Submit answer
+        </button>
+      )}
+      {submitted && (
+        <div className={"explanation-block " + (state.isCorrect ? "explanation-correct" : "explanation-wrong")}>
+          <div className="calibration-note">
+            {state.isCorrect
+              ? "Correct — this reasoning generalizes."
+              : "Incorrect — this is " + (q.options[state.selectedOption].misconception || "a reasoning gap") + "."}
+          </div>
+          <p>{q.explanationCorrect}</p>
+          <p className="transfer-cue">{q.transferCue}</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function typeLabel(t) {
+  const map = { A: "Type A — Chart Reading & Implication", B: "Type B — Trend Reasoning", C: "Type C — Consulting Case", D: "Type D — Quantitative Estimation", E: "Type E — Implication Bridge" };
+  return map[t] || t;
+}
+
+function NumericQuestion({ q, state, onSubmit }) {
+  const [value, setValue] = useState("");
+  const [path, setPath] = useState("");
+  const submitted = state && state.submitted;
+  const requiresPath = !q.scaffolded;
+
+  function logDistanceScore(guess, target) {
+    if (guess <= 0 || target <= 0) return 0;
+    const ratio = guess / target;
+    const within2x = ratio >= 0.5 && ratio <= 2;
+    return within2x ? 1 : 0;
+  }
+  function tightScore(guess, target, pct) {
+    const diff = Math.abs(guess - target) / target;
+    return diff <= pct / 100 ? 1 : 0;
+  }
+
+  function submit() {
+    const num = parseFloat(value);
+    if (isNaN(num)) return;
+    const correct =
+      q.toleranceType === "tight"
+        ? tightScore(num, q.target, q.tolerancePct) === 1
+        : logDistanceScore(num, q.target) === 1;
+    onSubmit(q.id, num, correct, path);
+  }
+
+  return (
+    <div className="question-card numeric-card">
+      <div className="q-type-tag">{typeLabel(q.type)}</div>
+      <p className="q-prompt">{q.prompt}</p>
+      {requiresPath && !submitted && (
+        <div className="path-input">
+          <label>Name your decomposition path before entering a number:</label>
+          <input
+            type="text"
+            placeholder="e.g., rate × time, or population × share × price..."
+            value={path}
+            onChange={(e) => setPath(e.target.value)}
+          />
+        </div>
+      )}
+      {!submitted && (
+        <div className="numeric-input-row">
+          <input
+            type="number"
+            placeholder={"Your estimate (" + q.unit + ")"}
+            value={value}
+            onChange={(e) => setValue(e.target.value)}
+          />
+          <input
+            type="range"
+            min={q.lowBound}
+            max={q.highBound}
+            value={value || q.lowBound}
+            onChange={(e) => setValue(e.target.value)}
+          />
+          <button
+            className="btn-primary"
+            disabled={value === "" || (requiresPath && path.trim().length < 3)}
+            onClick={submit}
+          >
+            Submit estimate
+          </button>
+        </div>
+      )}
+      {submitted && (
+        <div className={"explanation-block " + (state.isCorrect ? "explanation-correct" : "explanation-wrong")}>
+          <div className="numeric-compare">
+            <div className="axis-track">
+              <div className="axis-marker your-marker" style={{ left: pct(state.numericValue, q.lowBound, q.highBound) + "%" }}>
+                <span>You: {state.numericValue}</span>
+              </div>
+              <div className="axis-marker actual-marker" style={{ left: pct(q.target, q.lowBound, q.highBound) + "%" }}>
+                <span>Actual: {q.target}</span>
+              </div>
+            </div>
+          </div>
+          <div className="calibration-note">
+            {state.isCorrect
+              ? "Correct (within declared tolerance) — this reasoning generalizes."
+              : "Incorrect (outside declared tolerance) — this is " +
+                (q.toleranceType === "tight" ? "an arithmetic slip, not a reasoning error" : "base-rate / decomposition drift, common in Fermi estimation") +
+                "."}
+          </div>
+          <p className="how-to-estimate"><strong>How to estimate this:</strong> {q.decomposition}</p>
+          <p>{q.whyActualDiffers}</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function pct(val, lo, hi) {
+  const v = Math.max(lo, Math.min(hi, val));
+  return ((v - lo) / (hi - lo)) * 100;
+}
+
+/* ---------------------------------------------------------------------- */
+/* CHART COMPONENTS                                                        */
+/* ---------------------------------------------------------------------- */
+
+function Chart1IndexedLine() {
+  return (
+    <ResponsiveContainer width="100%" height={320}>
+      <LineChart data={BUYBACK_TREND} margin={{ top: 10, right: 24, left: 0, bottom: 0 }}>
+        <CartesianGrid strokeDasharray="3 3" stroke="#eee" />
+        <XAxis dataKey="year" />
+        <YAxis label={{ value: "Index (2015 = 100)", angle: -90, position: "insideLeft", fontSize: 12 }} />
+        <Tooltip formatter={(v, n) => (n === "indexVal" ? [v.toFixed(1), "Index"] : [v, n])} />
+        <ReferenceLine y={100} stroke="#999" strokeDasharray="4 4" />
+        <ReferenceLine x="2018" stroke="#d97706" strokeDasharray="2 2" label={{ value: "TCJA tax cut", position: "top", fontSize: 11, fill: "#d97706" }} />
+        <ReferenceLine x="2023" stroke="#2563eb" strokeDasharray="2 2" label={{ value: "1% excise tax", position: "top", fontSize: 11, fill: "#2563eb" }} />
+        <Line type="monotone" dataKey="indexVal" stroke="#111" strokeWidth={2.5} dot={{ r: 4 }}>
+          <LabelList dataKey="indexVal" position="top" formatter={(v) => v.toFixed(0)} fontSize={11} />
+        </Line>
+      </LineChart>
+    </ResponsiveContainer>
+  );
+}
+
+function Chart2Waterfall() {
+  return (
+    <ResponsiveContainer width="100%" height={340}>
+      <BarChart data={PAYOUT_BRIDGE} margin={{ top: 24, right: 24, left: 0, bottom: 40 }}>
+        <CartesianGrid strokeDasharray="3 3" stroke="#eee" />
+        <XAxis dataKey="label" tick={{ fontSize: 11 }} interval={0} angle={-12} textAnchor="end" height={60} />
+        <YAxis label={{ value: "% of operating income", angle: -90, position: "insideLeft", fontSize: 12 }} />
+        <Tooltip formatter={(v, n) => (n === "delta" ? [v.toFixed(1) + " pp", "Change"] : [v, n])} />
+        <Bar dataKey="base" stackId="a" fill="transparent" />
+        <Bar dataKey="delta" stackId="a">
+          {PAYOUT_BRIDGE.map((row, i) => (
+            <Cell key={i} fill={row.kind === "total" ? "#111" : row.kind === "increase" ? "#16a34a" : "#dc2626"} />
+          ))}
+          <LabelList dataKey="delta" position="top" formatter={(v) => v.toFixed(1)} fontSize={11} />
+        </Bar>
+      </BarChart>
+    </ResponsiveContainer>
+  );
+}
+
+function Chart3Dumbbell() {
+  const rows = CAPEX_VS_BUYBACK.map((r) => ({
+    ...r,
+    base: Math.min(r.before, r.after),
+    delta: Math.abs(r.after - r.before),
+  }));
+  return (
+    <ResponsiveContainer width="100%" height={260}>
+      <ComposedChart data={rows} layout="vertical" margin={{ top: 10, right: 40, left: 10, bottom: 10 }}>
+        <CartesianGrid strokeDasharray="3 3" stroke="#eee" />
+        <XAxis type="number" label={{ value: "$ billions", position: "insideBottom", offset: -2, fontSize: 12 }} />
+        <YAxis dataKey="label" type="category" width={220} tick={{ fontSize: 11 }} />
+        <Tooltip />
+        <Bar dataKey="base" stackId="d" fill="transparent" />
+        <Bar dataKey="delta" stackId="d" fill="#e5e7eb" barSize={6} />
+        <Scatter dataKey="before" fill="#9ca3af">
+          <LabelList dataKey="before" position="left" formatter={(v) => "2021: " + v.toFixed(1)} fontSize={11} />
+        </Scatter>
+        <Scatter dataKey="after" fill="#111">
+          <LabelList dataKey="after" position="right" formatter={(v) => "2024: " + v.toFixed(1)} fontSize={11} />
+        </Scatter>
+      </ComposedChart>
+    </ResponsiveContainer>
+  );
+}
+
+function Chart4Slope() {
+  const colors = { amazon: "#f59e0b", alphabet: "#2563eb", meta: "#7c3aed" };
+  const labels = { amazon: "Amazon", alphabet: "Alphabet", meta: "Meta" };
+  return (
+    <ResponsiveContainer width="100%" height={320}>
+      <LineChart data={HYPERSCALER_CAPEX} margin={{ top: 20, right: 80, left: 0, bottom: 0 }}>
+        <CartesianGrid strokeDasharray="3 3" stroke="#eee" vertical={false} />
+        <XAxis dataKey="period" />
+        <YAxis label={{ value: "Capex, $ billions", angle: -90, position: "insideLeft", fontSize: 12 }} />
+        <Tooltip />
+        <Legend />
+        {Object.keys(colors).map((k) => (
+          <Line key={k} type="linear" dataKey={k} name={labels[k]} stroke={colors[k]} strokeWidth={2.5} dot={{ r: 5 }}>
+            <LabelList dataKey={k} position="right" formatter={(v) => "$" + v} fontSize={11} />
+          </Line>
+        ))}
+      </LineChart>
+    </ResponsiveContainer>
+  );
+}
+
+function Chart5SmallMultiples() {
+  return (
+    <div className="small-multiples-grid">
+      <div className="small-multiple-panel">
+        <div className="panel-title">Japan buybacks (¥, indexed, 2023 = 100)</div>
+        <ResponsiveContainer width="100%" height={220}>
+          <LineChart data={JAPAN_INDEX} margin={{ top: 10, right: 20, left: 0, bottom: 0 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#eee" />
+            <XAxis dataKey="period" />
+            <YAxis domain={[0, 250]} />
+            <Tooltip />
+            <ReferenceLine y={100} stroke="#999" strokeDasharray="4 4" />
+            <Line type="monotone" dataKey="indexVal" stroke="#dc2626" strokeWidth={2.5} dot={{ r: 4 }}>
+              <LabelList dataKey="indexVal" position="top" formatter={(v) => v.toFixed(0)} fontSize={11} />
+            </Line>
+          </LineChart>
+        </ResponsiveContainer>
+      </div>
+      <div className="small-multiple-panel">
+        <div className="panel-title">U.S. S&amp;P 500 buybacks ($, indexed, 2023 = 100)</div>
+        <ResponsiveContainer width="100%" height={220}>
+          <LineChart data={US_INDEX} margin={{ top: 10, right: 20, left: 0, bottom: 0 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#eee" />
+            <XAxis dataKey="period" />
+            <YAxis domain={[0, 250]} />
+            <Tooltip />
+            <ReferenceLine y={100} stroke="#999" strokeDasharray="4 4" />
+            <Line type="monotone" dataKey="indexVal" stroke="#2563eb" strokeWidth={2.5} dot={{ r: 4 }}>
+              <LabelList dataKey="indexVal" position="top" formatter={(v) => v.toFixed(0)} fontSize={11} />
+            </Line>
+          </LineChart>
+        </ResponsiveContainer>
+      </div>
+    </div>
+  );
+}
+
+/* ---------------------------------------------------------------------- */
+/* CHART CARD WRAPPER                                                     */
+/* ---------------------------------------------------------------------- */
+
+function ChartCard({ chartKey, title, tier, note, ChartComponent, interpState, onInterpSubmit }) {
+  const prompts = CHART_PROMPTS[chartKey];
+  const submitted = interpState.submitted;
+  const values = interpState.values;
+  return (
+    <div className="chart-card">
+      <div className="chart-title">{title}</div>
+      <ChartComponent />
+      <ChartMeta tier={tier} note={note} />
+      <ChartInterpretation chartKey={chartKey} prompts={prompts} submitted={submitted} values={values} onSubmit={onInterpSubmit} />
+    </div>
+  );
+}
+
+/* ---------------------------------------------------------------------- */
+/* SECTIONS                                                                */
+/* ---------------------------------------------------------------------- */
+
+function SectionWrapper({ id, title, children }) {
+  return (
+    <section id={id} className="page-section">
+      <h2>{title}</h2>
+      {children}
+    </section>
+  );
+}
+
+function WarmUpSection({ mcState, onMcSubmit }) {
+  return (
+    <SectionWrapper id="sec-warmup" title="Warm-Up: What Stuck?">
+      <p>
+        Before today's topic, three quick checks on principles from recent articles in this series. Each question
+        asks you to apply an idea you already learned to a brand-new situation — not to recall a fact from a prior
+        article.
+      </p>
+      {WARMUP_QUESTIONS.map((q) => (
+        <div key={q.id}>
+          <div className="warmup-source-tag">From: {q.sourceArticle}</div>
+          <MultipleChoice q={q} state={mcState[q.id]} onSubmit={onMcSubmit} />
+        </div>
+      ))}
+    </SectionWrapper>
+  );
+}
+
+function IntroSection() {
+  return (
+    <SectionWrapper id="sec-intro" title="Introduction">
+      <p>
+        American companies just set three records at once. S&amp;P 500 companies bought back $942.5 billion of their
+        own stock in 2024, the highest annual total ever measured <SourceTag id="spq42024" />. In the same stretch,
+        the country's biggest technology firms guided toward roughly $505 billion in combined 2026 capital spending
+        just among Amazon, Alphabet, and Meta <SourceTag id="cmcmagnificent7" />, and U.S. business research and
+        development spending hit its own record, $722 billion in 2023 <SourceTag id="ncses" />. If buybacks were
+        quietly starving the investment that builds the future, as critics have argued for a decade, all three
+        records should not be able to happen together.
+      </p>
+      <p>
+        The buyback total keeps climbing past round numbers that used to sound absurd. In the twelve months ending
+        September 2025, S&amp;P 500 firms spent $1.02 trillion buying back their own shares, only the second time
+        that figure has crossed $1 trillion <SourceTag id="spq32025" />. Add dividends, and total shareholder
+        payouts hit $1.572 trillion in 2024 alone <SourceTag id="spdji" />. Apple alone has spent $853 billion
+        buying back its own shares since 2013, retiring more than 44% of the shares that existed when it started{" "}
+        <SourceTag id="macdailynews" />. Zoom out to the full academic record and the number gets even bigger: from
+        2000 through 2017, U.S. corporations spent nearly $10 trillion on buybacks <SourceTag id="kahlestulz" />.
+      </p>
+      <p>
+        Two respectable economic stories explain why this coexistence should be fine, and one recent development
+        complicates both of them. The first story, tracing back to Michael Jensen's 1986 free-cash-flow theory, says
+        buybacks only return money a company could not profitably reinvest anyway. Kahle and Stulz found close to
+        exactly this pattern across the full population of listed U.S. firms: no evidence that the biggest payers
+        had cut capital spending more than anyone else <SourceTag id="kahlestulz" />. The second story, from Germán
+        Gutiérrez and Thomas Philippon's research on "investmentless growth," says the free-cash-flow defense breaks
+        down once firms are split by how much competition they face: in industries that had grown less competitive,
+        rising buybacks did coincide with falling investment <SourceTag id="gutierrezphilippon" />. Both papers use
+        respectable, peer-reviewed methods and reach different headline conclusions because they examine different
+        slices of the same economy. Layered on top of that unresolved argument is a genuinely new fact: the current
+        AI capital-spending boom is increasingly financed by debt, not by the cash flow that would otherwise fund
+        buybacks. Five major technology firms issued $121 billion in corporate bonds in 2025 alone, and six firms had
+        already issued roughly $244 billion by mid-July 2026 <SourceTag id="cryptobriefing" />, sums that dwarf the
+        $28 billion a year these firms averaged between 2020 and 2024.
+      </p>
+      <p>
+        This note works through three questions. First, do buybacks actually crowd out real corporate investment, or
+        does the answer depend entirely on which slice of the economy an analyst chooses to examine? Second, what
+        turned buybacks from a fringe, legally risky activity before 1982 into a $942 billion-a-year habit, and is
+        today's debt-financed AI capital spending a genuine break from that habit or just a temporary detour around
+        it? Third, what does Japan's own forced pivot from decades of corporate cash-hoarding to record buybacks
+        reveal about what share repurchases are actually for, and does the United States' new 1% tax on them change
+        anything?
+      </p>
+      <Glossary items={GLOSSARIES.intro} />
+    </SectionWrapper>
+  );
+}
+
+function BackgroundSection({ chartInterp, onInterpSubmit, mcState, onMcSubmit }) {
+  return (
+    <SectionWrapper id="sec-background" title="Background: Trajectory and Structural Context">
+      <h3>From legal risk to routine habit</h3>
+      <p>
+        Buybacks were not always this common. For most of the 20th century, U.S. securities law treated large-scale
+        open-market purchases of a company's own shares as a form of market manipulation, which made them legally
+        risky and rare <SourceTag id="sec10b18" />. That changed on November 17, 1982, when the Securities and
+        Exchange Commission adopted Rule 10b-18, a "safe harbor" that protects a company from manipulation claims as
+        long as it keeps its daily buying under a share of trading volume and follows a few timing and price rules{" "}
+        <SourceTag id="sec10b18" />. The rule did not require anyone to buy back stock. It removed the legal cloud
+        that had kept most companies from trying.
+      </p>
+      <p>
+        Once that legal risk disappeared, buybacks grew slowly at first and then took over. Kathleen Kahle and René
+        Stulz, using data on the full population of nonfinancial U.S. public companies, found that dividends held
+        almost steady as a share of operating income — 14.4% before 2000, 14.0% from 2000 to 2017 — while buybacks
+        quadrupled their share, from 4.8% of operating income before 2000 to 21.2% afterward <SourceTag id="kahlestulz" />.
+        That one shift, not any broad change in corporate generosity, explains almost the entire rise in total
+        payouts.
+      </p>
+      <ChartCard
+        chartKey="chart1"
+        title="Chart 1. S&P 500 buybacks, 2015–2024 (indexed to 100 at 2015)"
+        tier="FACT"
+        note={<>Source: S&P Dow Jones Indices annual buyback press releases <SourceTag id="spdji" /> <SourceTag id="spq42024" />.</>}
+        ChartComponent={Chart1IndexedLine}
+        interpState={chartInterp.chart1}
+        onInterpSubmit={onInterpSubmit}
+      />
+      <MultipleChoice q={MC_QUESTIONS.find((q) => q.id === "bg_a")} state={mcState["bg_a"]} onSubmit={onMcSubmit} />
+      <p>
+        The most recent decade shows the pattern accelerating rather than settling down. S&amp;P 500 buybacks ran
+        $572.2 billion in 2015, dipped to $519.4 billion in 2017, then jumped 55% to $806.4 billion in 2018 — the
+        year after Congress cut the corporate tax rate from 35% to 21% <SourceTag id="spdji" />. They fell during
+        the pandemic, to $519.8 billion in 2020, before climbing to a then-record $922.7 billion in 2022, dipping
+        slightly to $795.2 billion in 2023 — the first year a new 1% federal excise tax applied — and setting the
+        current record of $942.5 billion in 2024 <SourceTag id="spq42024" />.
+      </p>
+      <p>
+        The tailwinds behind the boom are structural: a permanently lower corporate tax rate, unusually high cash
+        balances concentrated in a handful of technology firms, and a legal environment that makes buybacks the most
+        flexible payout tool a board has, since pausing a buyback signals nothing like the distress a dividend cut
+        signals. The headwinds are newer and thinner: the 1% excise tax, a proposed but unpassed 4% rate, and — as
+        later sections show — a capital-spending supercycle that increasingly competes with buybacks for the same
+        dollar of cash flow.
+      </p>
+      <MultipleChoice q={MC_QUESTIONS.find((q) => q.id === "bg1")} state={mcState["bg1"]} onSubmit={onMcSubmit} />
+      <h3>Which tool companies use to pay out, and why it matters</h3>
+      <p>
+        The deeper structural change is not that companies pay out more; it is which tool they use, and that choice
+        matters because the two tools behave differently under stress.
+      </p>
+      <ChartCard
+        chartKey="chart2"
+        title="Chart 2. Payout-ratio bridge: pre-2000 average to 2000–2017 average, by component"
+        tier="FACT"
+        note={<>Source: Kahle &amp; Stulz, NBER Working Paper 26958 <SourceTag id="kahlestulz" />. Bars decompose the change in total payout ratio into its dividend and buyback components.</>}
+        ChartComponent={Chart2Waterfall}
+        interpState={chartInterp.chart2}
+        onInterpSubmit={onInterpSubmit}
+      />
+      <p>
+        Dividends are sticky: cutting one is read by the market as a distress signal, so boards resist it even in a
+        downturn, which is exactly why dividends held flat at roughly 14% of operating income across both eras.
+        Buybacks carry no such penalty — a company can slow or halt its repurchase program in a single quarter with
+        no comparable stigma, which is part of why the buyback total fell 28.7% from 2019's $728.7 billion during
+        the 2020 pandemic even as the dividend total barely moved <SourceTag id="spdji" />. That asymmetry, more
+        than any preference for shareholders over reinvestment, is the structural gap this article investigates:
+        buybacks became corporate America's shock absorber precisely because the law made them cheap, reversible,
+        and stigma-free in a way dividends and long-lived capital projects are not.
+      </p>
+      <MultipleChoice q={MC_QUESTIONS.find((q) => q.id === "bg_c")} state={mcState["bg_c"]} onSubmit={onMcSubmit} />
+      <Glossary items={GLOSSARIES.background} />
+    </SectionWrapper>
+  );
+}
+
+function RQ1Section({ chartInterp, onInterpSubmit, mcState, onMcSubmit, numState, onNumSubmit }) {
+  return (
+    <SectionWrapper id="sec-rq1" title="Research Question One: Do Buybacks Crowd Out Investment?">
+      <p>
+        The cleanest test of whether buybacks crowd out investment is also the most disputed number in this
+        literature: does spending more on repurchases predict spending less on capital projects, once you control
+        for everything a careful economist would want to control for?
+      </p>
+      <p>
+        The two most-cited answers disagree not because either side did sloppy work, but because they asked the
+        question over different-sized slices of the same economy. Kahle and Stulz modeled payout behavior for the
+        entire population of nonfinancial listed firms from 1971 to 1999, then used that model to predict 2000–2017
+        outcomes; the model came impressively close — it predicted $784 billion in payouts for 2017 against an
+        actual $734 billion — and firms in the top 10% of the payout distribution had lower capital spending
+        relative to assets than other firms in both eras, meaning their capex was already comparatively low before
+        they became big payers, not caused to fall by paying out cash <SourceTag id="kahlestulz" />.
+      </p>
+      <p>
+        Gutiérrez and Philippon looked at roughly the same period through a different lens: industry-level
+        competition. They found that in sectors where competition had declined — measured by rising concentration
+        and weaker corporate governance — rising buybacks tracked falling investment more tightly than in
+        competitive sectors <SourceTag id="gutierrezphilippon" />. Their interpretation: when a dominant firm faces
+        little competitive pressure to reinvest, extra cash flow is more likely to go out the door as a buyback than
+        into a new plant, because no rival is forcing the firm's hand.
+      </p>
+      <p>
+        The two findings are not really a contradiction so much as two effects of the same underlying cause hiding
+        inside two different aggregation choices. Kahle and Stulz's full-sample result says buybacks, averaged
+        across the whole economy, do not predict lower investment. Gutiérrez and Philippon's result says that within
+        the minority of firms in concentrated industries, the two do move together. A full-sample average can easily
+        hide a strong effect in one slice of firms if that slice is a small share of the total sample — which is
+        exactly the kind of aggregation trap the next comparison runs into from the other direction.
+      </p>
+      <ChartCard
+        chartKey="chart3"
+        title="Chart 3. Economy-wide investment vs. S&P 500 buybacks, 2021 → 2024"
+        tier="FACT"
+        note={<>Sources: Bureau of Economic Analysis via FRED, series PNFIA <SourceTag id="fredpnfia" />; S&P Dow Jones Indices <SourceTag id="spdji" />. Note: the two series cover different populations (the entire U.S. private economy vs. 500 large public companies) — see prose caveat below.</>}
+        ChartComponent={Chart3Dumbbell}
+        interpState={chartInterp.chart3}
+        onInterpSubmit={onInterpSubmit}
+      />
+      <p>
+        Between 2021 and 2024, real, economy-wide private nonresidential fixed investment rose from $3.087 trillion
+        to $4.023 trillion, a 30.3% increase <SourceTag id="fredpnfia" />, while S&amp;P 500 buybacks rose from
+        $881.7 billion to $942.5 billion, just 6.9% <SourceTag id="spdji" />. Read carelessly, this looks like proof
+        capex is winning and buybacks are not crowding anything out. Read carefully, it is not a fair fight: the
+        investment figure covers the entire U.S. private economy, every firm public and private in every industry,
+        while the buyback figure covers only 500 large, publicly traded companies. A national total and a 500-company
+        subset do not answer the same question, and comparing their growth rates directly, without adjusting for
+        what each number actually contains, is the kind of denominator mismatch that produces a confident-sounding
+        but misleading claim.
+      </p>
+      <MultipleChoice q={MC_QUESTIONS.find((q) => q.id === "rq1_causal")} state={mcState["rq1_causal"]} onSubmit={onMcSubmit} />
+      <MultipleChoice q={MC_QUESTIONS.find((q) => q.id === "rq1_trap")} state={mcState["rq1_trap"]} onSubmit={onMcSubmit} />
+      <NumericQuestion q={NUMERIC_QUESTIONS.find((q) => q.id === "d1")} state={numState["d1"]} onSubmit={onNumSubmit} />
+      <p>
+        The honest reading of research question one is that "buybacks crowd out investment" is true for a specific,
+        identifiable slice of the economy — concentrated industries with weak competitive pressure — and not
+        demonstrated for the average firm. Anyone citing either finding as a universal law is overreaching, and
+        anyone comparing a national investment total to a large-cap buyback total, as this section just did to make
+        a point, owes the reader the same disclosure about mismatched populations that the numbers themselves
+        demand.
+      </p>
+      <Glossary items={GLOSSARIES.rq1} />
+    </SectionWrapper>
+  );
+}
+
+function RQ2Section({ chartInterp, onInterpSubmit, mcState, onMcSubmit, numState, onNumSubmit }) {
+  return (
+    <SectionWrapper id="sec-rq2" title="Research Question Two: Is AI Capex a Break From the Buyback Playbook?">
+      <p>
+        If the 1982 rule change explains why buybacks became possible, and the following four decades explain why
+        they became routine, the open question is whether the 2020s AI buildout represents a genuine reversal of the
+        buyback-first playbook, or whether companies have simply found a way to keep doing both by borrowing.
+      </p>
+      <p>
+        The scale of the AI capital-spending shift among just three companies makes the tension concrete.
+      </p>
+      <ChartCard
+        chartKey="chart4"
+        title="Chart 4. Big Tech capex, 2025 actual → 2026 guided (midpoint of guided range)"
+        tier="FACT"
+        note={<>Sources: company FY2025 results and 2026 guidance, reported via CMC Markets <SourceTag id="cmcmagnificent7" /> and TechCrunch <SourceTag id="techcrunchmeta" />. 2026 values use the midpoint of each company's stated guidance range.</>}
+        ChartComponent={Chart4Slope}
+        interpState={chartInterp.chart4}
+        onInterpSubmit={onInterpSubmit}
+      />
+      <p>
+        Amazon spent about $131 billion on capital expenditures in 2025 and guided to roughly $200 billion in 2026;
+        Alphabet's capex went from $91.4 billion to a guided $175–185 billion; Meta's went from about $72.2 billion
+        to a guided $115–135 billion <SourceTag id="cmcmagnificent7" /> <SourceTag id="techcrunchmeta" />. Combined,
+        that is roughly $295 billion actually spent in 2025 rising to roughly $505 billion guided for 2026 across
+        just these three companies — a 71% jump in a single year, on top of spending levels that were already
+        historic.
+      </p>
+      <p>
+        What makes this period different from the buyback-heavy 2010s is how it is being financed. Five major
+        technology firms issued a combined $121 billion in U.S. corporate bonds in 2025, itself far above the
+        roughly $28 billion a year these same firms averaged from 2020 through 2024; by mid-July 2026, six firms had
+        already issued about $244 billion <SourceTag id="cryptobriefing" />. Companies that generate enormous free
+        cash flow, and have historically funded buybacks out of that cash flow, are now also borrowing at scale to
+        fund data centers — which means the AI buildout is not simply cash that would have gone to shareholders
+        being redirected to servers instead. It is new money, raised specifically because even record operating
+        cash flow is not enough to cover both programs at once.
+      </p>
+      <MultipleChoice q={MC_QUESTIONS.find((q) => q.id === "rq2_a")} state={mcState["rq2_a"]} onSubmit={onMcSubmit} />
+      <p>
+        That financing choice carries a risk the Kahle-Stulz free-cash-flow story never had to price in. Their
+        defense of buybacks rests on the idea that payouts only remove cash a firm could not profitably reinvest; it
+        says nothing about what happens when a firm reinvests anyway, using borrowed money, on a bet about AI demand
+        that has not yet been validated by matching revenue. If that bet disappoints, firms will be left holding
+        both the new debt and a buyback program built on the assumption of durable free cash flow — a combination
+        the pre-AI-era data never had to explain.
+      </p>
+      <NumericQuestion q={NUMERIC_QUESTIONS.find((q) => q.id === "d2")} state={numState["d2"]} onSubmit={onNumSubmit} />
+      <p>
+        The Inflation Reduction Act's 1% excise tax on buybacks, in effect since January 2023, was partly designed
+        to blunt exactly this kind of behavior by making repurchases marginally more expensive relative to
+        investment. The Joint Committee on Taxation estimated it would raise $74 billion over the 2022–2031 period,
+        including $7.9 billion in fiscal year 2024 alone <SourceTag id="crs47397" />. At well under 1% of S&amp;P
+        500 operating earnings in the tax's first two years <SourceTag id="spdji" />, the tax has been real but
+        modest — nowhere near large enough, on the numbers available, to have been the reason buybacks dipped in
+        2023 and then set a new record the very next year.
+      </p>
+      <MultipleChoice q={MC_QUESTIONS.find((q) => q.id === "rq2_case")} state={mcState["rq2_case"]} onSubmit={onMcSubmit} />
+      <p>
+        The AI capital-spending boom is not evidence that companies have abandoned buybacks in favor of investment;
+        both are running at record levels simultaneously, financed increasingly by different sources — cash flow for
+        buybacks, debt for AI infrastructure. Whether that is a stable arrangement or a temporary one financed by
+        investor patience depends on whether AI revenue eventually catches up to the spending, a question this
+        article cannot answer but flags as the load-bearing assumption behind the entire current setup.
+      </p>
+      <Glossary items={GLOSSARIES.rq2} />
+    </SectionWrapper>
+  );
+}
+
+function RQ3Section({ chartInterp, onInterpSubmit, mcState, onMcSubmit }) {
+  return (
+    <SectionWrapper id="sec-rq3" title="Research Question Three: What Does Japan's Reversal Reveal?">
+      <p>
+        If buybacks are fundamentally about returning cash a company cannot use productively, the cleanest test case
+        is a country whose companies did the opposite for decades: hoarded cash instead of returning or investing
+        it. Japan is that test case, and its reversal says something the U.S. debate, focused entirely on whether
+        buybacks are too high, tends to miss.
+      </p>
+      <p>
+        For decades, Japanese firms were criticized for the reverse problem America worries about: sitting on
+        enormous cash piles and cross-shareholdings instead of either investing or returning it. In March 2023, the
+        Tokyo Stock Exchange formally asked listed companies to focus on improving capital efficiency, and Japan's
+        Financial Services Agency separately pressed insurers to unwind cross-shareholdings it considered a source
+        of poor governance <SourceTag id="japantimes" />. The response was dramatic: announced buybacks nearly
+        doubled from ¥9.57 trillion in 2023 to ¥18.04 trillion in 2024, then rose again to ¥22.32 trillion for fiscal
+        2025, while the average listed company's payout ratio rose from 57.1% to 67.4% in a single year{" "}
+        <SourceTag id="japantimes" /> <SourceTag id="nippon" />. Toyota alone announced a ¥1.2 trillion buyback tied
+        directly to unwinding cross-shareholdings the regulator had flagged <SourceTag id="japantimes" />.
+      </p>
+      <ChartCard
+        chartKey="chart5"
+        title="Chart 5. Japan vs. U.S. buybacks, indexed to 100 at 2023 (small multiples)"
+        tier="FACT"
+        note={<>Sources: Ichiyoshi Securities data via The Japan Times <SourceTag id="japantimes" /> and Nippon.com <SourceTag id="nippon" />; S&P Dow Jones Indices <SourceTag id="spdji" />. 2025 U.S. value uses the trailing-twelve-month total through September 2025 as a proxy for the full year.</>}
+        ChartComponent={Chart5SmallMultiples}
+        interpState={chartInterp.chart5}
+        onInterpSubmit={onInterpSubmit}
+      />
+      <p>
+        Indexed to 100 at their respective 2023 starting points, Japan's buyback line more than doubles by 2025 (to
+        about 233) while the U.S. line rises only to about 128 over the same two years. The mechanism is not that
+        Japanese companies suddenly became more short-termist than American ones; it is that they started from an
+        artificially suppressed base, built up over decades of cash-hoarding and defensive cross-shareholding, so
+        the same policy nudge produced a much steeper percentage change off a much lower starting point. A
+        20-percentage-point rise in a payout ratio means something different in a market that started at 30% than in
+        one that started at 90%.
+      </p>
+      <MultipleChoice q={MC_QUESTIONS.find((q) => q.id === "rq3_mech")} state={mcState["rq3_mech"]} onSubmit={onMcSubmit} />
+      <p>
+        This does not mean Japan's buybacks are healthier or less controversial than America's; a company can still
+        misuse a repurchase program to flatter earnings per share regardless of where its starting payout ratio sat.
+        What it does show is that "buybacks are too high" is not a fact about buybacks in the abstract — it is a
+        claim relative to some benchmark of what a company's cash should be doing instead, and that benchmark looks
+        completely different in a market coming out of cash-hoarding than in one already at a mature, high-payout
+        equilibrium.
+      </p>
+      <p>
+        Seen next to Japan's experience, the United States' 1% excise tax reads less like a lever aimed at an
+        obviously broken system and more like a modest nudge on a market that, unlike Japan's, was never accused of
+        hoarding too much cash in the first place. President Biden and several senators have proposed raising the
+        rate to 4%, scored using the same JCT framework, but even the current rate's own revenue math — $74 billion
+        over a full decade against nearly $10 trillion in cumulative 2000–2017 buybacks alone — is small enough that
+        its main function may be signaling disapproval rather than materially reallocating capital{" "}
+        <SourceTag id="crs47397" />.
+      </p>
+      <MultipleChoice q={MC_QUESTIONS.find((q) => q.id === "rq3_case")} state={mcState["rq3_case"]} onSubmit={onMcSubmit} />
+      <p>
+        Japan's experience suggests the more useful question is not "are buybacks too high," which has no universal
+        answer, but "relative to what benchmark, in this specific market, right now" — a distinction the U.S. policy
+        debate, fixated on a single 1% federal rate, has mostly skipped over.
+      </p>
+      <Glossary items={GLOSSARIES.rq3} />
+    </SectionWrapper>
+  );
+}
+
+/* ---------------------------------------------------------------------- */
+/* LEARNING SUMMARY                                                        */
+/* ---------------------------------------------------------------------- */
+
+const AUTHORED_INSIGHTS = [
+  "Buybacks and record AI capex coexist not because crowding out was disproven, but because they are financed from different sources right now — cash flow for repurchases, debt for AI infrastructure — and that separation is a financing choice, not a law of economics.",
+  "\"Do buybacks crowd out investment\" has no single answer: full-sample data says no on average, but the same data split by industry competition says yes inside a specific, identifiable slice of the economy — the aggregation choice determines the verdict.",
+  "The right benchmark for judging a payout level is the market's own starting point, not a universal standard: Japan's buybacks tripled in percentage terms partly because its starting base was artificially suppressed, not because Japanese boards became more shareholder-friendly than American ones.",
+];
+
+function LearningSummary({ mcState, numState, govInsight, setGovInsight, insightRevealed, setInsightRevealed, applyA, setApplyA, applyB, setApplyB, applyEval, onEvaluate }) {
+  const allMc = [...MC_QUESTIONS, CONCLUSION_QUESTION, ...WARMUP_QUESTIONS];
+  const byType = {};
+  allMc.forEach((q) => {
+    const st = mcState[q.id];
+    if (!st || !st.submitted) return;
+    byType[q.type] = byType[q.type] || { correct: 0, total: 0 };
+    byType[q.type].total += 1;
+    if (st.isCorrect) byType[q.type].correct += 1;
+  });
+  const numErrors = Object.values(numState)
+    .filter((s) => s && s.submitted)
+    .map((s) => s.signedErrorPct);
+  const avgBias = numErrors.length ? numErrors.reduce((a, b) => a + b, 0) / numErrors.length : null;
+
+  const missed = allMc.filter((q) => mcState[q.id] && mcState[q.id].submitted && !mcState[q.id].isCorrect);
+
+  return (
+    <SectionWrapper id="sec-summary" title="Learning Summary">
+      <h3>Score breakdown</h3>
+      <table className="score-table">
+        <thead>
+          <tr><th>Type</th><th>Correct</th><th>Total</th></tr>
+        </thead>
+        <tbody>
+          {Object.keys(byType).sort().map((t) => (
+            <tr key={t}><td>{typeLabel(t)}</td><td>{byType[t].correct}</td><td>{byType[t].total}</td></tr>
+          ))}
+        </tbody>
+      </table>
+      {avgBias !== null && (
+        <p>
+          On numeric estimation questions, your average signed error was {avgBias > 0 ? "+" : ""}
+          {avgBias.toFixed(1)}%, meaning you tended to {avgBias > 0 ? "over-estimate" : "under-estimate"} magnitudes
+          on average.
+        </p>
+      )}
+
+      <h3>Your governing insight</h3>
+      <p>
+        You saw 5 charts across this article. Before reading the authored takeaways, write the single most
+        non-obvious insight you would defend to a skeptical executive.
+      </p>
+      {!insightRevealed && (
+        <div className="insight-input">
+          <textarea
+            minLength={20}
+            placeholder="Write your governing insight (at least 20 characters)..."
+            value={govInsight}
+            onChange={(e) => setGovInsight(e.target.value)}
+          />
+          <button className="btn-primary" disabled={govInsight.trim().length < 20} onClick={() => setInsightRevealed(true)}>
+            Reveal the article's three insights
+          </button>
+        </div>
+      )}
+      {insightRevealed && (
+        <div>
+          <div className="reader-answer">
+            <span className="tag-you">Your insight</span>
+            <p>{govInsight}</p>
+          </div>
+          <div className="tag-authored">How your insight compares to the article's three</div>
+          <ol className="insight-cards">
+            {AUTHORED_INSIGHTS.map((ins, i) => (
+              <li key={i} className="insight-card">{ins}</li>
+            ))}
+          </ol>
+        </div>
+      )}
+
+      <h3>Apply It</h3>
+      <p>
+        (a) Transfer to a new context. GreenPeak is fictional, but here is an unfamiliar, real-shaped snippet: a
+        regional hospital network's CFO tells you, "We've paid out $400 million in special dividends over five years
+        while our capex ratio has stayed flat at 4% of revenue, even as competing nonprofit systems in our region
+        increased their capex ratio to 7%." Using the same reasoning you practiced above, write your response with
+        four labeled parts: (1) a one-sentence so-what thesis, (2) the single load-bearing assumption that must hold
+        for your thesis, (3) the evidence that would most undermine it, and (4) a one-line pre-mortem: "If this fails
+        in 12 months, the most likely reason is ___."
+      </p>
+      <textarea
+        className="apply-textarea"
+        placeholder="(1) Thesis: ... (2) Load-bearing assumption: ... (3) Disconfirming evidence: ... (4) Pre-mortem: ..."
+        value={applyA}
+        onChange={(e) => setApplyA(e.target.value)}
+      />
+      <p>
+        (b) Cross-link. Name one prior article's principle (from ER-16 through ER-20) that reinforces or conflicts
+        with today's argument about buybacks, and explain why.
+      </p>
+      <textarea
+        className="apply-textarea"
+        placeholder="Name the article and principle, then explain the connection..."
+        value={applyB}
+        onChange={(e) => setApplyB(e.target.value)}
+      />
+      <button className="btn-primary" onClick={onEvaluate}>Evaluate my Apply It response</button>
+      {applyEval && (
+        <div className="apply-eval-block">
+          <p><strong>Evaluator feedback (local, evidence-based fallback):</strong></p>
+          <ul>
+            {applyEval.gaps.length === 0 && <li>All four labeled parts are present and substantive. Nice work.</li>}
+            {applyEval.gaps.map((g, i) => <li key={i}>{g}</li>)}
+          </ul>
+          <p>{applyEval.summary}</p>
+        </div>
+      )}
+
+      <h3>Return to Section — Principles to Revisit</h3>
+      {missed.length === 0 && <p>No missed questions yet — or you haven't answered any. Nothing to revisit so far.</p>}
+      {missed.length > 0 && (
+        <ul className="revisit-list">
+          {missed.map((q) => (
+            <li key={q.id}>
+              <strong>{typeLabel(q.type)}:</strong> {q.transferCue || "Revisit the section's core distinction."}
+            </li>
+          ))}
+        </ul>
+      )}
+    </SectionWrapper>
+  );
+}
+
+/* ---------------------------------------------------------------------- */
+/* CONCLUSION                                                              */
+/* ---------------------------------------------------------------------- */
+
+function ConclusionSection({ mcState, onMcSubmit }) {
+  return (
+    <SectionWrapper id="sec-conclusion" title="Conclusion">
+      <p>
+        Buybacks, capital spending, and R&amp;D are all setting records at the same time because, in aggregate, they
+        are not drawing from a single fixed pool of money the way the simplest crowding-out story assumes — but that
+        comfortable aggregate picture conceals a real, measured crowding-out effect concentrated in the specific,
+        growing share of the economy where competition has weakened, and it says nothing about what happens if
+        AI-era debt-financed capex fails to pay for itself. The most likely trajectory under partial success is that
+        buybacks keep setting records precisely because the AI boom, for now, is financed by borrowing rather than
+        by cash flow diverted from repurchases, leaving both programs intact until either AI revenue arrives on
+        schedule or credit markets start pricing hyperscaler bonds like the concentration risk they represent.
+      </p>
+      <p>
+        For long-term shareholders, the practical lesson is not to treat a big buyback number as automatically good
+        (returning wasted cash) or automatically bad (starving the future); the useful question is where a specific
+        company sits on the competition spectrum Gutiérrez and Philippon identified, since that, more than the
+        payout total itself, predicts whether the company's investment is actually being squeezed. For bond
+        investors and credit analysts, the more urgent number is not this year's buyback record but the pace of
+        hyperscaler debt issuance, which has gone from a rounding error to nearly 12% of the entire U.S.
+        investment-grade market in about eighteen months <SourceTag id="cryptobriefing" /> — a concentration that
+        did not exist when most current credit models were built.
+      </p>
+      <p>
+        For policymakers, Japan's experience is a more instructive comparison than domestic complaints about
+        buybacks being "too high," because it shows that the right level of corporate payout is a function of a
+        specific market's starting conditions, not a universal number a 1% or 4% excise tax can target well. And for
+        corporate boards, the debt-financed AI buildout quietly changes what a "conservative" balance sheet looks
+        like: a company can now be simultaneously aggressive on buybacks and aggressive on capex, a combination the
+        older, pre-2020s playbook treated as a contradiction.
+      </p>
+      <p>
+        The question this article cannot yet answer, because the data to answer it will not exist for another few
+        years, is whether the AI infrastructure now being built on borrowed money generates enough cash flow to
+        service that debt without forcing a choice between buyback programs and interest payments — the moment that
+        choice arrives is the moment this entire arrangement gets its first real stress test.
+      </p>
+      <MultipleChoice q={CONCLUSION_QUESTION} state={mcState[CONCLUSION_QUESTION.id]} onSubmit={onMcSubmit} />
+    </SectionWrapper>
+  );
+}
+
+/* ---------------------------------------------------------------------- */
+/* SOURCE LIST                                                             */
+/* ---------------------------------------------------------------------- */
+
+function SourceList() {
+  return (
+    <SectionWrapper id="sec-sources" title="Sources">
+      <ul className="source-list">
+        {SOURCES.map((s) => (
+          <li key={s.id}>
+            <a href={s.url} target="_blank" rel="noreferrer">{s.label}</a>
+          </li>
+        ))}
+      </ul>
+    </SectionWrapper>
+  );
+}
+
+/* ---------------------------------------------------------------------- */
+/* NAVBAR + PROGRESS                                                       */
+/* ---------------------------------------------------------------------- */
+
+const NAV_ITEMS = [
+  { id: "sec-warmup", label: "Warm-Up" },
+  { id: "sec-intro", label: "Introduction" },
+  { id: "sec-background", label: "Background" },
+  { id: "sec-rq1", label: "RQ1: Crowding Out" },
+  { id: "sec-rq2", label: "RQ2: AI Capex" },
+  { id: "sec-rq3", label: "RQ3: Japan" },
+  { id: "sec-summary", label: "Learning Summary" },
+  { id: "sec-conclusion", label: "Conclusion" },
+  { id: "sec-sources", label: "Sources" },
+];
+
+function SectionNav({ active }) {
+  const [wide, setWide] = useState(window.innerWidth >= 1160);
+  useEffect(() => {
+    const onResize = () => setWide(window.innerWidth >= 1160);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+  if (!wide) return null;
+  return (
+    <nav className="section-nav">
+      {NAV_ITEMS.map((item) => (
+        <div
+          key={item.id}
+          className={"nav-item" + (active === item.id ? " nav-active" : "")}
+          onClick={() => {
+            const el = document.getElementById(item.id);
+            if (el) el.scrollIntoView({ behavior: "smooth" });
+          }}
+        >
+          {item.label}
+        </div>
+      ))}
+    </nav>
+  );
+}
+
+function BackNextControls({ active }) {
+  function go(delta) {
+    const idx = NAV_ITEMS.findIndex((it) => it.id === active);
+    const nextIdx = Math.max(0, Math.min(NAV_ITEMS.length - 1, (idx === -1 ? 0 : idx) + delta));
+    const el = document.getElementById(NAV_ITEMS[nextIdx].id);
+    if (el) el.scrollIntoView({ behavior: "smooth" });
+  }
+  return (
+    <div className="back-next-controls">
+      <button className="btn-backnext" onClick={() => go(-1)}>‹ Back</button>
+      <button className="btn-backnext" onClick={() => go(1)}>Next ›</button>
+    </div>
+  );
+}
+
+function ProgressBar({ progress }) {
+  return (
+    <div className="progress-bar-track">
+      <div className="progress-bar-fill" style={{ width: progress + "%" }} />
+    </div>
+  );
+}
+
+/* ---------------------------------------------------------------------- */
+/* ROOT APP                                                                */
+/* ---------------------------------------------------------------------- */
+
+function App() {
+  const [mcState, setMcState] = useState({});
+  const [numState, setNumState] = useState({});
+  const [chartInterp, setChartInterp] = useState({
+    chart1: { submitted: [false, false], values: ["", ""] },
+    chart2: { submitted: [false, false], values: ["", ""] },
+    chart3: { submitted: [false, false], values: ["", ""] },
+    chart4: { submitted: [false, false], values: ["", ""] },
+    chart5: { submitted: [false, false], values: ["", ""] },
+  });
+  const [active, setActive] = useState("sec-warmup");
+  const [govInsight, setGovInsight] = useState("");
+  const [insightRevealed, setInsightRevealed] = useState(false);
+  const [applyA, setApplyA] = useState("");
+  const [applyB, setApplyB] = useState("");
+  const [applyEval, setApplyEval] = useState(null);
+
+  useEffect(() => {
+    function onScroll() {
+      let current = NAV_ITEMS[0].id;
+      for (const item of NAV_ITEMS) {
+        const el = document.getElementById(item.id);
+        if (el && el.getBoundingClientRect().top < 140) current = item.id;
+      }
+      setActive(current);
+    }
+    window.addEventListener("scroll", onScroll);
+    onScroll();
+    return () => window.removeEventListener("scroll", onScroll);
+  }, []);
+
+  const allMcIds = [...MC_QUESTIONS, CONCLUSION_QUESTION, ...WARMUP_QUESTIONS].map((q) => q.id);
+  const totalScorable = allMcIds.length + NUMERIC_QUESTIONS.length;
+  const answeredCount =
+    Object.values(mcState).filter((s) => s && s.submitted).length +
+    Object.values(numState).filter((s) => s && s.submitted).length;
+  const score =
+    Object.values(mcState).filter((s) => s && s.submitted && s.isCorrect).length +
+    Object.values(numState).filter((s) => s && s.submitted && s.isCorrect).length;
+  const progress = Math.min(100, Math.round((answeredCount / totalScorable) * 100));
+
+  function handleMcSubmit(id, selectedOption, isCorrect) {
+    setMcState((prev) => ({ ...prev, [id]: { submitted: true, selectedOption, isCorrect } }));
+  }
+
+  function handleNumSubmit(id, numericValue, isCorrect, path) {
+    const q = NUMERIC_QUESTIONS.find((x) => x.id === id);
+    const signedErrorPct = q ? ((numericValue - q.target) / q.target) * 100 : 0;
+    setNumState((prev) => ({ ...prev, [id]: { submitted: true, numericValue, isCorrect, signedErrorPct, path } }));
+  }
+
+  function handleInterpSubmit(chartKey, idx, value) {
+    setChartInterp((prev) => {
+      const next = { ...prev };
+      const entry = { submitted: prev[chartKey].submitted.slice(), values: prev[chartKey].values.slice() };
+      entry.submitted[idx] = true;
+      entry.values[idx] = value;
+      next[chartKey] = entry;
+      return next;
+    });
+  }
+
+  function evaluateApplyIt() {
+    // Local, evidence-based fallback evaluator (no live API call from this static artifact).
+    // Checks presence and non-triviality of the four required labeled parts, and flags
+    // whichever part is weakest or missing, per Apply-It-Evaluation spec.
+    const text = applyA.toLowerCase();
+    const gaps = [];
+    const hasThesis = /thesis/.test(text) || applyA.length > 30;
+    const hasAssumption = /assumption/.test(text);
+    const hasDisconfirm = /disconfirm|undermine|evidence/.test(text);
+    const hasPremortem = /pre-mortem|premortem|fails|fail/.test(text);
+    if (applyA.trim().length < 60) {
+      gaps.push("Your Apply It (a) response is quite short — a response this brief is unlikely to develop all four required parts with enough specificity.");
+    }
+    if (!hasThesis) gaps.push("Missing or unclear: a one-sentence so-what thesis about what the hospital network's pattern implies.");
+    if (!hasAssumption) gaps.push("Missing or unclear: the single load-bearing assumption that must hold for your thesis to be true.");
+    if (!hasDisconfirm) gaps.push("Missing or unclear: the specific evidence that would most undermine your thesis.");
+    if (!hasPremortem) gaps.push("Missing or unclear: a one-line pre-mortem naming the most likely failure reason.");
+    if (applyB.trim().length < 20) {
+      gaps.push("Apply It (b) cross-link is missing or too brief — name a specific prior article and explain the connection, not just the article's title.");
+    }
+    const summary =
+      gaps.length === 0
+        ? "Your response climbs from observation to a quantified, decision-relevant implication and addresses all four parts. Strong transfer to a new domain."
+        : "This evaluator checks for the presence and substance of all four labeled parts (thesis, assumption, disconfirming evidence, pre-mortem), not for keyword matching — revise the parts flagged above to strengthen the transfer.";
+    setApplyEval({ gaps, summary });
+  }
+
+  return (
+    <div className="app-root">
+      <ProgressBar progress={progress} />
+      <div className="score-badge">Score: {score} / {totalScorable}</div>
+      <SectionNav active={active} />
+      <BackNextControls active={active} />
+      <main className="content-column">
+        <header className="article-header">
+          <div className="kicker">ER-21 · Business &amp; Strategy</div>
+          <h1>The Buyback Paradox: Why Record Repurchases and Record Investment Keep Happening at the Same Time</h1>
+        </header>
+        <WarmUpSection mcState={mcState} onMcSubmit={handleMcSubmit} />
+        <IntroSection />
+        <BackgroundSection chartInterp={chartInterp} onInterpSubmit={handleInterpSubmit} mcState={mcState} onMcSubmit={handleMcSubmit} />
+        <RQ1Section chartInterp={chartInterp} onInterpSubmit={handleInterpSubmit} mcState={mcState} onMcSubmit={handleMcSubmit} numState={numState} onNumSubmit={handleNumSubmit} />
+        <RQ2Section chartInterp={chartInterp} onInterpSubmit={handleInterpSubmit} mcState={mcState} onMcSubmit={handleMcSubmit} numState={numState} onNumSubmit={handleNumSubmit} />
+        <RQ3Section chartInterp={chartInterp} onInterpSubmit={handleInterpSubmit} mcState={mcState} onMcSubmit={handleMcSubmit} />
+        <LearningSummary
+          mcState={mcState}
+          numState={numState}
+          govInsight={govInsight}
+          setGovInsight={setGovInsight}
+          insightRevealed={insightRevealed}
+          setInsightRevealed={setInsightRevealed}
+          applyA={applyA}
+          setApplyA={setApplyA}
+          applyB={applyB}
+          setApplyB={setApplyB}
+          applyEval={applyEval}
+          onEvaluate={evaluateApplyIt}
+        />
+        <ConclusionSection mcState={mcState} onMcSubmit={handleMcSubmit} />
+        <SourceList />
+      </main>
+    </div>
+  );
+}
+
+const root = ReactDOM.createRoot(document.getElementById("root"));
+root.render(<App />);
+</script>
+</body>
+</html>

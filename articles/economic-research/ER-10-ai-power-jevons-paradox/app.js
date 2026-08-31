@@ -1,0 +1,832 @@
+/* ============================================================================
+   AI's Jevons Paradox — chip efficiency, data-center power demand, and who pays
+   Domain: Technology & AI (ER-10).
+   Data tiers: FACT (cited, verified against primary source), ESTIMATE (derived
+   arithmetic from stated FACTs, disclosed and coarsely rounded), ILLUSTRATION
+   (disclosed synthetic/hypothetical teaching values — used only in the RQ1
+   numeric-estimation question, clearly labeled as a hypothetical scenario).
+   App code + CSS inlined into index.html. This file is a readable source copy.
+   ========================================================================== */
+const {useState,useEffect,useRef} = React;
+const R = window.Recharts;
+const {ResponsiveContainer,ComposedChart,BarChart,Bar,Cell,LineChart,Line,ScatterChart,Scatter,
+  XAxis,YAxis,CartesianGrid,Tooltip,ReferenceLine,ReferenceArea,LabelList,Legend} = R;
+
+/* ---------- DATA ------------------------------------------------------------ */
+// Chart 1 — global data-center electricity demand, measured and projected, 2017-2035.
+// FACT (2024, 2030, 2035 Base Case, and the 2035 scenario range): IEA, "Energy and
+// AI" (2025), Executive Summary — 415 TWh in 2024; ~945 TWh by 2030; ~1,200 TWh by
+// 2035 in the Base Case; High Efficiency Case 20% lower in 2035 than Base Case
+// (~700 TWh, computed as 1200*0.8, rounded); Lift-Off Case range extends to ~1,700
+// TWh by 2035. ESTIMATE (2017 only): back-calculated from the 415 TWh 2024 FACT
+// using IEA's stated ~12%/year historical growth rate since 2017 (415/1.12^7),
+// rounded coarsely — not a separately reported 2017 figure.
+const c1 = [
+  {yr:"2017 (est.)", base:190, highEff:null, liftOff:null},
+  {yr:"2024", base:415, highEff:null, liftOff:null},
+  {yr:"2030", base:945, highEff:null, liftOff:null},
+  {yr:"2035", base:1200, highEff:700, liftOff:1700},
+];
+
+// Chart 2 — average annual data-center facility PUE (power usage effectiveness;
+// total facility power divided by IT-equipment power — lower is more efficient),
+// 2007-2024. FACT: Uptime Institute Global Data Center Survey, as reported in
+// Robb, Drew, "Data Center Trends: Rack Density Rises While PUE and Outage
+// Frequency Remain Flat," Upsite Technologies blog (Jan. 2, 2025), citing Uptime
+// Institute's 2024 survey and Andy Lawrence (Uptime Institute Executive Director
+// of Research).
+const c2 = [
+  {yr:"2007",pue:2.50},
+  {yr:"2011",pue:1.98},
+  {yr:"2014",pue:1.65},
+  {yr:"2018",pue:1.58},
+  {yr:"2019",pue:1.67},
+  {yr:"2024",pue:1.56},
+];
+
+// Chart 3 — PJM capacity market clearing price by delivery year ($/MW-day, UCAP).
+// FACT: PJM Interconnection news releases. 2023/2024 and 2024/2025 figures from
+// PJM's Feb. 27, 2023 release ("PJM Capacity Auction Procures Adequate
+// Resources"); 2025/2026 and 2026/2027 figures from PJM's July 22, 2025 release
+// ("PJM Auction Procures 134,311 MW of Generation Resources; Supply Responds to
+// Price Signal"), which states the 2026/2027 price ($329.17, the FERC-approved
+// cap) "compares with $269.92/MW-day for the 2025/2026 auction for the RTO."
+const c3 = [
+  {dy:"2023/24", price:34.13},
+  {dy:"2024/25", price:28.92},
+  {dy:"2025/26", price:269.92},
+  {dy:"2026/27", price:329.17},
+];
+
+// Chart 4 — waterfall: global data-center electricity demand growth by source,
+// 2024 (415 TWh, FACT) to the 2035 Base Case (~1,200 TWh, FACT), decomposed by
+// IEA's disclosed generation-source contributions to 2035 (FACT, each stated by
+// IEA in approximate/rounded terms: renewables "over 450 TWh," natural gas "175
+// TWh," nuclear "about the same amount" as gas, i.e. ~175 TWh). The four
+// components (415+450+175+175=1,215) do not sum exactly to IEA's own rounded
+// 1,200 TWh Base Case headline; the -15 TWh "Other / rounding" row is an ESTIMATE
+// plug that reconciles IEA's own independently rounded figures and is not a
+// separately reported source category.
+const c4 = [
+  {name:"2024 level", base:0, delta:415, kind:"total"},
+  {name:"+ Renewables", base:415, delta:450, kind:"up"},
+  {name:"+ Natural gas", base:865, delta:175, kind:"up"},
+  {name:"+ Nuclear", base:1040, delta:175, kind:"up"},
+  {name:"Other / rounding", base:1200, delta:15, kind:"down"},
+  {name:"2035 Base Case", base:0, delta:1200, kind:"total"},
+];
+const waterfallColor = d => d.kind==="total" ? "#111" : d.kind==="up" ? "#0b8457" : "#c0392b";
+
+/* ---------- small helpers -------------------------------------------------- */
+function Tier({t}){const m={FACT:"fact",ESTIMATE:"est",ILLUSTRATION:"ill"};return <span className={"tier "+m[t]}>{t}</span>;}
+
+/* ---------- Interpretation prompt (gated reveal) --------------------------- */
+function Interp({id,label,question,authored,onSubmit}){
+  const [txt,setTxt]=useState(""); const [done,setDone]=useState(false);
+  return (
+    <div className="prompt">
+      <div className="lbl">{label}</div>
+      <div className="q">{question}</div>
+      {!done && <>
+        <textarea value={txt} onChange={e=>setTxt(e.target.value)} placeholder="Write at least one sentence (15+ characters) before the authored answer appears."/>
+        <button className="btn sm" disabled={txt.trim().length<15} onClick={()=>{setDone(true);onSubmit&&onSubmit(id,txt);}}>Reveal authored answer</button>
+      </>}
+      {done && <>
+        <div className="yours"><b>Your answer:</b> {txt}</div>
+        <div className="authored"><div className="h">Compare to the authored answer</div>{authored}</div>
+      </>}
+    </div>
+  );
+}
+
+/* ---------- Multiple choice (no confidence capture) ------------------------ */
+function MC({q,onScore}){
+  const [sel,setSel]=useState(null);
+  const [sub,setSub]=useState(false);
+  const submit=()=>{ if(sel==null) return; setSub(true); onScore(q.id, sel===q.correct, "mc", {correct:sel===q.correct}); };
+  return (
+    <div className={"q-card"+(q.kind==="case"?" case":"")}>
+      <div className="q-type">{q.typeLabel}{q.kind==="case"?" · Case Prompt":""}</div>
+      <div className="q-stem">{q.stem}</div>
+      {q.client && <p style={{marginTop:0,fontSize:14,color:"#555"}}><b>Client:</b> {q.client}</p>}
+      {q.options.map((o,i)=>{
+        let cls="opt"; if(sub){ if(i===q.correct) cls+=" correct"; else if(i===sel) cls+=" wrong"; }
+        else if(i===sel) cls+=" sel";
+        return <div key={i} className={cls} onClick={()=>!sub&&setSel(i)}>
+          <span className="k">{"ABCD"[i]}</span><span>{o}</span></div>;
+      })}
+      {!sub && <button className="btn" disabled={sel==null} onClick={submit}>Submit</button>}
+      {sub && <div className="expl">
+        <span className={"cal "+(sel===q.correct?"ok":"no")}>{sel===q.correct?"Correct — ":"Incorrect — "}</span>
+        {sel===q.correct? q.why : q.wrongWhy[sel]}
+        <div className="gen">Where this generalizes: {q.generalizes}</div>
+      </div>}
+    </div>
+  );
+}
+
+/* ---------- Numeric estimation (fading scaffold: skeleton first, then require
+   the reader to name the decomposition path before the number entry unlocks) - */
+function Numeric({q,onScore}){
+  const [val,setVal]=useState(q.min);
+  const [sub,setSub]=useState(false);
+  const [decomp,setDecomp]=useState("");
+  const decompOk = !q.requireDecomp || decomp.trim().length>=15;
+  const within = ()=>{ if(q.log){ const r=val/q.actual; return r>=0.5 && r<=2; }
+    return Math.abs(val-q.actual) <= q.tol; };
+  const submit=()=>{ setSub(true); onScore(q.id, within(), "num", {val, actual:q.actual}); };
+  const span=q.max-q.min;
+  const pos=x=>Math.max(0,Math.min(100,((x-q.min)/span)*100));
+  return (
+    <div className="q-card">
+      <div className="q-type">{q.typeLabel} · Numeric estimate</div>
+      <div className="q-stem">{q.stem}</div>
+      {q.tolNote && <div className="warmnote"><b>Tolerance:</b> {q.tolNote}</div>}
+      {q.skeleton && !sub && !q.requireDecomp && <div className="warmnote">{q.skeleton}</div>}
+      {q.requireDecomp && !sub && <>
+        <div className="warmnote">Before entering a number: name your own decomposition path — what would you multiply, add, or look up first?</div>
+        <textarea value={decomp} onChange={e=>setDecomp(e.target.value)} placeholder="Your decomposition path (15+ characters)…"/>
+      </>}
+      {!sub && <>
+        <div className="num-row">
+          <input type="number" value={val} onChange={e=>setVal(parseFloat(e.target.value)||0)} disabled={!decompOk}/>
+          <input type="range" min={q.min} max={q.max} step={q.step} value={val} onChange={e=>setVal(parseFloat(e.target.value))} disabled={!decompOk}/>
+          <span style={{fontSize:13,color:"#666"}}>{q.unit}</span>
+        </div>
+        <button className="btn" disabled={!decompOk} onClick={submit}>Submit estimate</button>
+      </>}
+      {sub && <>
+        {q.requireDecomp && <div className="yours"><b>Your decomposition path:</b> {decomp}</div>}
+        <div className="distax">
+          <div className="tick" style={{left:pos(q.min)+"%"}}></div><div className="lab" style={{left:pos(q.min)+"%"}}>{q.min}</div>
+          <div className="tick" style={{left:pos(q.max)+"%"}}></div><div className="lab" style={{left:pos(q.max)+"%"}}>{q.max}</div>
+          <div className="you" style={{left:pos(val)+"%"}}>you {val}</div>
+          <div className="act" style={{left:pos(q.actual)+"%"}}>actual {q.actual}</div>
+          <div className="tick" style={{left:pos(q.actual)+"%",background:"var(--good)"}}></div>
+          <div className="tick" style={{left:pos(val)+"%",background:"var(--accent)"}}></div>
+        </div>
+        <div className="expl">
+          <span className={"cal "+(within()?"ok":"no")}>{within()?"Within tolerance — ":"Outside tolerance — "}</span>
+          {q.how}
+          <div className="gen">Where this generalizes: {q.generalizes}</div>
+        </div>
+      </>}
+    </div>
+  );
+}
+
+/* ---------- Glossary -------------------------------------------------------- */
+function Glossary({items}){ if(!items||!items.length) return null;
+  return <div className="glossary"><div className="h">Glossary</div>
+    {items.map((g,i)=><p key={i}><b>{g.t}</b> — {g.d}</p>)}</div>;
+}
+
+/* ---------- Chart wrappers -------------------------------------------------- */
+function Chart1(){
+  return (
+    <div className="chartbox">
+      <div className="charttitle">Global data-center electricity demand, measured and projected, 2017–2035 <Tier t="FACT"/> <Tier t="ESTIMATE"/></div>
+      <div className="chartsub">TWh (terawatt-hours) per year. 2024, 2030, and the 2035 Base Case are reported directly by IEA; the two extra 2035 dots show IEA's own High Efficiency Case (700 TWh) and Lift-Off Case (1,700 TWh). The 2017 point is an ESTIMATE, back-calculated from the 2024 FACT using IEA's stated ~12%/year historical growth rate, not a separately reported figure. Source: IEA, "Energy and AI" (2025), Executive Summary.</div>
+      <ResponsiveContainer width="100%" height={270}>
+        <LineChart data={c1} margin={{left:4,right:16,top:10,bottom:4}}>
+          <CartesianGrid strokeDasharray="3 3" vertical={false}/>
+          <XAxis dataKey="yr" fontSize={12}/>
+          <YAxis domain={[0,1800]} tickFormatter={v=>v} fontSize={11} label={{value:"TWh/yr",angle:-90,position:"insideLeft",fontSize:11}}/>
+          <Tooltip formatter={(v,n)=>[v+" TWh", n]}/>
+          <Line type="monotone" dataKey="base" stroke="#1f6feb" strokeWidth={2.5} name="Base Case" dot={{r:4}} connectNulls>
+            <LabelList dataKey="base" position="top" formatter={v=>v} fontSize={11}/>
+          </Line>
+          <Line dataKey="highEff" stroke="#0b8457" strokeWidth={0} dot={{r:5}} name="High Efficiency Case (2035)" isAnimationActive={false}>
+            <LabelList dataKey="highEff" position="bottom" formatter={v=>v?v:""} fontSize={10.5}/>
+          </Line>
+          <Line dataKey="liftOff" stroke="#c0392b" strokeWidth={0} dot={{r:5}} name="Lift-Off Case (2035)" isAnimationActive={false}>
+            <LabelList dataKey="liftOff" position="top" formatter={v=>v?v:""} fontSize={10.5}/>
+          </Line>
+          <Legend fontSize={10} wrapperStyle={{fontSize:10.5}}/>
+        </LineChart>
+      </ResponsiveContainer>
+      <div className="note">Line chart chosen over a bar chart because the story is a continuous TRAJECTORY across 18 years, plus a scenario spread at one endpoint — a shape a set of bars cannot show as clearly as a line with a marked range.</div>
+    </div>
+  );
+}
+function Chart2(){
+  return (
+    <div className="chartbox">
+      <div className="charttitle">Data-center facility efficiency (PUE) improved fast, then plateaued <Tier t="FACT"/></div>
+      <div className="chartsub">Power Usage Effectiveness (PUE): total facility power ÷ IT-equipment power. Lower is more efficient; 1.0 would mean zero facility overhead. Source: Uptime Institute Global Data Center Survey, as reported in Robb, "Data Center Trends…," Upsite Technologies (Jan. 2025).</div>
+      <ResponsiveContainer width="100%" height={230}>
+        <ComposedChart data={c2} layout="vertical" margin={{left:8,right:40,top:4,bottom:4}}>
+          <CartesianGrid strokeDasharray="3 3" horizontal={false}/>
+          <XAxis type="number" domain={[1,2.6]} fontSize={11}/>
+          <YAxis type="category" dataKey="yr" width={46} fontSize={12}/>
+          <Tooltip formatter={v=>v}/>
+          <Bar dataKey="pue" barSize={3} fill="#ccc"/>
+          <Scatter dataKey="pue" fill="#1f6feb">
+            <LabelList dataKey="pue" position="right" formatter={v=>v.toFixed(2)} fontSize={11}/>
+          </Scatter>
+        </ComposedChart>
+      </ResponsiveContainer>
+      <div className="note">Dot plot (lollipop) chosen over a bar chart because these are six discrete, unevenly spaced SURVEY years (not a smoothly measured continuous series), and the point is each individual reading's distance from the others, including the small 2019 uptick.</div>
+    </div>
+  );
+}
+function Chart3(){
+  return (
+    <div className="chartbox">
+      <div className="charttitle">PJM's capacity price, by delivery year <Tier t="FACT"/></div>
+      <div className="chartsub">Capacity clearing price, dollars per megawatt-day (UCAP), for the PJM grid region (67 million people, 13 states plus Washington, D.C.). Source: PJM Interconnection news releases (Feb. 27, 2023, and July 22, 2025).</div>
+      <ResponsiveContainer width="100%" height={250}>
+        <BarChart data={c3} margin={{left:4,right:8,top:20,bottom:4}}>
+          <CartesianGrid strokeDasharray="3 3" vertical={false}/>
+          <XAxis dataKey="dy" fontSize={12}/>
+          <YAxis domain={[0,360]} tickFormatter={v=>"$"+v} fontSize={11}/>
+          <Tooltip formatter={v=>"$"+v+"/MW-day"}/>
+          <Bar dataKey="price" fill="#1f6feb">
+            <LabelList dataKey="price" position="top" formatter={v=>"$"+v} fontSize={11}/>
+          </Bar>
+        </BarChart>
+      </ResponsiveContainer>
+      <div className="note">Bar chart (this article's one permitted plain bar) fits here because each delivery year is a separate, discrete auction OUTCOME, not a continuously interpolated trend — there is no meaningful value "between" two auctions.</div>
+    </div>
+  );
+}
+function Chart4(){
+  return (
+    <div className="chartbox">
+      <div className="charttitle">What is projected to power the growth in data-center demand, 2024→2035 <Tier t="FACT"/> <Tier t="ESTIMATE"/></div>
+      <div className="chartsub">TWh/yr, global. Renewables, natural gas, and nuclear figures are IEA's own disclosed (and independently rounded) contributions to demand growth through 2035; the small "Other / rounding" bar is an ESTIMATE that reconciles those rounded figures to IEA's own ~1,200 TWh 2035 Base Case total. Source: IEA, "Energy and AI" (2025), Executive Summary.</div>
+      <ResponsiveContainer width="100%" height={280}>
+        <BarChart data={c4} margin={{left:4,right:8,top:20,bottom:24}}>
+          <CartesianGrid strokeDasharray="3 3" vertical={false}/>
+          <XAxis dataKey="name" fontSize={10.5} interval={0} angle={-12} textAnchor="end" height={50}/>
+          <YAxis domain={[0,1300]} tickFormatter={v=>v} fontSize={11}/>
+          <Tooltip formatter={(v,n,p)=>[ (p.payload.kind==="down"?"−":"+")+p.payload.delta+" TWh", "change"]}/>
+          <Bar dataKey="base" stackId="w" fill="transparent"/>
+          <Bar dataKey="delta" stackId="w">
+            {c4.map((d,i)=><Cell key={i} fill={waterfallColor(d)}/>)}
+            <LabelList dataKey="delta" position="top" formatter={(v,e)=>v} fontSize={10.5}/>
+          </Bar>
+        </BarChart>
+      </ResponsiveContainer>
+      <div className="note">Waterfall (bridge) chart chosen over a stacked bar because the point is the CONTRIBUTION-TO-CHANGE from a starting total (415) to an ending total (1,200) — the signature exhibit for "what drove the delta," which a simple stacked bar would blur into one block.</div>
+    </div>
+  );
+}
+
+/* ---------- Content sections ------------------------------------------------ */
+const SECTIONS = [
+  "Warm-Up","Introduction","Background","Q1 · Efficiency","Q2 · Who Pays","Q3 · Can Supply Keep Up","Learning Summary","Conclusion"
+];
+
+/* ---------- App --------------------------------------------------------------*/
+function App(){
+  const [active,setActive]=useState(0);
+  const [answers,setAnswers]=useState({});
+  const [interp,setInterp]=useState({});
+  const refs=useRef(SECTIONS.map(()=>React.createRef()));
+
+  const score = Object.values(answers).filter(a=>a.ok).length;
+  const total = Object.keys(answers).length;
+
+  const onScore=(id,ok,type,meta)=> setAnswers(p=> p[id]?p:{...p,[id]:{ok,type,meta}});
+  const onInterp=(id,txt)=> setInterp(p=>({...p,[id]:txt}));
+
+  useEffect(()=>{
+    const badge=document.getElementById("scorebadge");
+    if(badge) badge.textContent="Score "+score+" / "+total;
+  },[score,total]);
+
+  useEffect(()=>{
+    const onScroll=()=>{
+      const y=window.scrollY+120; let idx=0;
+      refs.current.forEach((r,i)=>{ if(r.current && r.current.offsetTop<=y) idx=i; });
+      setActive(idx);
+      const h=document.documentElement;
+      const pct=(window.scrollY)/(h.scrollHeight-h.clientHeight)*100;
+      const pt=document.getElementById("progterm"); if(pt) pt.style.width=pct+"%";
+    };
+    window.addEventListener("scroll",onScroll); onScroll();
+    return ()=>window.removeEventListener("scroll",onScroll);
+  },[]);
+
+  const jump=i=>refs.current[i].current.scrollIntoView({behavior:"smooth"});
+
+  return (
+    <div className="wrap">
+      <nav className="navcol">
+        {SECTIONS.map((s,i)=>(
+          <a key={i} className={active===i?"active":""} onClick={()=>jump(i)}>{s}</a>
+        ))}
+      </nav>
+      <main className="col">
+
+        {/* ---- WARM-UP ---- */}
+        <section ref={refs.current[0]}>
+          <div className="kicker">Warm-Up · What stuck?</div>
+          <h1>Before today's topic: three ideas from recent articles</h1>
+          <p className="dek">Each question takes a principle from a prior article and drops it into today's topic before you've read any of it. Answer before reading on — these are scored, and none of them require knowing anything about AI or power grids yet.</p>
+          <MC onScore={onScore} q={{
+            id:"wu1",typeLabel:"Warm-Up · Type B",
+            stem:"The streaming article showed that a headline scale number (subscriber count) was a vanity metric unless paired with the right denominator — revenue per user divided against the fixed cost it has to cover. Today's article will report that global data-center CAPACITY is projected to roughly double from about 59 gigawatts (GW) now to about 122 GW by 2030 (Goldman Sachs Research). Applying that SAME lesson, what's the analogous flaw in treating that capacity figure alone as evidence the buildout will be profitable or well-used?",
+            options:[
+              "It ignores the UTILIZATION rate — what share of that capacity is actually running paying workloads versus sitting idle — since the same capacity number can describe a fully-booked, profitable fleet or a half-empty, loss-making one, just as a subscriber count alone couldn't tell you whether streaming was profitable",
+              "Capacity in GW cannot be compared across years because measurement units change",
+              "None — capacity is a hard physical number, so it needs no denominator the way a subscriber count does",
+              "Nothing is missing; more capacity always means more revenue in the data-center business"],
+            correct:0,
+            why:"Exactly as a subscriber count needed ARPU and the fixed-cost base to mean anything about profit, a capacity figure (GW) needs a utilization or occupancy rate to mean anything about whether that capacity is actually earning money — Goldman Sachs Research's own analysis tracks exactly this, estimating occupancy near 85% in 2023 and a potential peak above 95% by late 2026.",
+            wrongWhy:{
+              1:"GW is a standard, comparable physical unit across years; the flaw isn't measurement inconsistency.",
+              2:"This is the exact 'scale alone is enough' assumption the streaming lesson corrected — a bigger number without its denominator is not more informative, whether the number is subscribers or gigawatts.",
+              3:"This ignores that unused or under-priced capacity is a cost, not a profit, in any capital-intensive, fixed-cost business — the same logic that made an unprofitable subscriber count possible in streaming."},
+            generalizes:"Any 'X is doubling' capacity or scale headline — before treating it as good news, ask what share of that scale is actually being used productively, and against what fixed cost.",
+          }}/>
+          <MC onScore={onScore} q={{
+            id:"wu2",typeLabel:"Warm-Up · Type B",
+            stem:"The Baumol cost-disease article taught you that when a national AVERAGE looks calm, you should split it into its fastest-rising and slowest-rising parts before judging its true size — a clean mechanism rarely explains the whole picture, and a calm-looking average can hide a lot of movement underneath. Suppose a national statistic shows electricity prices rising a modest 4% over the past year. Applying that same discipline, what should you check before concluding that AI data centers aren't putting much strain on ordinary electricity bills?",
+            options:[
+              "Nothing further is needed — a national average is the most reliable number precisely because it smooths out local noise",
+              "Whether the 4% figure is measured in dollars or in cents",
+              "The average temperature in the regions being measured",
+              "Whether regional or local prices — especially in the specific grid regions where data centers are heavily concentrated — are rising much faster than that national average, the same way a calm national average masked hospital prices rising far faster than toys in the Baumol article"],
+            correct:3,
+            why:"Just as the Baumol article showed a calm national inflation average hid hospital prices rising over 100 percentage points faster than manufactured goods, a calm national electricity-price average can hide a specific grid region — precisely the one with the heaviest data-center concentration — experiencing a far larger, more concentrated price shock than the national number alone would suggest.",
+            wrongWhy:{
+              0:"This is the opposite of the Baumol lesson: an average's calm appearance is exactly what should trigger a closer look at its fastest-moving components, not a reason to stop looking.",
+              1:"A unit-of-measurement mismatch is a real error type in general, but it is not the specific discipline (splitting an average into its parts) this question is testing.",
+              2:"Temperature affects electricity demand for cooling and heating, but it is not the mechanism the Baumol lesson points to here — that mechanism is regional/component decomposition of an average, not weather."},
+            generalizes:"Any calm-looking national average — inflation, unemployment, an approval rating — before trusting its size, split it by region, sector, or subgroup to check whether it is hiding a concentrated spike underneath.",
+          }}/>
+          <MC onScore={onScore} q={{
+            id:"wu3",typeLabel:"Warm-Up · Type E",
+            stem:"The passive-investing article showed that a mechanism (markets absorbing demand shifts smoothly) had only ever been observed during one kind of flow — steady inflows — and had never actually been tested by the reverse, sustained outflows. Today's article will describe hyperscalers making the individually rational choice to keep adopting more energy-efficient AI chips, each purchase lowering the cost of running AI workloads. Applying the passive-investing lesson, what should you expect might be true about the AGGREGATE effect of many companies making that same efficient, cost-lowering choice, and about how well-tested that aggregate effect actually is?",
+            options:[
+              "Each company's efficient choice guarantees the industry's total electricity use will fall, since efficient choices can only reduce total consumption",
+              "The aggregate outcome could go the opposite way from what each individual, rational choice intends — lower cost per unit of AI could induce so much MORE total AI use that total electricity consumption keeps rising rather than falling — and, like the passive-investing mechanism, this has mostly been observed during one kind of period (a historic AI investment boom), not yet tested by a slowdown",
+              "The aggregate effect is unpredictable and therefore not worth analyzing before it happens",
+              "Total electricity use will fall in exact proportion to the efficiency gain, with no exceptions"],
+            correct:1,
+            why:"This is the same shape of surprise as the passive-investing article: many individually sound, cost-lowering decisions can add up to an aggregate outcome (rising total demand, not falling) that no single decision-maker intended — and, just as passive investing's price-elasticity mechanism has only been observed during inflows, this efficiency-and-demand relationship has mostly been observed during an unprecedented AI spending boom, not during a slowdown.",
+            wrongWhy:{
+              0:"This assumes efficiency mechanically caps total use, ignoring that a lower cost per unit can itself cause total use to rise — the exact rebound logic this article will formalize.",
+              2:"Dismissing an aggregate effect as 'unpredictable' throws away exactly the kind of structural reasoning both this and the passive-investing article model successfully.",
+              3:"Assuming a fixed, proportional relationship between an efficiency gain and total consumption ignores that total consumption also depends on how much MORE of the now-cheaper resource people choose to use."},
+            generalizes:"Whenever many individually rational, cost-lowering decisions accumulate, check whether the aggregate outcome could reverse the individual intention — and whether the mechanism linking them has been tested by more than one direction of change.",
+          }}/>
+          <div className="navbtns"><span/><button onClick={()=>jump(1)}>Next: Introduction →</button></div>
+        </section>
+
+        {/* ---- INTRODUCTION ---- */}
+        <section ref={refs.current[1]}>
+          <div className="kicker">Technology &amp; AI</div>
+          <h1>AI's Jevons Paradox: Greener Chips, Thirstier Grid</h1>
+          <p className="lead">Nvidia says its newest AI chip needs up to 25 times less energy to run a large AI model than the chip it replaced. Yet global electricity demand from data centers — the warehouses full of computers that run AI — is on track to more than double by 2030, and the bill for that growth is already showing up on ordinary households' power bills, not just on tech companies' balance sheets.</p>
+          <p>The scale involved is already large and growing fast. Data centers used about 415 terawatt-hours (TWh — one TWh powers roughly 90,000 average U.S. homes for a year) of electricity in 2024, about 1.5% of all the electricity used on Earth that year (International Energy Agency [IEA], 2025). A single typical AI-focused data center uses as much power as 100,000 households; the very largest ones now under construction will use twenty times that, or roughly as much as two million households (IEA, 2025). The United States hosts 45% of the world's data-center electricity use, China 25%, and Europe 15% (IEA, 2025).</p>
+          <p>The surprising part is not that AI needs a lot of power. It is that the chips doing the work keep getting dramatically more energy-efficient, and total demand keeps climbing anyway. This pattern has a name that predates computers by more than 150 years. In 1865, the economist William Stanley Jevons noticed that more fuel-efficient steam engines did not cut Britain's total coal use — they made coal-powered machinery cheaper to run, so people built and ran far more of it, and total coal consumption rose. Economists call this a rebound effect, and a modern academic analysis argues the same logic now applies to AI: efficiency gains can paradoxically drive MORE total energy use, not less, once you account for how much they lower the cost of using the technology in the first place (Luccioni, Strubell, and Crawford, 2025).</p>
+          <p>This note addresses three questions. First, is the dramatic improvement in AI chip efficiency actually slowing the growth in data-center electricity demand, or is cheaper, more efficient computing itself part of what is driving total demand higher — the Jevons-paradox test? Second, as data centers' power needs collide with a power grid that cannot expand as fast as demand is growing, who ends up paying the resulting cost — the tech companies building the data centers, or ordinary households through their utility bills — and what does that split reveal about who holds the bargaining power? Third, can new electricity supply actually be built fast enough to keep up, and what does the resulting mix of power sources imply for the honesty of the industry's "AI is getting greener" narrative?</p>
+          <Glossary items={[
+            {t:"Data center",d:"A large building full of computers, storage, and networking equipment that runs software and stores data for many customers at once."},
+            {t:"TWh (terawatt-hour)",d:"A unit of electricity use equal to one trillion watt-hours — roughly enough to power 90,000 average U.S. homes for a year."},
+            {t:"Jevons' Paradox / rebound effect",d:"The pattern where making something more efficient lowers its cost to use, which can cause total use to rise instead of fall."},
+          ]}/>
+          <div className="navbtns"><button onClick={()=>jump(0)}>← Warm-Up</button><button onClick={()=>jump(2)}>Next: Background →</button></div>
+        </section>
+
+        {/* ---- BACKGROUND ---- */}
+        <section ref={refs.current[2]}>
+          <div className="kicker">Background · Trajectory &amp; structure</div>
+          <h2>From a rounding error to a tenth of the growth story</h2>
+          <p>Data-center electricity use has not always been a headline number. Globally, it grew at roughly 12% a year from 2017 through 2024, more than four times faster than the growth rate of all other electricity use combined over the same years (IEA, 2025). That compounding is what turned a modest base into today's 415 TWh: run that same 12%-a-year rate backward from 2024, and data centers would have used only about 190 TWh in 2017 — under half of today's level in just seven years (Chart 1).</p>
+          <p>This growth is also unusually concentrated in place. Nearly half of all U.S. data-center capacity sits in just five regional clusters — Northern Virginia foremost among them — rather than spreading evenly across the country, and IEA finds that about half of the new data-center capacity now under development in the United States is being added in those same pre-existing clusters (IEA, 2025). A resource that is a rounding error in a national or global electricity total can still be the dominant story in the one specific transmission corridor or utility service territory where it happens to concentrate.</p>
+          <Chart1/>
+          <Interp id="c1p1" label="Interpretation 1 of 2 · Predict, then check (quantitative, pre-reveal)"
+            question="Before checking the exact numbers: predict how WIDE the gap is, in TWh, between IEA's own High Efficiency Case (700 TWh) and Lift-Off Case (1,700 TWh) for 2035. Then compute the actual gap, express it as a ratio (high ÷ low), and say what a spread this wide, from one respected forecaster's own model, implies about how much confidence anyone should put in a single 'AI will use X TWh by 2035' headline number."
+            authored={<span>The gap is 1,000 TWh (1,700−700), and the high end is about 2.4 times the low end (1,700÷700≈2.43). A single well-resourced forecaster's own uncertainty band spanning nearly two and a half times from low to high means any single-point 2035 forecast quoted in a headline is really a midpoint guess dressed up as precision — the honest takeaway is a wide range, not a number.</span>}
+            onSubmit={onInterp}/>
+          <Interp id="c1p2" label="Interpretation 2 of 2 · So what (decision)"
+            question="Even IEA's own High Efficiency Case — which assumes STRONGER hardware and AI-model efficiency gains than its Base Case — still shows global data-center electricity demand at 700 TWh in 2035, about 69% above 2024's 415 TWh. What should a utility or grid regulator planning new power-plant investment today conclude from the fact that even the most efficiency-optimistic scenario modeled by a leading energy forecaster still shows demand rising, not falling?"
+            authored={<span>They should not size new generation and transmission investment around a bet that chip efficiency alone will flatten or reverse demand, because building power plants and transmission lines takes years; the planning floor should be "still growing, even in the best efficiency case," not a hoped-for reversal that no scenario in this respected model actually shows.</span>}
+            onSubmit={onInterp}/>
+          <MC onScore={onScore} q={{
+            id:"bg-mc1",typeLabel:"Type B · Correlation vs. causation",
+            stem:"Global data-center investment has nearly doubled since 2022, reaching roughly $0.5 trillion in 2024, over the same years that data-center electricity demand kept climbing toward the trajectory in Chart 1 (IEA, 2025). Which is the strongest reason NOT to conclude that rising investment is what is CAUSING the rise in electricity demand?",
+            options:[
+              "Investment figures and electricity-use figures come from different kinds of measurement, so they cannot be meaningfully compared at all",
+              "The broader stock market also rose sharply over the same years",
+              "Electricity demand from data centers was already rising before 2022, so investment cannot be responsible for any of the increase",
+              "Both investment and electricity demand are more plausibly joint EFFECTS of the same underlying driver — surging demand for AI training and inference computing power — rather than one causing the other; building more data centers and using more electricity are two simultaneous consequences of that same upstream demand for compute, not a chain where spending itself causes power use"],
+            correct:3,
+            why:"The strongest challenge to a causal story is naming the common upstream driver that would produce both trends even if neither caused the other: a surge in demand for AI compute pushes companies to spend on more data centers AND to run more electricity through the ones they already have, at the same time, for the same underlying reason.",
+            wrongWhy:{
+              0:"Both are legitimate, comparable time series (dollars invested, TWh consumed) tracked over the same years by credible sources; incomparability is not the strongest available objection here.",
+              1:"A rising stock market is a real confound for many things over this period, but it does not speak to the specific mechanism linking data-center investment and data-center electricity use.",
+              2:"A cause does not need to explain 100% of a trend that predates it to still be a contributing factor after it starts; pointing to a pre-existing trend is a weaker objection than naming the actual shared upstream driver."},
+            generalizes:"When two totals rise together, look for the shared upstream driver that could produce both as joint effects before assuming either one causes the other.",
+          }}/>
+          <p>What makes the trajectory in Chart 1 harder to simply extrapolate is that data centers are not the only, or even the largest, source of new electricity demand. Globally, data centers account for only about one-tenth of the growth in electricity demand expected through 2030 — less than the growth coming from industrial motors, home and office air conditioning, or electric vehicles (IEA, 2025). But that global share hides a sharper local story: in advanced economies, which have seen electricity demand sit roughly flat for decades, data centers account for more than 20% of all demand growth through 2030, while in emerging and developing economies outside China they account for only about 5% (IEA, 2025). The same national or global average that looks modest in one frame looks like the dominant driver of growth in another.</p>
+          <Numeric onScore={onScore} q={{
+            id:"bg-d1",typeLabel:"Type D",
+            stem:"IEA reports that a typical AI-focused data center uses as much electricity as 100,000 households, and that the largest facilities now under construction will use 20 times that. Using roughly 10,791 kWh per year as the average U.S. household's annual electricity use (U.S. Energy Information Administration, 2022 data), estimate the AVERAGE POWER DRAW, in megawatts (MW), of one of these largest under-construction AI data centers.",
+            skeleton:"Decomposition: (100,000 households × 20) × 10,791 kWh/household/year = total annual energy in kWh. Divide by 8,760 (hours in a year) to convert annual energy into an average power draw in kW, then divide by 1,000 to convert kW to MW.",
+            tolNote:"Within a factor of 2 (log-scored, order-of-magnitude) — wide, because this combines a rounded IEA scale comparison with a national average household figure, two independently approximate anchors, to reach a genuine Fermi estimate of a real facility's power draw.",
+            min:0,max:8000,step:100,unit:"MW (average power draw)",log:true,actual:2460,
+            how:"2,000,000 households (100,000×20) × 10,791 kWh/yr ≈ 21.6 billion kWh/yr. Divide by 8,760 hours in a year: ≈2,463,700 kW ≈ 2,460 MW (about 2.5 gigawatts). This is an ESTIMATE built from two FACT anchors — IEA's household-equivalent comparison and the EIA's average household electricity use — combined by stated arithmetic, not a directly reported single figure for any specific facility.",
+            generalizes:"To convert a 'household-equivalent' scale comparison into a power figure, multiply by a reference annual household energy use, then divide by the number of hours in the period to get an average power draw — the same two-step conversion works for any 'as much energy as N homes' claim.",
+          }}/>
+          <p>The structural question this section leaves open, and the one the rest of this article tries to answer, is whether the two efficiency stories inside a data center — how efficiently the chips compute, and how efficiently the building delivers power to those chips — are actually moving in the same direction, and whether either one is fast enough to bend the trajectory in Chart 1 downward. Chart 2 shows that the building side of that story has already stalled.</p>
+          <Chart2/>
+          <Interp id="c2p1" label="Interpretation 1 of 2 · Mechanism (non-so-what)"
+            question="Facility PUE fell fast from 2.5 in 2007 to about 1.6 by 2018, but has stayed roughly flat since — even ticking up slightly in 2019. Why might facility-level efficiency gains slow down and plateau even as chip-level (compute) efficiency keeps improving quickly, generation after generation?"
+            authored={<span>Early PUE gains came from easy, one-time fixes — better hot/cold aisle containment, higher-efficiency cooling equipment, relaxed temperature setpoints — that most large facilities had already captured by the late 2010s. Only newer builds designed for today's very dense, hot AI racks, using liquid cooling, can push PUE meaningfully lower, so the industry-WIDE average gets diluted by a large base of older facilities that never converted, while chip efficiency comes from continuous silicon and software design work that does not face the same retrofit-cost barrier that an existing building does.</span>}
+            onSubmit={onInterp}/>
+          <Interp id="c2p2" label="Interpretation 2 of 2 · So what (decision)"
+            question="Given that facility overhead efficiency (PUE) has plateaued while AI racks draw far more power per square foot than older IT equipment, what should a company evaluate before assuming that moving its AI workloads to a newer, 'greener' data center will meaningfully cut its electricity footprint?"
+            authored={<span>Check whether the specific facility is new enough to use liquid cooling and other post-2018 techniques, since the industry-average PUE of 1.56 hides a wide gap between the best new builds and older buildings; a newer CHIP generation (Nvidia's claimed efficiency gains) delivers a far larger efficiency win than switching to a marginally better-PUE building, so the highest-leverage efficiency decision is which hardware to deploy, not which building to lease.</span>}
+            onSubmit={onInterp}/>
+          <Glossary items={[
+            {t:"PUE (power usage effectiveness)",d:"A data center's total facility power divided by the power its computers actually use; lower is more efficient, and 1.0 would mean no overhead at all."},
+            {t:"Koomey's law",d:"A long-running pattern in which the number of computations a chip can do per unit of energy has doubled every 1.6 to 2.6 years."},
+            {t:"GW / MW (gigawatt / megawatt)",d:"Units of power; one gigawatt equals 1,000 megawatts, roughly enough to supply a mid-sized city."},
+          ]}/>
+          <div className="navbtns"><button onClick={()=>jump(1)}>← Introduction</button><button onClick={()=>jump(3)}>Next: Efficiency →</button></div>
+        </section>
+
+        {/* ---- Q1: EFFICIENCY / JEVONS ---- */}
+        <section ref={refs.current[3]}>
+          <div className="kicker">Research Question 1</div>
+          <h2>Cheaper computing, more computing</h2>
+          <p>Nvidia's own claim for its Blackwell chip platform, launched in March 2024, is dramatic: its GB200 NVL72 system can run trillion-parameter AI models with up to 30 times the performance of the same number of its previous-generation Hopper chips, while using up to 25 times less energy and cost per unit of AI inference — the step where a trained model answers a query (Nvidia, 2024). That 25-times figure blends a hardware generation change with a switch to a lower-precision calculation method (from 8-bit to 4-bit math), so it is a real, company-stated claim about a specific comparison, not a smaller, like-for-like improvement on identical math — the honest reading is that Nvidia's own PR frames the most favorable possible comparison, and a narrower, same-precision comparison would show a more modest, though still real, gain.</p>
+          <p>Koomey's law, a decades-old pattern first documented in 2010, describes a similar story at the level of computing in general: the number of computations a chip can perform per unit of energy doubled roughly every 1.6 years from the 1950s through 2000, then slowed to doubling roughly every 2.6 years after 2000, as the underlying transistor-shrinking trend known as Moore's Law itself slowed (Koomey et al., 2010). Both stories point the same direction: the energy cost of a single unit of computation keeps falling, sometimes dramatically.</p>
+          <p>Investors are already arguing about what a falling cost per unit of AI compute means for the rest of the industry. When the Chinese AI lab DeepSeek released a much cheaper-to-train model in early 2025, Goldman Sachs Research's own team framed the possibility directly in terms of this trade-off: "if we see efficiency driving lower capex levels…this would mitigate the risk of long-term market oversupply…which we think is an important consideration that could drive more durability and less cyclicality in the data center market" (Goldman Sachs Research, 2025). In other words, even a market analyst focused on supply and demand for physical data-center capacity treats "more efficient" as a variable that could cut either way for total resource use, not as a settled reason to expect electricity demand to fall.</p>
+          <MC onScore={onScore} q={{
+            id:"rq1-a1",typeLabel:"Type A · Quantitative comparison",
+            stem:"Chart 2 shows facility PUE improving from 2.5 (2007) to 1.56 (2024). Express that as the percentage REDUCTION in total facility power needed to deliver the same amount of computing work, and compare its scale to Nvidia's claimed chip-level gain (up to 25 times, i.e., about 2,400%, less energy per unit of AI inference).",
+            options:[
+              "About 38% less total facility power for the same computing work ((2.5−1.56)÷2.5≈0.376) — roughly two orders of magnitude smaller than Nvidia's claimed chip-level gain, showing that 'AI is getting more efficient' blends a modest, slow-moving facility number with a far larger, marketing-framed chip number",
+              "About 60% less — roughly half of Nvidia's claimed chip-level gain",
+              "About 1.56% less — misreading the PUE value itself as a percentage",
+              "This cannot be computed, because PUE is not a measure of energy at all"],
+            correct:0,
+            why:"PUE measures how many units of total power a facility needs per unit of IT power; going from 2.5 to 1.56 means (2.5−1.56)/2.5≈38% less total facility power for the same IT workload — a real, measured gain, but roughly two orders of magnitude smaller than the 25-times (2,400%) figure Nvidia claims at the chip level. The two numbers are both real, but operate at wildly different scales and describe different layers of the same system.",
+            wrongWhy:{
+              1:"60% overstates the facility-level gain; the correct arithmetic from the two FACT values (2.5 and 1.56) gives about 38%, not 60%.",
+              2:"This mistakes the PUE unit itself (a ratio near 1.5–2.5) for a percentage-point value; PUE has to be converted into a percentage overhead REDUCTION, not read directly.",
+              3:"PUE is precisely a power (energy-rate) ratio — total facility power divided by IT power — so a percentage reduction in required total power for the same workload is exactly the kind of quantity it supports computing."},
+            generalizes:"Before comparing two 'efficiency improved' claims, check whether they are measured at the same LAYER of a system (chip, facility, whole industry) and convert both to the same unit (a percentage reduction for the same output) before treating them as comparable in scale.",
+          }}/>
+          <p>The obstacle for a clean "efficiency is winning" story is the trajectory itself. IEA's own scenario analysis is the clearest evidence available: even its High Efficiency Case — built specifically to model stronger hardware and AI-model efficiency gains than its central Base Case — still projects global data-center electricity demand at 700 TWh in 2035, about 69% above 2024's 415 TWh level (IEA, 2025). No scenario IEA models, including the one built around faster efficiency gains, shows total demand falling. That is close to the empirical signature of a genuine, if partial, Jevons-paradox rebound: efficiency lowers the cost of a unit of AI, and a lower cost predictably brings a large enough increase in how much AI gets run that the total resource bill keeps climbing rather than shrinking.</p>
+          <p>It is worth being precise about what this evidence does and does not prove, since the strongest version of Jevons' original claim — that efficiency causes total consumption to be HIGHER than it would have been with no efficiency gain at all — requires comparing today's actual electricity use to a counterfactual world with zero hardware improvement, a comparison IEA's own published scenarios do not directly run. What the evidence in this section does support is a narrower, still consequential claim: efficiency has not been enough, so far, in any modeled case, to turn the trajectory in Chart 1 downward, which is reason enough to distrust any argument that "AI will get greener on its own" used to justify delaying grid investment.</p>
+          <MC onScore={onScore} q={{
+            id:"rq1-c1",typeLabel:"Type C",kind:"case",
+            client:"A major hyperscaler's Chief Sustainability Officer is preparing a board presentation arguing that because the company's newest-generation AI chips are 'up to 25 times more energy-efficient,' the company's total data-center electricity footprint will flatten within three years even as AI usage keeps growing across the business.",
+            stem:"Which assumption is most load-bearing for this claim to hold, and where is the evidence in this section thinnest in supporting it?",
+            options:[
+              "That the new chips are more expensive per unit than the old ones — a minor factor compared with the bigger risk below",
+              "That competitors will not also adopt similarly efficient chips — irrelevant to whether this specific company's own footprint flattens",
+              "That AI query and training VOLUME will not grow fast enough to offset the efficiency gain — and this is exactly where the evidence is thinnest: this section's own data shows total demand still rising even in IEA's most efficiency-favorable modeled scenario, and historical demand growth (roughly 12%/year) has consistently outpaced even fast, real efficiency gains",
+              "That the chips will not eventually wear out and need replacement — unrelated to whether the footprint flattens in three years"],
+            correct:2,
+            why:"The claim only holds if usage growth stays below the efficiency gain's offsetting power — and this section's strongest available evidence (IEA's own High Efficiency Case, and the historical pattern of demand consistently outrunning efficiency improvements) argues the opposite, making the volume-growth assumption both the most load-bearing and the least supported part of the claim.",
+            wrongWhy:{
+              0:"Chip price affects cost of ownership, not whether total electricity consumption flattens — a different question from the one the CSO is actually claiming.",
+              1:"Competitor behavior might affect market share or emissions bragging rights, but it does not determine whether THIS company's own footprint flattens, which depends on its own usage growth versus its own efficiency gains.",
+              3:"Hardware replacement cycles matter for cost planning, but nothing in this section ties them to whether total electricity use flattens within three years."},
+            generalizes:"Whenever an efficiency claim is used to predict a flat or falling total, isolate the one comparison that actually decides the outcome — usage growth versus efficiency gain — and check whether the evidence for the usage side is as strong as the evidence for the efficiency side.",
+          }}/>
+          <Numeric onScore={onScore} q={{
+            id:"rq1-d1",typeLabel:"Type D",
+            requireDecomp:true,
+            stem:"This is a hypothetical scenario for teaching the Jevons-paradox arithmetic, not a real forecast. Suppose global AI inference query volume grows 10 times over the same period that chip efficiency improves 25 times (Nvidia's claimed energy-per-query reduction, Blackwell vs. Hopper). Estimate the resulting NET MULTIPLE change in total energy consumed for AI inference — for example, '2' would mean total energy doubles, '0.5' would mean it is cut in half — and note which direction this points for the Jevons-paradox question.",
+            tolNote:"±10% — tight, because once the correct operation (divide volume growth by the efficiency multiple) is identified, this is a fully determined arithmetic result from the two multiples stated in the question.",
+            min:0,max:3,step:0.05,unit:"× (multiple of today's total inference energy)",actual:0.4,tol:0.04,
+            how:"Net change = volume growth ÷ efficiency multiple = 10 ÷ 25 = 0.4×, meaning total inference energy would be cut by 60% in this specific hypothetical — efficiency 'wins' here because the assumed efficiency gain (25×) is larger than the assumed volume growth (10×). Change either input — say, if volume instead grew 40× — and efficiency would lose instead: this is exactly why real-world demand outcomes hinge on which of the two grows faster, not on efficiency improving in isolation.",
+            generalizes:"To find the net change from a resource whose per-unit cost falls while its usage rises, divide the usage-growth multiple by the efficiency multiple — whichever number is larger determines whether the total rises or falls, so name and compare both multiples before predicting a direction.",
+          }}/>
+          <p>Both things in this section are true at once. Chip-level efficiency gains are real, large, and faster than almost any other layer of the system — but they operate on the SUPPLY side of a market where AI usage volume is also growing, and the historical record so far shows volume growth consistently outpacing even genuinely fast efficiency gains. The honest section-level conclusion is that efficiency has slowed the rate at which total electricity demand is climbing, without coming close to reversing it in any scenario a major forecaster has published, which is the textbook signature of a partial rebound effect rather than a story where "getting more efficient" and "using less" are the same thing.</p>
+          <Glossary items={[
+            {t:"Inference",d:"The step where an already-trained AI model answers a question or generates an output, as opposed to the earlier, separate process of training the model."},
+          ]}/>
+          <div className="navbtns"><button onClick={()=>jump(2)}>← Background</button><button onClick={()=>jump(4)}>Next: Who Pays →</button></div>
+        </section>
+
+        {/* ---- Q2: WHO PAYS ---- */}
+        <section ref={refs.current[4]}>
+          <div className="kicker">Research Question 2</div>
+          <h2>The bill lands on the grid, not just the balance sheet</h2>
+          <p>If efficiency alone will not bend total demand down soon, the next question is who pays for the electricity and the new power plants that demand requires. One clear part of the answer is that some of the largest tech companies are paying directly, and paying a great deal, for dedicated new supply. In September 2024, Constellation Energy signed a 20-year power purchase agreement with Microsoft to restart the Three Mile Island Unit 1 nuclear reactor in Pennsylvania — renamed the Crane Clean Energy Center — adding about 835 megawatts (MW) of carbon-free power, targeted to come back online in 2028 (Constellation Energy, 2024). In June 2025, Talen Energy expanded its own nuclear relationship with Amazon, agreeing to supply Amazon Web Services with 1,920 MW of carbon-free power from the Susquehanna nuclear plant through 2042, with full volume expected by 2032, alongside plans to explore new small modular reactors in the region (Talen Energy, 2025).</p>
+          <p>But those two headline deals, totaling 2,755 MW of dedicated new nuclear supply, are small next to the scale of demand growth showing up in the shared grid that most other homes and businesses depend on. PJM Interconnection — the grid operator serving 67 million people across 13 states and Washington, D.C., including the country's largest concentration of data centers in Virginia — reported that forecasted peak electricity load for its 2026/2027 delivery year alone increased year-over-year by more than 5,400 MW, driven largely by data-center expansion, electrification, and economic growth (PJM Interconnection, 2025). Most data centers that are NOT covered by a dedicated deal like Microsoft's or Amazon's still draw on the same shared capacity market that keeps the lights on for everyone else, and that market's price has moved dramatically (Chart 3).</p>
+          <Chart3/>
+          <Interp id="c3p1" label="Interpretation 1 of 2 · Mechanism (causal/comparative, non-so-what)"
+            question="The price jump between the 2024/25 and 2025/26 delivery years ($28.92 → $269.92) is far larger than the jump between 2025/26 and 2026/27 ($269.92 → $329.17). What does the SHAPE of this trajectory — one huge jump followed by a smaller one — suggest about how the market's price signal responded to the underlying supply-demand imbalance, versus a story of smooth, continuous tightening?"
+            authored={<span>A single enormous jump followed by a smaller one suggests the market's price signal was slow to reflect a fast-building imbalance — forecasted data-center load arriving faster than new generation could be permitted and built, plus coal and gas plant retirements — and then repriced sharply once that imbalance became undeniable in one auction, rather than adjusting gradually in real time the way a continuously traded asset's price would.</span>}
+            onSubmit={onInterp}/>
+          <Interp id="c3p2" label="Interpretation 2 of 2 · So what (decision)"
+            question="PJM itself has said its price cap would translate to a year-over-year increase of roughly 1.5% to 5% on some customers' bills. Given this price trajectory, what should a state utility regulator do differently when reviewing a utility's request to connect a very large new data-center customer to the shared grid?"
+            authored={<span>Require the large new load (or the data center itself) to accept some direct cost responsibility for the capacity it adds to the shared market — for example minimum-take contracts, its own dedicated generation, or exit fees if it later reduces load — rather than letting the cost of serving one very large, discretionary customer spread automatically across all the other ratepayers who share the same capacity auction.</span>}
+            onSubmit={onInterp}/>
+          <MC onScore={onScore} q={{
+            id:"rq2-a1",typeLabel:"Type A · Quantitative comparison",
+            stem:"Using the four PJM capacity prices in Chart 3 ($34.13, $28.92, $269.92, $329.17 per MW-day for 2023/24 through 2026/27), compute how many times larger the 2026/27 price is than the 2024/25 price, and say what a change of that size, concentrated into just two auction cycles, implies about how the region's supply cushion changed.",
+            options:[
+              "About 1.2 times larger — consistent with a modest, orderly adjustment",
+              "About 11.4 times larger (329.17÷28.92≈11.4) — a jump that size in just two auction cycles signals the region's spare capacity cushion nearly vanished in a very short window, which is consistent with regulators moving to impose an emergency price cap rather than waiting for slower, market-driven investment to catch up on its own",
+              "About 3 times larger — consistent with steady, expected cost inflation over the period",
+              "This cannot be computed without also knowing the exact demand forecast used in each auction"],
+            correct:1,
+            why:"329.17÷28.92≈11.4 — an increase of that magnitude concentrated into two auction cycles (not a decade of gradual repricing) is itself evidence that the region moved from a comfortable supply cushion to a tight one very quickly, which is exactly the kind of shock that led PJM's own stakeholders to seek a price cap rather than rely on the normal multi-year investment cycle to catch up.",
+            wrongWhy:{
+              0:"1.2× understates the actual ratio by an order of magnitude and would describe a far calmer market than the data shows.",
+              2:"3× is closer to the size of the SMALLER of the two jumps in isolation, not the full three-year change from 2024/25 to 2026/27.",
+              3:"The two prices themselves are sufficient, reported FACTs; computing their ratio requires no additional demand-forecast data, only division."},
+            generalizes:"When a price or rate changes across a small number of discrete events, compute the ratio across the full window (not just the largest single jump) before judging whether the change reflects a gradual trend or a sudden, non-linear shift.",
+          }}/>
+          <MC onScore={onScore} q={{
+            id:"rq2-b1",typeLabel:"Type B · Percent vs. percentage points",
+            stem:"The U.S. Bureau of Labor Statistics reported headline (all-items) consumer-price inflation at 3.5% and electricity-price inflation at 4.0%, both over the same 12 months ending June 2026 (BLS, 2026). A commentator says 'electricity prices are running 0.5% hotter than overall inflation.' Is that the correct way to describe the gap?",
+            options:[
+              "Yes — 4.0 minus 3.5 is 0.5, so '0.5%' is the correct label for that gap",
+              "No — the two figures cannot be meaningfully compared, since electricity is a subcomponent already counted inside the headline number",
+              "No — the gap is 0.5 PERCENTAGE POINTS, not 0.5 percent; expressed as a relative (percent) difference, electricity inflation is running about 14% hotter than headline inflation (4.0÷3.5−1≈0.14)",
+              "No — the correct gap is 4.5 percentage points, since the two rates should be added together, not subtracted"],
+            correct:2,
+            why:"The raw gap (4.0−3.5=0.5) is a difference measured in PERCENTAGE POINTS, not a percent change. The percent (relative) difference is the gap divided by the baseline rate: 0.5÷3.5≈14%. Calling a 0.5-point gap a '0.5% ' difference silently swaps two different units, understating how much hotter electricity inflation actually is in relative terms.",
+            wrongWhy:{
+              0:"This correctly computes the point gap (0.5) but mislabels its unit — percentage points and percent change are different quantities unless the baseline happens to be 100.",
+              1:"Electricity being a subcomponent of the headline index does not prevent comparing its own rate of change to the headline rate; this comparison is standard practice in inflation reporting.",
+              3:"Adding two inflation rates together has no standard economic meaning here; the two rates should be compared by subtraction (for points) or division (for relative percent), not addition."},
+            generalizes:"Any 'X percent higher/lower' claim built by subtracting two percentages — check whether the number quoted is the raw point gap or the relative (percent) change; they are numerically different unless the starting value happens to be 100.",
+          }}/>
+          <MC onScore={onScore} q={{
+            id:"rq2-c1",typeLabel:"Type C",kind:"case",
+            client:"A hyperscaler's VP of Energy Procurement is deciding whether to sign a new ~800-megawatt, 20-year nuclear power purchase agreement — similar in structure to Microsoft's Crane Clean Energy Center deal — to cover a new AI campus's electricity needs, instead of simply letting that campus's demand bid into PJM's shared capacity market the way most other large loads do.",
+            stem:"Which assumption is most load-bearing for this decision to actually protect the company from the kind of capacity-price spikes described in this section, and where is the evidence in this section thinnest in supporting it?",
+            options:[
+              "That nuclear power is cheaper per megawatt-hour than natural gas — a secondary factor next to the bigger risk below",
+              "That competing hyperscalers will not also try to sign similar deals — irrelevant to whether THIS company's own supply arrives on schedule",
+              "That AI electricity demand will keep growing — already the best-supported claim in this section, not the thin part",
+              "That the restarted or expanded nuclear plant will actually come online on schedule — and this is exactly where the evidence is thinnest, since restarting a previously shut-down reactor still requires U.S. Nuclear Regulatory Commission approval and has not been done at this specific plant before, so the target date carries real, largely untested schedule risk that a signed contract alone does not remove"],
+            correct:3,
+            why:"A dedicated power deal only protects the company from grid-wide price spikes if the new supply actually arrives when promised; this section's own evidence shows the region's supply queue and permitting process move slowly and unpredictably, making the restart or uprate SCHEDULE the most load-bearing, least-proven part of the whole strategy.",
+            wrongWhy:{
+              0:"A price-per-megawatt-hour comparison affects the deal's economics, not whether the promised supply actually shows up in time to matter for the company's exposure to grid-wide price spikes.",
+              1:"Competitor behavior might affect the broader market for nuclear PPAs, but it does not determine whether THIS specific restart or uprate hits its own schedule.",
+              2:"Continued demand growth is the single best-evidenced claim in this entire article, not the assumption with thin supporting evidence."},
+            generalizes:"For any 'sign a dedicated long-term supply deal to escape a volatile shared market' strategy, isolate whether the promised supply's own delivery timeline — not the deal's price or the market's demand outlook — is the part actually still unproven.",
+          }}/>
+          <p>The clearest recent evidence that this cost is already reaching ordinary households, not just future ratepayers, comes from PJM's own independent market monitor, Monitoring Analytics. Its "2026 Q1 State of the Market Report for PJM" found that the total cost of wholesale power across the region reached $136.53 per megawatt-hour in the first three months of 2026, up 76% from $77.78 per megawatt-hour in the same quarter of 2025; within that total, the capacity component alone rose 398% year-over-year, versus roughly 5% for transmission costs, and data-center load included in PJM's last two future capacity auctions translated into a combined $13 billion cost increase for customers across the grid (Monitoring Analytics, cited in Marshall, 2026). "The price impacts on customers have been very large and are not reversible," the market monitor's report states, which is part of why regulators and state officials pushed PJM to extend a price cap on the capacity market through 2029.</p>
+          <p>That regional shock shows up, in smaller form, in the same national statistics that track everyday cost of living. Electricity prices rose 4.0% over the 12 months ending June 2026, faster than the 3.5% increase in the overall consumer price index over the same period (U.S. Bureau of Labor Statistics, 2026) — a nominal, not inflation-adjusted, comparison, but one moving in a direction consistent with the regional capacity-price story rather than against it.</p>
+          <p>The honest section-level conclusion is that both stories are true simultaneously: some of the largest AI buyers are paying directly and substantially for new, dedicated power, while the much larger remainder of data-center growth still draws on a shared capacity market whose price has risen more than eleven-fold in three delivery years — a cost that gets spread, by design, across every ratepayer connected to that grid, whether or not they have ever used an AI product themselves.</p>
+          <Glossary items={[
+            {t:"Capacity market / capacity auction",d:"A market where a grid operator pays power plants in advance to be available for future years, to make sure enough total supply exists to meet expected peak demand."},
+            {t:"MW-day",d:"The unit PJM's capacity price is quoted in: one megawatt of guaranteed available power, for one day, in a future year."},
+            {t:"Ratepayer",d:"A customer who pays a utility for electricity, gas, or water service."},
+            {t:"Percentage point",d:"The literal difference between two percentages (4.0% minus 3.5% is 0.5 percentage points), distinct from the relative percent difference between them."},
+          ]}/>
+          <div className="navbtns"><button onClick={()=>jump(3)}>← Efficiency</button><button onClick={()=>jump(5)}>Next: Can Supply Keep Up →</button></div>
+        </section>
+
+        {/* ---- Q3: SUPPLY / EMISSIONS ---- */}
+        <section ref={refs.current[5]}>
+          <div className="kicker">Research Question 3</div>
+          <h2>Nuclear gets the headlines, gas gets the megawatts</h2>
+          <p>Meeting the demand trajectory in Chart 1 requires more than money — it requires new physical generation, transmission, and permitting to move faster than any of these have historically moved. Goldman Sachs Research estimates that roughly $720 billion of grid spending may be needed through 2030 just to keep pace (Goldman Sachs Research, 2025). IEA itself warns that, absent changes, around 20% of planned data-center projects could face delays because new transmission lines can take four to eight years to build in advanced economies, and wait times for critical grid equipment like transformers have doubled in the past three years (IEA, 2025).</p>
+          <p>The market is not entirely passive in the face of these constraints. PJM's own July 2025 auction results show that 2,669 megawatts of new generation and generation uprates cleared for the first time in four auctions, and that 17 generating units totaling roughly 1,100 MW that had been scheduled to retire instead withdrew those retirement plans after the prior year's results were posted (PJM Interconnection, 2025) — a sign that the sharp price increases in Chart 3 are already pulling some new supply, and some supply that would otherwise have left, back into the market, exactly as a functioning price signal is supposed to work.</p>
+          <Chart4/>
+          <Interp id="c4p1" label="Interpretation 1 of 2 · Quantitative (non-so-what)"
+            question="Renewables are credited with meeting about half (over 450 TWh) of the growth in data-center demand through 2035, while natural gas and nuclear each contribute roughly 175 TWh. As a ratio, how much LARGER is renewables' contribution than nuclear's alone, and what does that ratio suggest about how dominant the 'half from renewables' framing really is once you look at the other pieces individually?"
+            authored={<span>About 2.6 times larger (450÷175≈2.6). Renewables' headline "about half" framing sounds dominant, but nuclear and natural gas COMBINED (350 TWh) are not far behind renewables (450 TWh) on their own — a reminder that a rounded "half" share can undersell how much of the remaining growth still depends on just two other, very different technologies.</span>}
+            onSubmit={onInterp}/>
+          <Interp id="c4p2" label="Interpretation 2 of 2 · So what (decision)"
+            question="This waterfall shows a GLOBAL supply plan, but PJM's own 2026/2027 auction cleared with 45% natural gas versus only 21% nuclear in its resource mix — a very different split from IEA's roughly equal 175/175 TWh global projection. What does the gap between a global, decade-long projection and one specific regional grid's near-term actual mix imply for a company that wants to minimize the carbon footprint of a new data center it is deciding where to build?"
+            authored={<span>A global average can hide large regional variation in which fuel actually shows up on the margin; a company that cares about the carbon intensity of its electricity should examine the SPECIFIC grid or utility territory where it plans to build — its actual near-term generation mix and interconnection queue — rather than relying on a global, decade-spanning projection that blends together very different regional realities into one number.</span>}
+            onSubmit={onInterp}/>
+          <MC onScore={onScore} q={{
+            id:"rq3-a1",typeLabel:"Type A · Quantitative comparison",
+            stem:"Chart 4 shows roughly 785 TWh (1,200−415) of projected demand growth to 2035 coming from about 450 TWh renewables, 175 TWh natural gas, and 175 TWh nuclear (plus a small rounding adjustment). What SHARE of that total growth do natural gas and nuclear TOGETHER represent, and why does that matter for the emissions math even though renewables get top billing in IEA's own framing?",
+            options:[
+              "About 45% (350÷785) — despite renewables meeting roughly half of new demand in IEA's own framing, dispatchable and nuclear sources together still account for nearly half of the growth, and only the nuclear portion is emissions-free, so a large minority of this decade's new data-center electricity will still come from a fuel (natural gas) that raises the sector's carbon footprint rather than lowering it",
+              "About 10% — a negligible share, meaning the emissions question is already fully resolved by renewables alone",
+              "About 25% — a modest share with limited emissions implications",
+              "About 90% — renewables play almost no meaningful role in the growth"],
+            correct:0,
+            why:"350÷785≈45%. Renewables' 'about half' framing is technically accurate but can obscure that natural gas and nuclear combined are not far behind — and because only nuclear among those two is emissions-free, a substantial share of new demand growth still runs on a fossil fuel, keeping data-center emissions among the fastest-growing categories IEA tracks even while staying under 1.5% of total energy-sector emissions.",
+            wrongWhy:{
+              1:"10% badly understates gas-plus-nuclear's actual combined 45% share and would wrongly suggest the emissions question is settled.",
+              2:"25% understates the true combined share by roughly half; the correct arithmetic from the chart's own FACT values gives about 45%.",
+              3:"90% would mean renewables contributed almost nothing, the opposite of what IEA's own disclosed figures (renewables as the single largest contributor) show."},
+            generalizes:"When a source is credited with 'about half' of a total, always check what the OTHER pieces sum to individually — a rounded headline share can make the remaining pieces look smaller in combination than they actually are.",
+          }}/>
+          <MC onScore={onScore} q={{
+            id:"rq3-b1",typeLabel:"Type B · Named reasoning error",
+            stem:"Microsoft's 835-megawatt Three Mile Island restart and Amazon's 1,920-megawatt Talen nuclear deal both generated far more news coverage in 2024-2025 than routine natural-gas contracts of similar or larger size. Yet PJM's own 2026/2027 auction results show natural gas providing 45% of the newly cleared capacity mix, versus 21% for nuclear. What reasoning error would lead someone to conclude, from news coverage alone, that nuclear power is 'winning' the race to power AI?",
+            options:[
+              "Confusing correlation with causation — a distinct error from the one actually at work here",
+              "Mistaking media salience for actual market share — a novel, headline-friendly nuclear-restart deal gets covered far more heavily than routine gas contracts of equal or greater size, so how OFTEN something is covered diverges sharply from what SHARE of the underlying activity it actually represents",
+              "Base-rate neglect — a distinct error from the one actually at work here",
+              "Survivorship bias — a distinct error from the one actually at work here"],
+            correct:1,
+            why:"This is the availability heuristic (or media-salience bias) at work: a rare, novel event (restarting a shut-down nuclear reactor) is inherently more newsworthy than a routine gas contract, so news volume tracks novelty, not underlying market share — exactly why the region's ACTUAL cleared generation mix (45% gas, 21% nuclear) can look so different from what news coverage alone would suggest.",
+            wrongWhy:{
+              0:"Correlation-vs-causation describes mistaking two co-moving trends for a causal link; the error here is about coverage volume diverging from actual share, a different mechanism.",
+              2:"Base-rate neglect involves ignoring a known background probability in favor of vivid specific information; while related in spirit, the more precise, directly named mechanism here is salience/availability bias in media coverage.",
+              3:"Survivorship bias involves drawing conclusions only from surviving/visible cases while ignoring ones that failed or disappeared; nothing in this scenario involves cases dropping out of a sample."},
+            generalizes:"Whenever a topic gets outsized news coverage relative to routine activity in the same category, check the coverage against the actual underlying numbers before assuming coverage volume reflects real-world share.",
+          }}/>
+          <Numeric onScore={onScore} q={{
+            id:"rq3-d1",typeLabel:"Type D · Open-ended",
+            requireDecomp:true,
+            stem:"IEA reports that a typical AI-focused data center uses as much electricity as 100,000 households, and that the LARGEST facilities now under construction use 20 times that. Reusing the same household-to-power conversion approach from the Background section (households × average annual household kWh, divided by hours in a year), but this time working entirely from memory rather than a given skeleton, estimate the power draw, in MEGAWATTS, of one of these largest under-construction AI data centers.",
+            tolNote:"Within a factor of 2 (log-scored, order-of-magnitude) — wide, because this is a genuine Fermi estimate combining a rounded scale comparison with a household energy-use anchor you must recall and apply yourself.",
+            min:0,max:8000,step:100,unit:"MW (average power draw)",log:true,actual:2460,
+            how:"Same decomposition as the Background section's estimate: 100,000×20=2,000,000 households; 2,000,000×≈10,800 kWh/yr≈21.6 billion kWh/yr; divide by 8,760 hours/year≈2,460 MW (about 2.5 gigawatts). This result should match the earlier estimate closely, since it draws on the same two underlying FACTs — the exercise here is recalling and re-applying the decomposition without being handed it again, which is what makes a scaffolded skill durable rather than a one-time lookup.",
+            generalizes:"A decomposition method learned once (household-equivalents → annual energy → divide by hours in a year → average power) should be reusable from memory on a new but structurally identical estimate — if you cannot recall the steps without the skeleton, that is a sign to practice the conversion, not just the specific numbers.",
+          }}/>
+          <p>The emissions side of the ledger complicates any simple "gas now, clean later" story. IEA projects electricity-related emissions from data centers rising from about 180 million tonnes of carbon dioxide today to 300 million tonnes in its Base Case by 2035, and as high as 500 million tonnes in a faster-adoption Lift-Off Case — figures that stay under 1.5% of total energy-sector emissions through this period, but that make data centers one of the fastest-growing emissions sources IEA tracks even as the broader economy works to decarbonize (IEA, 2025). A small share of a large total can still be one of the fastest-moving pieces of it.</p>
+          <p>The technology most often cited as the eventual fix — small modular reactors, newer and smaller nuclear designs meant to be faster and cheaper to build than traditional large plants — is still mostly a plan rather than a working fleet. IEA's own Base Case has the first small modular reactors coming online only around 2030 (IEA, 2025), and Talen Energy and Amazon have so far only agreed to "explore" building new ones in Pennsylvania alongside their existing nuclear power purchase agreement, with no construction timeline confirmed (Talen Energy, 2025). Until that changes, the near-term supply answer to "can the grid keep up" runs mostly through the same dispatchable sources — natural gas first, existing nuclear plants second — that this section's other evidence already points to.</p>
+          <p>None of this means the arrangement is fragile in any specific, dated way — only that its ability to deliver enough clean, reliable power on schedule has not yet been tested at the scale the trajectory in Chart 1 requires, and the sharpest evidence available today (a global source mix that leans on gas and nuclear about equally, next to one major regional grid that leans on gas more than twice as heavily as nuclear) suggests the near-term reality may be less "green" than the highest-profile deals suggest.</p>
+          <Glossary items={[
+            {t:"Dispatchable power",d:"Electricity generation, like natural gas or nuclear plants, that can reliably supply power on demand, as opposed to wind or solar, whose output depends on the weather."},
+            {t:"Small modular reactor (SMR)",d:"A newer, smaller design of nuclear reactor intended to be faster and cheaper to build than traditional large nuclear plants."},
+            {t:"Interconnection queue",d:"The waiting list and review process a new power plant or large customer must go through before connecting to the electric grid."},
+          ]}/>
+          <div className="navbtns"><button onClick={()=>jump(4)}>← Who Pays</button><button onClick={()=>jump(6)}>Next: Learning Summary →</button></div>
+        </section>
+
+        {/* ---- LEARNING SUMMARY ---- */}
+        <section ref={refs.current[6]}>
+          <div className="kicker">Learning Summary</div>
+          <h2>What you did, and what to carry forward</h2>
+          <Summary answers={answers} interp={interp}/>
+          <div className="navbtns"><button onClick={()=>jump(5)}>← Can Supply Keep Up</button><button onClick={()=>jump(7)}>Next: Conclusion →</button></div>
+        </section>
+
+        {/* ---- CONCLUSION ---- */}
+        <section ref={refs.current[7]}>
+          <div className="kicker">Conclusion</div>
+          <h2>Efficiency is real, and it is not the whole answer</h2>
+          <p>The central challenge is that chip-level efficiency gains in AI hardware are genuinely large and fast-moving, and they are simultaneously not close to fast enough, on their own, to bend total data-center electricity demand back down in any scenario a major energy forecaster has published — a partial rebound effect operating in plain sight, not a failure of the efficiency gains themselves. Under partial success — continued efficiency improvement, continued buildout of dedicated clean-power deals by the largest buyers, and continued but incomplete grid investment — the most likely path is not a supply crisis but a slow, uneven cost transfer: tech companies increasingly self-supplying their own marquee facilities with nuclear and other dedicated power, while the much larger remainder of the buildout keeps showing up as capacity-price and wholesale-price increases that spread across every ratepayer on the shared grid.</p>
+          <p>For grid regulators and utility commissions, the practical implication is to stop treating "AI will get more efficient" as a substitute for near-term capacity planning, since even IEA's own High Efficiency Case shows demand still rising through 2035, and to consider requiring very large new loads to bear direct cost responsibility for the capacity they add to a shared market, rather than letting that cost spread automatically to households who never asked for a new AI data center down the road.</p>
+          <p>For companies buying AI compute, and for the public discussion of AI's environmental footprint, the practical implication is to treat the nuclear headlines and the actual regional generation mix as two different facts that both matter: dedicated deals like Microsoft's and Amazon's are real and meaningful for the specific facilities they cover, but the much larger share of new demand, at least in the near term, is still being met by natural gas in the specific grids where a lot of AI infrastructure is actually being built — a detail that a single global "half from renewables" statistic does not surface.</p>
+          <MC onScore={onScore} q={{
+            id:"concl-e1",typeLabel:"Type E · Implication + falsification",
+            stem:"Given the evidence in this article — chip-level efficiency improving rapidly (Nvidia's claimed 25×, Koomey's law) while facility-level efficiency has stalled (PUE flat since 2018) and total demand keeps climbing in every IEA scenario, including its own High Efficiency Case — which real-world decision is most directly supported, paired with the observation that would most FALSIFY the article's central thesis?",
+            options:[
+              "Decision: every hyperscaler should halt new data-center construction immediately until chip efficiency improves by another order of magnitude. Falsifier: any further efficiency improvement at all, however small",
+              "Decision: nothing about grid or capacity planning needs to change until data centers exceed 10% of global electricity use. Falsifier: data centers reaching 10% of global electricity use",
+              "Decision: grid planners, regulators, and hyperscalers should plan new generation and transmission investment assuming demand keeps growing through at least the mid-2030s under every scenario IEA models (700 to 1,700 TWh by 2035), rather than betting that hardware efficiency alone will flatten or reverse the trend, while pressing for the fastest verifiably clean, dispatchable supply precisely because gas is currently absorbing the largest near-term share of new demand. Falsifier: if global data-center electricity demand actually FELL in a year following a major chip-efficiency generation launch, after controlling for any slowdown in AI adoption — evidence that efficiency gains can outpace demand growth in practice, not just in a modeled scenario — that would be the strongest evidence against this article's 'efficiency can't win yet' reading",
+              "Decision: policymakers should treat chip-level efficiency gains as a guarantee that AI's electricity footprint will shrink on its own, so new power-plant investment tied to AI can be delayed. Falsifier: none needed, since efficiency gains are assumed to shrink total demand automatically"],
+            correct:2,
+            why:"The article's best-supported thesis holds two things at once: chip-level efficiency gains are real and large, and they have not yet been shown to outpace AI usage growth in any published scenario — so the defensible decision is to plan supply for continued growth while still pushing for cleaner near-term generation, not to bet on efficiency alone. The sharpest falsifier names the one concrete observation — demand actually falling after an efficiency jump, net of any usage slowdown — that would convert this article's central 'partial rebound, not full Jevons victory for efficiency' reading into the wrong one.",
+            wrongWhy:{
+              0:"Halting construction ignores this section's own evidence that demand growth is well-supported and unlikely to pause on its own, and treats any efficiency gain, however small, as sufficient — an arbitrary, untestable falsifier.",
+              1:"A 10% global threshold is arbitrary and not derived from any mechanism in this article; several of the concrete risks described here (grid cost transfer, regional emissions mix) are already measurable well below that level.",
+              3:"This discards the article's strongest evidence (IEA's own High Efficiency Case still showing rising demand) and offers no meaningful falsifier at all, which is itself a sign the claim is not testable."},
+            generalizes:"A strong, evidence-based recommendation names the SPECIFIC future observation that would force you to abandon it — and for any thesis about a trend that has only ever moved in one direction so far (rising demand, in this case), the sharpest test is what happens the first time a plausible countervailing force (a major efficiency jump) meets it head-on.",
+          }}/>
+          <p style={{marginTop:18}}>The most important unresolved question is not whether AI's chips are getting more efficient — the data in this article already answers that — but whether any single future hardware generation will finally arrive with an efficiency jump large enough to outrun usage growth for a full year, or whether the pattern documented here simply continues: greener chips, and a thirstier grid all the same.</p>
+          <Sources/>
+          <Glossary items={[
+            {t:"Falsifier",d:"A specific, observable event that, if it happened, would prove a claim wrong; naming one in advance is what makes a claim testable rather than just asserted."},
+          ]}/>
+          <div className="navbtns"><button onClick={()=>jump(6)}>← Learning Summary</button><span/></div>
+        </section>
+
+      </main>
+    </div>
+  );
+}
+
+/* ---------- Learning Summary component -------------------------------------- */
+function Summary({answers,interp}){
+  const [gov,setGov]=useState(""); const [govDone,setGovDone]=useState(false);
+  const [applyA,setApplyA]=useState(""); const [applyB,setApplyB]=useState("");
+  const [evalOut,setEvalOut]=useState(null);
+
+  const entries=Object.entries(answers);
+  const byType={}; entries.forEach(([id,a])=>{const t=a.type;byType[t]=byType[t]||{ok:0,n:0};byType[t].n++;if(a.ok)byType[t].ok++;});
+  const nCorrect=entries.filter(([,a])=>a.ok).length;
+
+  const nums=entries.filter(([,a])=>a.type==="num"&&a.meta);
+  let bias=null;
+  if(nums.length){ const s=nums.map(([,a])=>(a.meta.val-a.meta.actual)/Math.abs(a.meta.actual));
+    const avg=s.reduce((x,y)=>x+y,0)/s.length; bias=Math.round(avg*100); }
+
+  const principleMap={
+    wu1:"A scale/capacity number is a vanity metric without its utilization denominator",
+    wu2:"A calm national average can hide a concentrated regional or sector-level spike — split it before trusting its size",
+    wu3:"Many individually rational, cost-lowering choices can add up to an aggregate outcome the opposite of what each one intended",
+    "bg-mc1":"When two totals rise together, look for the shared upstream driver before assuming one causes the other",
+    "bg-d1":"Convert a 'household-equivalent' scale comparison into power by multiplying by annual household energy use, then dividing by hours in a year",
+    "rq1-a1":"Compare efficiency claims only after converting both to the same unit and checking they describe the same layer of a system",
+    "rq1-c1":"Isolate the single comparison (usage growth vs. efficiency gain) that actually decides an aggregate outcome, and check whether the evidence for both sides is equally strong",
+    "rq1-d1":"To find a net change from a falling per-unit cost and rising usage, divide the usage multiple by the efficiency multiple",
+    "rq2-a1":"Compute a ratio across a full time window, not just the largest single jump, before judging whether a change is gradual or sudden",
+    "rq2-b1":"Percentage points and percent (relative) change are different units — don't conflate them",
+    "rq2-c1":"For a 'dedicated supply deal to escape a volatile market' strategy, isolate whether the promised supply's own delivery timeline is what's actually unproven",
+    "rq3-a1":"When a source gets credit for 'about half' of a total, check what the other pieces sum to individually before assuming they're minor",
+    "rq3-b1":"Media coverage volume tracks novelty, not underlying market share — check the actual numbers before trusting coverage as a proxy",
+    "rq3-d1":"A decomposition method learned once should be reusable from memory on a structurally identical estimate",
+    "concl-e1":"A strong recommendation names its own falsifier — especially the one that would appear if a one-directional trend finally reversed",
+  };
+  const missed=entries.filter(([,a])=>!a.ok).map(([id])=>principleMap[id]).filter(Boolean);
+
+  // Apply-It evaluator — LOCAL FALLBACK ONLY. This static, single-file artifact has no
+  // secure server-side API path, so per artifact-generator.md this function is isolated
+  // behind one call site (the button below) and implements an evidence-based, non-keyword
+  // fallback: it checks for the PRESENCE of all four required reasoning moves (thesis,
+  // load-bearing assumption, disconfirming evidence, pre-mortem) and reports which are
+  // weakest or missing as an explicit gap list, rather than pattern-matching specific words
+  // as "correct." If a secure API path is added later, swap this function's body for one
+  // server-side call that sends the full article text plus the reader's response and asks
+  // a model to judge the same four parts in 3-5 sentences — the call site below does not
+  // need to change.
+  function evaluateApply(a,b){
+    const txt=a.toLowerCase();
+    const gaps=[];
+    const hasThesis=a.trim().length>25;
+    const hasAssume=/assum|depend|requir|must hold|relies|hinge/.test(txt);
+    const hasDis=/disconfirm|undermin|falsif|against|counter|contradic|weakest|thin/.test(txt);
+    const hasPre=/pre-?mortem|if this fails|fail|12 month|most likely reason|because/.test(txt);
+    if(!hasThesis) gaps.push("a clear one-sentence so-what thesis");
+    if(!hasAssume) gaps.push("the single load-bearing assumption that must hold");
+    if(!hasDis) gaps.push("the evidence that would most undermine your thesis");
+    if(!hasPre) gaps.push("a one-line pre-mortem (if it fails in 12 months, the likely reason)");
+    const climbs=/so |therefore|which means|implies|should|because/.test(txt) && /\d/.test(a);
+    let verdict;
+    if(gaps.length===0) verdict = climbs
+      ? "All four parts are present and your reasoning climbs from observation to a quantified, decision-relevant implication. Strongest next step: pressure-test the assumption you named against the disconfirming evidence you cited."
+      : "All four parts are present, but the response stays descriptive. Push it to an implication: name what a decision-maker should DO and attach a number.";
+    else verdict = "Weakest or missing: "+gaps.join("; ")+". A transfer thesis needs all four — recommendation, load-bearing assumption, disconfirming evidence, and pre-mortem — before it's decision-ready.";
+    const bCheck = b.trim().length<20 ? " (Also add prompt (b): name one prior article's principle that reinforces or conflicts with today's.)" : "";
+    return verdict+bCheck;
+  }
+
+  return (
+    <div>
+      <h3>1 · Your score</h3>
+      <div className="scoregrid">
+        <div>Total correct</div><div className="v">{nCorrect} / {entries.length||0}</div>
+        {Object.entries(byType).map(([t,o])=>(
+          <React.Fragment key={t}>
+            <div>{t==="mc"?"Multiple choice":"Numeric estimates"}</div><div className="v">{o.ok} / {o.n}</div>
+          </React.Fragment>
+        ))}
+      </div>
+      {bias!==null && <p style={{fontSize:14}}>Numeric bias: on average your estimates were {bias>0?"about "+bias+"% high":bias<0?"about "+Math.abs(bias)+"% low":"right on"} versus the actual values{bias<0?" — you tend to under-estimate magnitudes.":bias>0?" — you tend to over-estimate magnitudes.":"."}</p>}
+
+      <h3>2 · Your governing insight (write before revealing ours)</h3>
+      <p style={{fontSize:14}}>You saw four charts. Write the single most non-obvious insight you would defend to a skeptical energy-industry executive.</p>
+      {!govDone && <>
+        <textarea value={gov} onChange={e=>setGov(e.target.value)} placeholder="One or two sentences…"/>
+        <button className="btn" disabled={gov.trim().length<20} onClick={()=>setGovDone(true)}>Reveal the article's three insights</button>
+      </>}
+      {govDone && <>
+        <div className="yours"><b>Your insight:</b> {gov}</div>
+        <div style={{marginTop:10}}>
+          <div className="insight-card"><b>1.</b> AI chip efficiency and data-center total electricity demand are not opposing forces — they are the same mechanism playing out at different scales. A lower cost per computation is exactly what economic theory predicts will induce more total computation, and IEA's own most efficiency-optimistic scenario (700 TWh by 2035) still shows demand rising, not falling, which is the empirical signature of a partial Jevons-paradox rebound rather than a data error.</div>
+          <div className="insight-card"><b>2.</b> "AI's electricity use" is not one efficiency story but at least two, moving at very different speeds: chip-level compute efficiency (Nvidia's claimed 25x, Koomey's law) keeps improving fast, while facility-level overhead efficiency (PUE) has been flat at about 1.56 since 2018 — so a company's biggest efficiency lever is which hardware generation it deploys, not which "green" building it leases.</div>
+          <div className="insight-card"><b>3.</b> Dedicated nuclear deals (Microsoft's 835 MW, Amazon's 1,920 MW) get the headlines, but they cover a small fraction of total grid-wide demand growth (PJM alone added over 5,400 MW of forecast peak load in one delivery year); most of the bill for the buildout is landing on shared capacity markets and, from there, on ordinary ratepayers — PJM's own capacity price rose more than eleven-fold across three delivery years.</div>
+        </div>
+      </>}
+
+      <h3>3 · Apply it</h3>
+      <p style={{fontSize:14}}><b>(a) Transfer to a new domain.</b> A city's transit department is deciding whether to fund a program that makes its bus fleet's air-conditioning systems about 40% more energy-efficient, expecting this to cut the fleet's total AC-related electricity draw by roughly 40%. Data from other cities that ran similar upgrades in the past decade show a consistent pattern afterward: once AC became cheaper to run, those fleets typically responded by extending AC operating hours into more of the shoulder seasons and adding AC to routes that previously ran without it, since the lower operating cost freed up budget for more service rather than being banked as pure savings. In four labeled parts, write: (1) a one-sentence so-what thesis about whether the transit department should expect the promised 40% electricity-draw reduction to materialize as forecast, (2) the single load-bearing assumption that must hold for that forecast to be right, (3) the strongest evidence that would undermine it, and (4) a one-line pre-mortem: "If this program's savings estimate fails within 12 months, the most likely reason is ___."</p>
+      <textarea value={applyA} onChange={e=>setApplyA(e.target.value)} placeholder="1) Thesis…  2) Assumption…  3) Disconfirming evidence…  4) Pre-mortem…"/>
+      <p style={{fontSize:14,marginTop:12}}><b>(b) Cross-link to a prior article.</b> Name one principle from an earlier article (FIFA's asset-owner-vs-risk-bearer split, GLP-1's per-unit-vs-aggregate distinction, immaculate disinflation's sacrifice-ratio sign test, private credit's measurement-artifact lesson, streaming's fixed-cost-scale lesson, AI capex's spend-vs-revenue gap, Baumol's productivity-tracks-price lesson, gene therapy's value-vs-adoption split, or passive investing's aggregate-concentration-from-individually-rational-choices lesson) that most reinforces or conflicts with today's efficiency-vs-demand distinction, and say why.</p>
+      <textarea value={applyB} onChange={e=>setApplyB(e.target.value)} placeholder="Prior principle + how it connects…"/>
+      <button className="btn" disabled={applyA.trim().length<30} onClick={()=>setEvalOut(evaluateApply(applyA,applyB))}>Evaluate my reasoning</button>
+      {evalOut && <div className="authored"><div className="h">Reasoning check (local evaluator)</div>{evalOut}</div>}
+
+      <h3>4 · Principles to revisit</h3>
+      {missed.length===0
+        ? <p style={{fontSize:14}}>Nothing missed so far — as you answer more questions, any you miss will appear here by the principle they test.</p>
+        : <div>{missed.map((m,i)=><div key={i} className="miss"><span className="tag">revisit</span>{m}</div>)}</div>}
+    </div>
+  );
+}
+
+/* ---------- Sources ----------------------------------------------------------*/
+function Sources(){
+  return (
+    <div style={{marginTop:24}}>
+      <h3>Sources</h3>
+      <div className="src">
+        <p>• International Energy Agency (IEA). "Energy and AI." 2025, Executive Summary — data centers' 2024 electricity use (415 TWh, 1.5% of world electricity; US 45%/China 25%/Europe 15% shares); ~12%/year historical growth since 2017; 2030 projection (~945 TWh); 2035 Base Case (~1,200 TWh), High Efficiency Case (20% lower than Base Case), and full scenario range (700-1,700 TWh); renewables/gas/nuclear contributions to 2035 demand growth; data centers' ~1/10 share of global electricity demand growth to 2030; typical/largest AI data-center household-equivalents; global data-center investment (~$0.5T in 2024); grid bottlenecks; emissions (180 Mt today to 300-500 Mt by 2035). <a href="https://www.iea.org/reports/energy-and-ai/executive-summary" target="_blank" rel="noopener">iea.org</a></p>
+        <p>• Robb, Drew. "Data Center Trends: Rack Density Rises While PUE and Outage Frequency Remain Flat." Upsite Technologies blog, Jan. 2, 2025, citing Uptime Institute's Global Data Center Survey 2024 and Andy Lawrence (Uptime Institute) — average annual PUE by year (2.5 in 2007; 1.98, 2011; 1.65, 2014; 1.58, 2018; 1.67, 2019; 1.56, 2024). <a href="https://www.upsite.com/blog/data-center-trends-rack-density-rises-while-pue-and-outage-frequency-remain-flat/" target="_blank" rel="noopener">upsite.com</a></p>
+        <p>• Koomey, Jonathan, Stephen Berard, Marla Sanchez, and Henry Wong. "Implications of Historical Trends in the Electrical Efficiency of Computing." IEEE Annals of the History of Computing 33, no. 3 (2011): 46-54 — computations per joule doubling roughly every 1.57 years from the 1950s to 2000, slowing to roughly every 2.6 years after 2000. <a href="https://en.wikipedia.org/wiki/Koomey%27s_law" target="_blank" rel="noopener">doi.org/10.1109/MAHC.2010.28</a></p>
+        <p>• NVIDIA. "NVIDIA Blackwell Platform Arrives to Power a New Era of Computing." Press release, March 18, 2024 — GB200 NVL72 delivers up to 30x LLM-inference performance and up to 25x less cost/energy consumption versus the same number of H100 (Hopper) GPUs, for trillion-parameter models (FP4 vs. FP8 precision comparison). <a href="https://nvidianews.nvidia.com/news/nvidia-blackwell-platform-arrives-to-power-a-new-era-of-computing" target="_blank" rel="noopener">nvidianews.nvidia.com</a></p>
+        <p>• Goldman Sachs Research. "AI to drive 165% increase in data center power demand by 2030." Feb. 4, 2025 — global data-center power demand +50% by 2027 and +165% by 2030 (vs. 2023); current ~55 GW usage (54% cloud, 32% traditional, 14% AI) rising to 84 GW by 2027; global capacity ~59 GW rising to ~122 GW by 2030; ~$720B of grid spending needed through 2030; occupancy rates ~85% (2023) toward >95% (late 2026). <a href="https://www.goldmansachs.com/insights/articles/ai-to-drive-165-increase-in-data-center-power-demand-by-2030" target="_blank" rel="noopener">goldmansachs.com</a></p>
+        <p>• PJM Interconnection. "PJM Capacity Auction Procures Adequate Resources," press release, Feb. 27, 2023 (2024/2025 Base Residual Auction: $28.92/MW-day, $2.2B total, vs. $34.13/MW-day for 2023/2024); and "PJM Auction Procures 134,311 MW of Generation Resources; Supply Responds to Price Signal," press release, July 22, 2025 (2026/2027 Base Residual Auction: $329.17/MW-day, the FERC-approved cap, vs. $269.92/MW-day for 2025/2026 RTO; PJM serves 67 million people in 13 states plus D.C.; forecasted 2026/2027 peak load up over 5,400 MW year-over-year; cleared resource mix 45% gas/21% nuclear/22% coal/4% hydro/3% wind/1% solar). <a href="https://www.pjm.com/-/media/DotCom/about-pjm/newsroom/2025-releases/20250722-pjm-auction-procures-134311-mw-of-generation-resources-supply-responds-to-price-signal.pdf" target="_blank" rel="noopener">pjm.com</a></p>
+        <p>• Marshall, Christa. "Data centers drive 76% surge in PJM power prices." E&amp;E News by POLITICO, May 15, 2026, citing Monitoring Analytics' "2026Q1 State of the Market Report for PJM" — PJM wholesale power cost $136.53/MWh in Q1 2026 vs. $77.78/MWh in Q1 2025 (+76%); capacity costs +398% year-over-year in Q1 vs. ~5% for transmission; data-center load in PJM's last two capacity auctions added a combined $13B in costs for customers; price cap through 2029. <a href="https://www.eenews.net/articles/data-centers-drive-76-surge-in-pjm-power-prices/" target="_blank" rel="noopener">eenews.net</a></p>
+        <p>• U.S. Bureau of Labor Statistics. "Consumer prices up 3.5 percent over the year ended June 2026." The Economics Daily, July 17, 2026 — all-items CPI +3.5% year-over-year; electricity +4.0%; energy overall +15.7%; gasoline +26.7% (12 months ending June 2026). <a href="https://www.bls.gov/opub/ted/2026/consumer-prices-up-3-5-percent-over-the-year-ended-june-2026.htm" target="_blank" rel="noopener">bls.gov</a></p>
+        <p>• Constellation Energy. "Constellation to Launch Crane Clean Energy Center, Restoring Jobs and Carbon-Free Power to The Grid." Press release, Sept. 20, 2024 — 20-year power purchase agreement with Microsoft; ~835 MW; Three Mile Island Unit 1 restart targeted for 2028; 3,400 jobs; $16B added to Pennsylvania GDP; $3B+ in state/federal taxes. <a href="https://www.constellationenergy.com/news/2024/Constellation-to-Launch-Crane-Clean-Energy-Center-Restoring-Jobs-and-Carbon-Free-Power-to-The-Grid.html" target="_blank" rel="noopener">constellationenergy.com</a></p>
+        <p>• Talen Energy Corporation. "Talen Energy Expands Nuclear Energy Relationship with Amazon." Press release, June 11, 2025 — power purchase agreement for 1,920 MW of carbon-free nuclear power from the Susquehanna plant through 2042, full volume by no later than 2032; joint exploration of small modular reactors; Amazon's $20B Pennsylvania investment. <a href="https://ir.talenenergy.com/news-releases/news-release-details/talen-energy-expands-nuclear-energy-relationship-amazon" target="_blank" rel="noopener">ir.talenenergy.com</a></p>
+        <p>• Luccioni, Alexandra Sasha, Emma Strubell, and Kate Crawford. "From Efficiency Gains to Rebound Effects: The Problem of Jevons' Paradox in AI's Polarized Environmental Debate." Proceedings of the 2025 ACM Conference on Fairness, Accountability, and Transparency (FAccT '25); arXiv:2501.16548 — applies Jevons' Paradox and rebound-effect theory to AI's environmental footprint; argues efficiency gains alone do not guarantee reduced net resource use. <a href="https://arxiv.org/abs/2501.16548" target="_blank" rel="noopener">arxiv.org</a></p>
+        <p>• U.S. Energy Information Administration (EIA). "How much electricity does an American home use?" FAQ, 2022 data — average annual electricity use per U.S. residential customer: 10,791 kWh. <a href="https://www.eia.gov/tools/faqs/faq.php?id=97&t=3" target="_blank" rel="noopener">eia.gov</a></p>
+      </div>
+      <p style={{fontSize:12.5,color:"#777",marginTop:8}}>Note on estimates: the 2017 point in Chart 1 is an ESTIMATE back-calculated from IEA's 2024 FACT using IEA's own stated ~12%/year historical growth rate, not a separately reported 2017 figure. The "Other / rounding" row in Chart 4 is an ESTIMATE that reconciles IEA's own independently rounded renewables/gas/nuclear figures to its own rounded 1,200 TWh 2035 Base Case total. The Background and Q3 numeric-estimation questions (households → megawatts) are ESTIMATEs built by multiplying IEA's household-equivalent FACT by the EIA's average-household-electricity-use FACT and converting via hours per year — not a directly reported figure for any specific facility. The RQ1 volume-vs-efficiency numeric question is an explicitly labeled hypothetical/ILLUSTRATION scenario built for teaching the Jevons-paradox arithmetic, not a forecast.</p>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);

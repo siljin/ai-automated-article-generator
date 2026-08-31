@@ -1,2 +1,23 @@
 .DS_Store
 node_modules/
+
+# Logs
+*.log
+logs/
+
+# Playwright MCP artifacts
+.playwright-mcp/
+
+# YAML/YML (generated/config artifacts)
+*.yml
+*.yaml
+
+# Python
+__pycache__/
+*.pyc
+.env
+.venv/
+
+# Misc
+*.tmp
+*.cache

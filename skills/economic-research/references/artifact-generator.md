@@ -58,6 +58,8 @@ Do not use `https://unpkg.com/recharts@2.12.7/umd/Recharts.min.js`; that URL ret
 
 Do not omit `prop-types` when using the Recharts UMD build. Recharts expects `window.PropTypes` and can fail before it creates `window.Recharts` if the dependency is missing.
 
+**Never name a chart-data field `ref` (or `key`, or `children`)**. Recharts spreads each raw data row's fields directly onto the props of the underlying shape component (e.g. `Bar` → `BarRectangle` → `Rectangle`). A field literally called `ref` becomes React's reserved `ref` prop on a plain function component; since it is neither a function, a `createRef()` object, nor `null`/`undefined`, React throws ("Function components cannot have string refs" in dev, minified error #284 in the production UMD build) with **no error boundary in this template**, which unmounts the entire app to a blank white page. This is silent in static/mocked test harnesses (they don't invoke the real Recharts library) and only surfaces when a real browser renders the real library — verify chart data field names against this trap specifically, not just via transpile/mock checks. Use a different key name (e.g. `benchmark`, `refValue`) for any reference-line or benchmark value stored alongside chart data.
+
 After inlining, verify that the inline Babel script matches `app.js`, that no `__APP_CODE__` placeholder remains, and that no external `text/babel` app script remains.
 
 ## State Model

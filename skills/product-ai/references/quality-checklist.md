@@ -46,6 +46,14 @@ Run this checklist before building and again before delivery. Every item must be
 - [ ] The article's topic has an AI or agentic workflow angle. Classical tech topics without an AI dimension are out of scope.
 - [ ] For Types 2, 3, and 4: the AI architecture is described at enough technical depth for the reader to understand the actual system (not just "they used AI").
 
+## Adjacent Content and Insight Diversity
+
+- [ ] Every evidence section includes an adjacent-capability or complementary-concept paragraph (article-structure.md, evidence section step 6) that introduces information beyond the section's core thesis — a related technique, a comparison company, or an adjacent product capability.
+- [ ] That paragraph adds a new fact or mechanism, not a rephrasing of the section's principle.
+- [ ] Insight-budget check performed for every section: each question (chart interpretations, MCQ, Fermi, consulting case, pattern transfer) has a one-clause insight tag, and no two tags in the same section paraphrase each other.
+- [ ] So-what prompts rotate across the named framework menu (segmentation, prioritization, sizing, threshold/decision rule, build/buy/partner, kill-criteria) rather than repeating the same framework on every chart in the article.
+- [ ] No sentence in the prose merely restates an earlier sentence's claim in different words without adding a number, mechanism, counterexample, or application.
+
 ## Charts
 
 - [ ] At least 4 charts are present across the article.
@@ -59,6 +67,7 @@ Run this checklist before building and again before delivery. Every item must be
 - [ ] At least one chart requires a pre-reveal magnitude/slope/ratio prediction.
 - [ ] Architecture SVG diagrams (where applicable) show both the old/failed state and the new state when covering an evolution or incident.
 - [ ] Every chart with ESTIMATE or ILLUSTRATION data shows a visible provenance note in both states.
+- [ ] If a conceptual diagram (flowchart, timeline, or flywheel/loop SVG) is used, it appears sparingly (1–2 across the whole article, not per section), is captioned, and carries the same FACT/ESTIMATE/ILLUSTRATION provenance labeling as a data chart.
 
 ## Questions
 
@@ -69,10 +78,13 @@ Run this checklist before building and again before delivery. Every item must be
 - [ ] Every evidence section ends with a T-F pattern transfer question (the last question in the section).
 - [ ] At least two T-D numeric estimation questions, at least one open-ended. Each declares its own tolerance with justification.
 - [ ] Every T-D answer key value is a FACT with inline citation or fully derivable by arithmetic from cited FACTs.
+- [ ] At least one T-G true/false-with-justification question appears somewhere in the article, and its justification field is required before it counts as answered.
+- [ ] At least one T-H critical-reasoning (strengthen/weaken/assumption) question appears somewhere in the article, and its sub-form (strengthen, weaken, or assumption) is stated.
 - [ ] At least one failure case question in the What Broke section.
 - [ ] The conclusion includes at least one T-E question with both present-day and 2027 forward-looking variants.
 - [ ] The final question in the artifact is a T-F pattern transfer to a domain not covered in the article.
 - [ ] Multiple-choice correct answers are balanced across A, B, C, and D (no option dominates).
+- [ ] Every MCQ's four options are word-count-balanced (correct option within ~20% of the average word count); the correct answer is never identifiable purely by being the longest, most hedged, or most detailed option.
 - [ ] At least one question tests a named statistical trap (percent vs percentage points, real vs nominal, correlation vs causation, base-rate neglect).
 - [ ] The conclusion's T-E question includes a falsification clause.
 - [ ] At least one T-C asks for the weakest link / load-bearing assumption.

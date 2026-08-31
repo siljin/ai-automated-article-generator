@@ -1,0 +1,1193 @@
+const { useState, useEffect } = React;
+const {
+  LineChart, Line, AreaChart, Area, BarChart, Bar, ComposedChart, Scatter,
+  XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
+  LabelList, Cell, ReferenceLine
+} = Recharts;
+
+/* ============================== DATA ==============================
+   All chart-data field names are checked against the Recharts spread trap:
+   no field is named `ref`, `key`, or `children` anywhere in this file.
+   =================================================================== */
+
+/* Chart 1 — Stacked area. Hedge funds' long U.S. Treasury exposure by estimated use.
+   Source: Monin (2026), FEDS Notes, "Decomposing Hedge Funds' U.S. Treasury Exposures",
+   Figure 3 accessible data (SEC Form PF). December values shown, plus March 2025. FACT. */
+const USES_BY_YEAR = [
+  { period: "Dec-13", basis: 26, swap: 39, cash: 197, matched: 98, steepener: 102, flattener: 87, longOnly: 79 },
+  { period: "Dec-14", basis: 41, swap: 22, cash: 187, matched: 85, steepener: 110, flattener: 104, longOnly: 81 },
+  { period: "Dec-15", basis: 62, swap: 40, cash: 201, matched: 55, steepener: 156, flattener: 90, longOnly: 81 },
+  { period: "Dec-16", basis: 56, swap: 18, cash: 201, matched: 194, steepener: 173, flattener: 55, longOnly: 90 },
+  { period: "Dec-17", basis: 46, swap: 18, cash: 171, matched: 139, steepener: 119, flattener: 172, longOnly: 77 },
+  { period: "Dec-18", basis: 218, swap: 51, cash: 200, matched: 229, steepener: 207, flattener: 152, longOnly: 127 },
+  { period: "Dec-19", basis: 363, swap: 78, cash: 187, matched: 163, steepener: 251, flattener: 163, longOnly: 137 },
+  { period: "Dec-20", basis: 271, swap: 30, cash: 174, matched: 170, steepener: 156, flattener: 110, longOnly: 70 },
+  { period: "Dec-21", basis: 81, swap: 6, cash: 219, matched: 314, steepener: 147, flattener: 175, longOnly: 70 },
+  { period: "Dec-22", basis: 173, swap: 31, cash: 236, matched: 231, steepener: 156, flattener: 138, longOnly: 48 },
+  { period: "Dec-23", basis: 509, swap: 110, cash: 218, matched: 435, steepener: 158, flattener: 138, longOnly: 57 },
+  { period: "Dec-24", basis: 754, swap: 158, cash: 245, matched: 483, steepener: 206, flattener: 111, longOnly: 76 },
+  { period: "Mar-25", basis: 725, swap: 295, cash: 239, matched: 492, steepener: 298, flattener: 137, longOnly: 92 }
+];
+
+/* Chart 2 — Slope chart. Debt outstanding vs. primary dealer intermediation, indexed 2012 = 100.
+   Source percent changes: Federal Reserve Board (2024), "Assessment of Dealer Capacity to
+   Intermediate in Treasury and Agency MBS Markets", FEDS Notes, 22 Oct 2024. Indexing is arithmetic. */
+const DEALER_SLOPE = [
+  { stage: "2012", debtOutstanding: 100, dealerPositions: 100, dealerFinancing: 100 },
+  { stage: "July 2024", debtOutstanding: 276, dealerPositions: 180, dealerFinancing: 143 }
+];
+
+/* Chart 3 — Line chart. Estimated cash-futures basis trade size.
+   Source: Monin (2026), FEDS Notes, Figure 3 accessible data; Sep-25 value from the note's text. FACT. */
+const BASIS_TRAJECTORY = [
+  { period: "Mar-19", size: 325 },
+  { period: "Jun-19", size: 376 },
+  { period: "Sep-19", size: 363 },
+  { period: "Dec-19", size: 363 },
+  { period: "Feb-20", size: 429 },
+  { period: "Mar-20", size: 312 },
+  { period: "Jun-20", size: 293 },
+  { period: "Sep-20", size: 326 },
+  { period: "Dec-20", size: 271 },
+  { period: "Mar-21", size: 146 },
+  { period: "Jun-21", size: 100 },
+  { period: "Sep-21", size: 103 },
+  { period: "Dec-21", size: 81 },
+  { period: "Mar-22", size: 59 },
+  { period: "Jun-22", size: 84 },
+  { period: "Sep-22", size: 104 },
+  { period: "Dec-22", size: 173 },
+  { period: "Mar-23", size: 235 },
+  { period: "Jun-23", size: 368 },
+  { period: "Sep-23", size: 427 },
+  { period: "Dec-23", size: 509 },
+  { period: "Mar-24", size: 524 },
+  { period: "Jun-24", size: 628 },
+  { period: "Sep-24", size: 814 },
+  { period: "Dec-24", size: 754 },
+  { period: "Mar-25", size: 725 },
+  { period: "Jun-25", size: 894 },
+  { period: "Sep-25", size: 830 }
+];
+
+/* Chart 4 — Waterfall. What drove the change in hedge funds' long Treasury exposure,
+   February 2020 to March 2025. Components are FACT (Monin 2026, Figure 3 data);
+   the deltas are ESTIMATE by subtraction. */
+const DRIVERS_WATERFALL = [
+  { name: "Feb 2020 total", base: 0, barHeight: 1458, shown: 1458, kind: "total" },
+  { name: "Cash-futures basis trade", base: 1458, barHeight: 296, shown: 296, kind: "up" },
+  { name: "Maturity-matched trades", base: 1754, barHeight: 358, shown: 358, kind: "up" },
+  { name: "Swap spread arbitrage", base: 2112, barHeight: 205, shown: 205, kind: "up" },
+  { name: "Unencumbered cash", base: 2317, barHeight: 62, shown: 62, kind: "up" },
+  { name: "Steepener-like trades", base: 2379, barHeight: 31, shown: 31, kind: "up" },
+  { name: "Flattener-like trades", base: 2335, barHeight: 75, shown: -75, kind: "down" },
+  { name: "Long-only investments", base: 2278, barHeight: 57, shown: -57, kind: "down" },
+  { name: "Mar 2025 total", base: 0, barHeight: 2278, shown: 2278, kind: "total" }
+];
+
+/* Chart 5 — Dot plot / lollipop. Published estimates of the size of the same trade.
+   Sources: Monin (2026) FEDS Notes; Sushko & Todorov (2025) BIS Quarterly Review;
+   published range as characterised by OFR (2026). FACT. */
+const SIZE_ESTIMATES = [
+  { source: "Low end of published range (OFR survey)", value: 350 },
+  { source: "Federal Reserve FEDS Note, Sep 2025", value: 830 },
+  { source: "BIS Quarterly Review, Q2 2025", value: 1060 },
+  { source: "High end of published range (OFR survey)", value: 1500 }
+];
+
+/* Chart 6 — 100% stacked bar. Share of non-centrally cleared bilateral repo by haircut type.
+   Source: Cenicola, Mann & Paddrik (2025), OFR Blog, "Are Zero-Haircut Repos as Common
+   as Advertised?"; 2022 pilot figure from the same post. FACT. */
+const HAIRCUT_MIX = [
+  { population: "2022 pilot, all repo", zero: 70, nonZero: 30 },
+  { population: "2025 data, all repo", zero: 56, nonZero: 44 },
+  { population: "2025, excl. affiliates", zero: 42, nonZero: 58 },
+  { population: "2025, hedge-fund repo", zero: 65, nonZero: 35 }
+];
+
+/* ============================== CHART PROMPTS ============================== */
+
+const CHART_PROMPTS = {
+  chart1: [
+    { kind: "mechanism", label: "Qualitative / mechanism",
+      prompt: "Two bands — the cash-futures basis trade and swap spread arbitrage — went from almost invisible in 2017 to the largest single block by 2025, while 'unencumbered cash' barely moved. What does that contrast tell you about what changed in hedge funds' business, as opposed to what changed in the size of their balance sheets?",
+      authored: "The flat cash band is the control group. Liquidity buffers scale with fund size, so a band that stays near $200 billion for twelve years says fund size did not explode. What exploded is a specific activity: two leveraged relative-value strategies whose profitability depends on a persistent price gap between cash bonds and derivatives. The shift is compositional, not simply a bigger industry doing more of everything — which means it can be reversed by the price gap closing, not only by funds shrinking." },
+    { kind: "quant", label: "Quantitative reasoning",
+      prompt: "Estimate the combined share of long Treasury exposure held in the two leveraged arbitrage strategies (basis plus swap spread) in December 2017 versus March 2025, and say what the change in that share implies about concentration of a single risk factor.",
+      authored: "Dec 2017: (46 + 18) / 740 is about 9%. Mar 2025: (725 + 295) / 2,278 is about 45%. The share roughly quintupled. The implication is not that hedge funds hold more Treasuries — it is that nearly half their Treasury book now depends on one shared assumption: that repo funding stays cheap and available. In 2017 a repo shock would have hit under a tenth of the book; today it hits close to half, which is a correlation problem, not a size problem." }
+  ],
+  chart2: [
+    { kind: "quant", label: "Quantitative reasoning (predict first)",
+      prompt: "Before computing: guess whether Treasury debt outstanding grew roughly 1.5 times, 2 times, or 3 times as fast as dealers' secured financing to clients between 2012 and July 2024. Then compute the actual ratio from the indexed endpoints and state the gap in index points.",
+      authored: "Debt outstanding grew 176 index points (100 to 276); dealer secured financing grew 43 points (100 to 143). The growth ratio is about 4:1, wider than most people guess. The gap of 133 index points is the space someone else had to fill. Getting this wrong in the direction of 'about 2x' is the common error, and it matters because it understates how much intermediation had to migrate out of the regulated dealer sector." },
+    { kind: "sowhat", label: "So-what / decision implication",
+      prompt: "You advise the Treasury Borrowing Advisory Committee on how much new debt the market can absorb without disruption. What should this divergence change about the question you ask?",
+      authored: "Stop asking whether dealers can absorb the next auction and start asking who the marginal buyer is and how they are funded. The debt supply curve is now met partly by investors whose capacity is a function of overnight repo availability rather than of regulatory capital. That means absorption capacity is real but state-contingent: it is ample when funding markets are calm and can vanish in days when they are not, which is a completely different planning assumption from a dealer balance sheet that shrinks slowly." }
+  ],
+  chart3: [
+    { kind: "causal", label: "Causal / comparative",
+      prompt: "The trade collapsed from about $429bn in February 2020 to $59bn by March 2022, then rebuilt to roughly double its old peak. Why did the recovery take almost three years to start, and why did it then overshoot the old peak rather than stopping there?",
+      authored: "The two legs have different clocks. The 2020-22 flatline was not caution: it was the absence of a profit opportunity. With the Federal Reserve buying bonds and short rates at zero, the cash-futures gap the trade harvests had largely closed, so there was nothing to arbitrage. The rebuild from 2023 tracks the reversal of both conditions — quantitative tightening put bonds back on private balance sheets and asset managers' demand for long futures reopened the gap. The overshoot follows from supply: the amount of Treasury debt needing a private holder in 2025 is far larger than in 2019, so the same mechanism operating on a bigger market produces a bigger trade. Risk appetite is a weak explanation; relative price and issuance volume are the strong ones." },
+    { kind: "sowhat", label: "So-what / decision implication",
+      prompt: "You run risk at a clearing bank that finances basis traders. Given this shape, what should you monitor that a simple 'position size' limit would miss?",
+      authored: "Monitor the profit spread, not the position. The chart shows the trade grows when the spread is wide and disappears when it is not, so position size is a lagging read on an incentive that has already changed. The forward-looking indicators are the option-adjusted basis net of carry, repo rate volatility around quarter-ends, and futures initial margin, because each of those changes before the position does. A size cap set at last quarter's level will bind hardest at exactly the moment the trade is least profitable and most likely to unwind on its own." }
+  ],
+  chart4: [
+    { kind: "quant", label: "Quantitative reasoning",
+      prompt: "Compute the share of the total $820bn increase contributed by the two leveraged relative-value strategies (basis plus swap spread) versus the two directional buckets that shrank. What does the mix of contributions say about the character of the growth?",
+      authored: "Basis plus swap spread contributed 296 + 205 = $501bn of the $820bn net increase, about 61%. The two buckets that shrank, flattener-like and long-only, subtracted 75 + 57 = $132bn. So the growth was not hedge funds taking a bigger view on interest rates; it was hedge funds taking a bigger position on the price gap between nearly identical instruments while trimming outright directional bets. That distinction matters because relative-value positions look low-risk on a value-at-risk screen and only become dangerous through leverage and funding, which value-at-risk does not capture well." },
+    { kind: "mechanism", label: "Qualitative / mechanism",
+      prompt: "Maturity-matched trades added $358bn — more than the basis trade itself — yet get far less regulatory attention. Why might that bucket be under-discussed relative to its size?",
+      authored: "Attention follows the March 2020 narrative rather than current exposure. The basis trade earned its label because it visibly unwound during a documented crisis, so it became the named risk. Maturity-matched positions such as on-the-run versus off-the-run arbitrage share the same funding structure and the same flight-to-quality vulnerability, but have no equivalent headline episode attached. The lesson is that a risk register built from past incidents systematically under-weights exposures that have grown quietly and never yet broken." }
+  ],
+  chart5: [
+    { kind: "quant", label: "Quantitative reasoning",
+      prompt: "Compute the ratio between the highest and lowest published estimate. Then say what a disagreement of that size means for anyone writing a rule whose threshold is stated in dollars.",
+      authored: "$1,500bn divided by $350bn is about 4.3 times. A rule that says 'positions above $X trillion trigger enhanced reporting' would be triggered or not triggered depending purely on which research team's methodology the supervisor adopted. The disagreement is not sloppiness: each estimate answers a slightly different question about which offsetting positions count as one trade. The practical consequence is that quantity-based thresholds are fragile here, and rules keyed to observable behaviour — funding tenor, haircut, margin — are more robust than rules keyed to an estimated notional." },
+    { kind: "causal", label: "Causal / comparative",
+      prompt: "The Federal Reserve estimate ($830bn, Sept 2025) and the BIS estimate ($1,060bn, Q2 2025) are both built from the same underlying regulatory filings. Why can two careful teams reading the same data differ by a quarter?",
+      authored: "Because the data reports positions, not intentions. Neither filing has a field labelled 'this is a basis trade'. The Federal Reserve infers the trade from a combination of long cash holdings, short futures and repo borrowing at the fund level; the BIS infers it by matching aggregate short futures notional against long cash exposure. Not every short futures position is one leg of a basis trade — some hedge other positions or express curve views — so the BIS approach mechanically catches more. The gap is a definitional choice, not a measurement error, which is why it does not shrink when the data improve." }
+  ],
+  chart6: [
+    { kind: "causal", label: "Causal / comparative",
+      prompt: "The widely quoted '70% of repo has zero haircut' figure and the newer 42% figure are both correct. Explain what changed between them, and which one belongs in a sentence about hedge fund leverage.",
+      authored: "Nothing about the market changed; the population being counted did. The 2022 figure came from a pilot survey that could not separate transactions between affiliated entities of the same firm — internal bookkeeping trades that create no external leverage. Strip those out and the share falls to 42%. But the relevant number for a sentence about hedge fund leverage is neither: it is the 65% of hedge fund repo done at zero haircut, because that is the population actually borrowing. Quoting 70% overstates system-wide risk; quoting 42% understates the leverage available to the specific borrowers this article is about." },
+    { kind: "sowhat", label: "So-what / decision implication",
+      prompt: "A zero haircut means the borrower posts collateral exactly equal to the cash borrowed. What should a supervisor conclude about where the binding constraint on this trade actually sits?",
+      authored: "Not with the repo lender. If the haircut is zero, repo imposes no leverage limit at all, so the effective ceiling comes from somewhere else: futures exchange initial margin, the fund's own risk limits, and the prime broker's internal credit appetite. That relocates the supervisory question from 'is repo lending prudent' to 'who sets futures margin and how fast can they raise it' — and the answer, a clearing house reacting to realised volatility, is procyclical by construction, tightening hardest exactly when the trade is already under stress." }
+  ]
+};
+
+/* ============================== QUESTIONS ============================== */
+
+const WARMUP_QUESTIONS = [
+  { id: "wu1", type: "B",
+    prompt: "A city bans restaurants from adding a percentage-based service charge to bills, on the grounds that the charge gave restaurants a reason to inflate menu prices. Delivery apps, however, continue to calculate their customer fee as a percentage of the same menu price. A council member declares the affordability problem solved. Applying the same reasoning this series used to evaluate a reform aimed at drug-pricing middlemen, what is the strongest objection?",
+    options: [
+      { text: "The ban is unenforceable because restaurants can rename the service charge.", correct: false, misconception: "an evasion or compliance worry, which is real but sidesteps the structural point that a second, untouched actor still prices off the same number" },
+      { text: "Service charges were never large enough to affect menu prices in the first place.", correct: false, misconception: "denying the premise instead of testing whether the fix reaches the mechanism that actually hits the customer" },
+      { text: "The ban removes one intermediary's reason to prefer a higher menu price, but the customer's own bill is still computed as a percentage of that same menu price through a different actor — so the mechanism harming the payer is untouched.", correct: true, misconception: "" },
+      { text: "Delivery apps will simply exit the city, reducing consumer choice.", correct: false, misconception: "a second-order market-structure prediction offered in place of an analysis of the pricing mechanism itself" }
+    ],
+    principle: "Removing one actor's incentive to prefer a higher headline price does not fix a different actor's mechanism that still runs off that same headline price — check whether the fix reaches the specific channel that touches the end payer.",
+    transfer: "The same test applies to any reform that regulates an intermediary's compensation while leaving the customer-facing calculation formula untouched." },
+  { id: "wu2", type: "B",
+    prompt: "A hospital network cancels contracts with the independent ambulance company that had been bringing it emergency patients, expecting to capture that revenue through its own transport fleet. Instead, total emergency admissions fall, because the independent company had been serving outlying areas the network's fleet does not cover. Applying a principle from a recent installment of this series, what does this best illustrate?",
+    options: [
+      { text: "The two providers were complements, not substitutes: the 'competing' operator was generating demand, not merely capturing a fixed pool of it, so removing it removed volume rather than freeing it up.", correct: true, misconception: "" },
+      { text: "The hospital simply mispriced its own transport service relative to the independent operator.", correct: false, misconception: "reaching for a pricing explanation when the described mechanism is about geographic reach and demand generation" },
+      { text: "Emergency admissions always fall after any change to transport arrangements.", correct: false, misconception: "overgeneralising a single case into a universal rule rather than identifying the specific relationship at work" },
+      { text: "The independent operator must have been diverting patients to a rival network.", correct: false, misconception: "inventing a competitive-diversion story that the evidence given does not support" }
+    ],
+    principle: "Before assuming that removing a competing input will benefit the remaining users, establish whether the two inputs are substitutes or complements — complements carry demand with them when they leave.",
+    transfer: "Applies wherever an incumbent proposes to absorb a partner's volume: check first whether the partner was serving demand the incumbent cannot reach at all." },
+  { id: "wu3", type: "E",
+    prompt: "A national retailer reports that same-store sales are flat, so its board concludes there is no problem. An analyst notes that stores in towns with a new competitor saw sales fall 14%, while all other stores grew 3%. The competitor-exposed stores are 18% of the estate. Using the reasoning pattern this series applied to a subgroup-versus-aggregate employment puzzle, which response is best supported?",
+    options: [
+      { text: "The flat aggregate proves the competitor effect is not real, since a genuine effect would move the total.", correct: false, misconception: "aggregate-calm-as-proof: treating a flat total as evidence against a subgroup effect, without checking whether the subgroup is large enough to move the total" },
+      { text: "The 14% decline and the 3% growth cannot be compared because one is a decline and one is growth.", correct: false, misconception: "a false symmetry objection; both are percent changes in the same unit and are directly comparable" },
+      { text: "The board should extrapolate the 14% decline across the whole estate, since competitors will eventually enter every town.", correct: false, misconception: "extrapolating a narrow, currently-concentrated effect to the full population without evidence that entry is uniform or imminent" },
+      { text: "The subgroup effect is real and arithmetically consistent with a flat aggregate — 18% of stores falling 14% subtracts about 2.5 points, roughly offsetting 82% of stores growing 3% — so the board's question should be how fast competitor exposure spreads, not whether the effect exists.", correct: true, misconception: "" }
+    ],
+    principle: "When a subgroup statistic and an aggregate disagree, check whether the subgroup is large enough to move the aggregate before treating the aggregate's calm as disproof — and reframe the decision around the rate of spread, not the existence of the effect.",
+    transfer: "Same arithmetic discipline as reading a narrow, concentrated labour-market shock hidden inside a healthy national unemployment rate." }
+];
+
+const INTRO_QUESTIONS = [
+  { id: "intro-c", type: "C", cardClass: "case-card",
+    prompt: "Case Prompt. Meridian Public Pension, a fictional $60bn US state fund, is deciding whether to sign a policy statement urging regulators to force hedge funds out of the Treasury cash-futures basis trade. The fund's investment committee likes the simplicity: less hidden leverage, safer market. Its chief investment officer asks what the fund itself would lose if the campaign succeeded. Which answer best integrates the structural facts in the introduction?",
+    options: [
+      { text: "Nothing material — the fund holds Treasuries outright and does not use futures, so the trade is irrelevant to it.", correct: false, misconception: "treating the fund as isolated from market structure, when its own execution costs depend on who is willing to hold the other side of a trade" },
+      { text: "The fund is on the other side of this trade in practice: asset managers hold roughly $1.7 trillion of long Treasury futures because futures are a cheaper way to hold duration, and hedge funds are the counterparty absorbing that demand. Pushing them out would raise the cost of the futures exposure the fund and its managers rely on, and would remove a buyer for the $28.9 trillion of marketable debt that dealers have not expanded enough to hold.", correct: true, misconception: "" },
+      { text: "The fund would lose access to the arbitrage profit itself, since pensions earn the basis directly.", correct: false, misconception: "confusing the two sides of the trade; the pension buys the futures exposure, it does not harvest the basis" },
+      { text: "The fund would face higher fees from its external managers, which is the main cost of any regulatory change.", correct: false, misconception: "substituting a generic fee-inflation worry for the specific market-structure dependency at issue" }
+    ],
+    principle: "Before campaigning to remove a market participant, identify who currently sits on the other side of their trades — the participant you dislike may be supplying a service you are buying without noticing.",
+    transfer: "Applies to any call to ban a class of intermediary: map the flows first, because the loudest critic is often the counterparty who benefits from the arrangement." }
+];
+
+const BACKGROUND_QUESTIONS = [
+  { id: "bg-b", type: "B", tiedChart: "the slope chart above",
+    prompt: "Between 2012 and July 2024, Treasury debt outstanding grew 176% while primary dealers' secured financing to clients grew 43%. A commentator concludes: 'Post-crisis capital rules caused hedge funds to take over Treasury intermediation.' The Federal Reserve's own 2024 assessment found that, under normal conditions, minimum Supplementary Leverage Ratio requirements would not have limited dealers' intermediation, and that dealers had headroom to expand Treasury intermediation substantially. What does the combination of these two findings most support?",
+    options: [
+      { text: "The commentator is right: a 133-index-point gap can only be produced by a binding regulatory constraint.", correct: false, misconception: "treating a large observed gap as self-evidently caused by the most-discussed candidate, without testing whether that candidate was actually binding" },
+      { text: "Regulatory capital is one plausible channel but was not demonstrably binding on average, so the gap is better explained by a combination of dealer risk appetite, internal desk limits, and the sheer scale of issuance — and attributing it to one rule overstates how much a rule change alone would reverse it.", correct: true, misconception: "" },
+      { text: "The Federal Reserve finding disproves any role for regulation, so the 2025 leverage-ratio recalibration was unnecessary.", correct: false, misconception: "flipping to the opposite absolute claim; 'not binding on average under normal conditions' is not the same as 'never relevant', particularly in stress" },
+      { text: "The two findings contradict each other, so neither can be used.", correct: false, misconception: "abandoning inference when two sources describe different aspects of a system, rather than reconciling scope and conditions" }
+    ],
+    principle: "A large gap between two series is a description, not an explanation — before naming a cause, check whether the proposed constraint was actually binding, and treat 'not binding on average, under normal conditions' as a scoped finding rather than a blanket acquittal.",
+    transfer: "Same discipline as attributing a hiring slowdown to one regulation when several forces move together: identify whether the named constraint was measurably active before crediting it." }
+];
+
+const RQ1_QUESTIONS = [
+  { id: "rq1-b", type: "B", tiedChart: "the basis-trade trajectory chart above",
+    prompt: "Treasury market turnover and the size of the basis trade both roughly doubled between early 2023 and September 2025. A note to clients concludes: 'The basis trade caused the improvement in Treasury market liquidity.' Which is the strongest reason not to accept that causal claim as stated?",
+    options: [
+      { text: "Both series respond to a common third driver — the surge in Treasury issuance and the start of quantitative tightening put far more bonds into private hands, which mechanically raises turnover and simultaneously widens the cash-versus-futures gap the trade harvests — so the co-movement is consistent with a shared cause rather than one series driving the other.", correct: true, misconception: "" },
+      { text: "Turnover and position size are measured in different units, so no causal comparison is possible.", correct: false, misconception: "a units objection that does not apply; different units do not prevent causal reasoning, only naive ratio-taking" },
+      { text: "Correlation never implies causation under any circumstances.", correct: false, misconception: "reciting a slogan instead of naming the specific confounder or reverse-causation path that would break this inference" },
+      { text: "Liquidity cannot be measured, so the claim is untestable.", correct: false, misconception: "declaring the outcome unmeasurable when turnover, bid-ask spreads and market depth are all standard, observable liquidity proxies" }
+    ],
+    principle: "When two series move together, name the specific third factor that could drive both, or the specific path by which the arrow could run backwards — a general warning about correlation is not an argument.",
+    transfer: "The same identification test applies to claims that a new trading venue 'caused' tighter spreads during a period when overall issuance and volatility also shifted." },
+  { id: "rq1-c", type: "C", cardClass: "case-card", tiedChart: null,
+    prompt: "Case Prompt. Aldergate Capital, a fictional $9bn relative-value fund, is presenting to a prospective investor. Its pitch: 'Our Treasury basis book is the safest thing we run — we are long a bond and short a future on the same bond, so our directional exposure is close to zero.' The investor's consultant must decide whether that characterisation is honest. Which assessment is best supported by this section's evidence?",
+    options: [
+      { text: "The pitch is accurate; offsetting long and short positions in the same underlying instrument eliminate the risk that matters.", correct: false, misconception: "equating hedged market direction with low total risk, ignoring that the residual gap is harvested only through very large leverage" },
+      { text: "The pitch is dishonest, because the two legs are not actually the same instrument and the fund is really taking a directional view.", correct: false, misconception: "overcorrecting into an accusation the evidence does not support; the hedge is genuine, and the problem lies elsewhere" },
+      { text: "The pitch is technically true and materially incomplete: the directional exposure is small precisely because the profit per unit is small, which is why the position must be scaled with repo borrowing at low or zero haircuts and futures margin. The real exposures are funding renewal and margin calls, not the direction of interest rates — and those are exactly the exposures that produced the February-to-April 2020 collapse visible in the chart.", correct: true, misconception: "" },
+      { text: "The pitch is unverifiable because hedge funds do not report their positions to anyone.", correct: false, misconception: "asserting an information vacuum that does not exist; large funds file Form PF, which is precisely what the estimates in this article are built from" }
+    ],
+    principle: "A hedged position is not a low-risk position when the hedge shrinks the return so much that leverage becomes mandatory — always ask what the trade must borrow in order to be worth doing at all.",
+    transfer: "Applies to any 'market-neutral' strategy pitch: convert the stated gross return into the leverage required to reach it, then price the funding risk that leverage creates." }
+];
+
+const RQ2_QUESTIONS = [
+  { id: "rq2-b", type: "B", tiedChart: "the estimate-range chart above",
+    prompt: "A financial-stability memo states that 'the Treasury basis trade stands at $830 billion.' Reading that alongside the range of published estimates, which named statistical trap does the memo's phrasing most directly commit?",
+    options: [
+      { text: "Base-rate neglect, because the memo does not state how often basis trades unwind disorderly.", correct: false, misconception: "naming a real trap that does not fit; the flaw here concerns the precision and definition of a single quantity, not a conditional probability lacking its base rate" },
+      { text: "Simpson's paradox, because aggregating across fund sizes reverses the direction of the trend.", correct: false, misconception: "invoking a reversal-on-disaggregation phenomenon that the evidence here does not show" },
+      { text: "Confusing a stock with a flow, because $830 billion is an annual turnover figure.", correct: false, misconception: "misreading the quantity; $830 billion is a position outstanding at a point in time, which is a stock" },
+      { text: "Spurious precision: a definition-dependent estimate that credible teams put anywhere between roughly $350 billion and $1.5 trillion is reported as a single settled figure, which hides that the number encodes a methodological choice about which offsetting positions count as one trade.", correct: true, misconception: "" }
+    ],
+    principle: "Match the precision of a reported figure to the precision the method supports — when the plausible range spans a factor of four, a single point estimate quoted without its range implies a measurement that was never made.",
+    transfer: "The same discipline applies to any headline market-size number built by inference from filings rather than by direct observation: report the range, then say which end your argument depends on." }
+];
+
+const RQ3_QUESTIONS = [
+  { id: "rq3-b", type: "B", tiedChart: "the haircut-composition chart above",
+    prompt: "The share of non-centrally cleared bilateral repo done at a zero haircut is reported as 70% (2022 pilot), 56% (2025 collection), 42% (2025, excluding trades between affiliated entities) and 65% (2025, hedge fund counterparties only). An advocacy paper cites the 42% figure to argue that leverage in this market is modest. What is the strongest objection?",
+    options: [
+      { text: "The 42% figure is simply wrong and the 70% pilot number should be preferred, since it came first.", correct: false, misconception: "preferring the older, cruder measurement over the better-instrumented one purely on grounds of familiarity" },
+      { text: "The 42% figure is computed over the wrong population for the claim being made: it deliberately strips out affiliated-entity trades to describe the whole market, but the argument is about leverage available to leveraged borrowers, whose own zero-haircut share is 65% — the number changes because the denominator changed, not because the market did.", correct: true, misconception: "" },
+      { text: "Percentages of repo outstanding cannot be used to discuss leverage at all.", correct: false, misconception: "dismissing a valid indicator rather than identifying which population it should be measured over" },
+      { text: "The 2025 data cover only five months, so the sample is too small to interpret.", correct: false, misconception: "a sample-size objection that misses the actual flaw; the post reports the distribution as stable across the period, including through April's volatility" }
+    ],
+    principle: "A share is only as meaningful as the population it is computed over — when the same underlying data yields 42% and 65%, ask which denominator matches the claim before quoting either.",
+    transfer: "Same check as evaluating any 'industry average' cited to describe the behaviour of a specific, unrepresentative subgroup within it." },
+  { id: "rq3-c", type: "C", cardClass: "case-card", tiedChart: null,
+    prompt: "Case Prompt. The fictional Office of Market Structure Policy must brief a legislator who wants to announce that the SEC's Treasury clearing mandate — phasing in on 31 December 2026 for cash trades and 30 June 2027 for repo — has 'solved' the hidden-leverage problem. Which is the single load-bearing assumption behind that announcement, and where is this article's evidence thinnest in supporting it?",
+    options: [
+      { text: "The assumption is that mandatory central clearing raises the all-in cost of running the trade enough to shrink it. The evidence is thinnest here because clearing also delivers balance-sheet netting benefits that can make the trade cheaper to finance, and no published estimate in this article establishes which effect dominates — the mandate reliably changes where counterparty risk sits, not how much leverage exists.", correct: true, misconception: "" },
+      { text: "The assumption is that hedge funds will comply with the rule. The evidence is thin because enforcement resources are unspecified.", correct: false, misconception: "treating a compliance-capacity worry as the structural assumption, when the substantive uncertainty is about the rule's economic effect on trade size" },
+      { text: "The assumption is that Treasury debt outstanding will stop growing. The evidence is thin because fiscal projections are uncertain.", correct: false, misconception: "identifying a genuine but exogenous driver rather than the assumption the clearing policy itself rests on" },
+      { text: "The assumption is that the December 2026 and June 2027 dates will not be extended again. The evidence is thin because the SEC has already extended once.", correct: false, misconception: "raising a real implementation-timing risk, which delays the test rather than determining whether the policy would work when it arrives" }
+    ],
+    principle: "Identify the one claim that, if false, collapses the recommendation — and distinguish it from timing, compliance and exogenous risks that would merely delay or complicate the same conclusion.",
+    transfer: "Applies to any infrastructure mandate sold as a risk reduction: separate 'this changes who bears the risk' from 'this reduces the amount of risk', and demand separate evidence for each." }
+];
+
+const CONCLUSION_QUESTION = { id: "concl-e", type: "E", tiedChart: null,
+  prompt: "This note argues that the basis trade's liquidity contribution and its stability risk are two consequences of one mechanism — leveraged investors filling intermediation capacity that regulated dealers did not expand — so the trade cannot be shrunk without also shrinking the absorption capacity it supplies. Which decision does that argument most directly support, and what single observation would most cleanly falsify it?",
+  options: [
+    { text: "Ban leveraged relative-value funds from Treasury futures entirely; falsified if Treasury auctions still clear afterwards.", correct: false, misconception: "proposing the maximal intervention the argument specifically warns against, and pairing it with a falsification test that could not run until after the irreversible step was taken" },
+    { text: "Do nothing, since markets have absorbed record issuance so far; falsified only by an actual crisis.", correct: false, misconception: "treating the absence of a failure during a one-directional expansion as evidence of resilience, and setting a falsification bar that can only be met by the outcome the policy exists to prevent" },
+    { text: "Target the fragility rather than the position — lengthen funding tenor, set floors under repo haircuts and make futures margin less procyclical — while separately expanding dealer balance-sheet capacity so the absorption does not have to be withdrawn. This would be falsified by a sustained episode in which dealer Treasury intermediation expands materially while the basis trade shrinks and market depth is unimpaired, which would show the two are separable after all.", correct: true, misconception: "" },
+    { text: "Have the Federal Reserve commit in advance to buying Treasuries in any stress episode; falsified if it is never needed.", correct: false, misconception: "substituting a backstop for the structural question, and inviting the moral hazard that would make the leverage this article describes cheaper rather than safer" }
+  ],
+  principle: "When a benefit and a risk are two effects of a single mechanism, the useful policy question is which specific fragility can be reduced without removing the mechanism — and the honest thesis names the observation that would show they were separable all along.",
+  transfer: "Applies wherever a system depends on a participant everyone distrusts: state in advance what evidence would prove the dependency is not real, then look for it." };
+
+const NUMERIC_QUESTIONS = [
+  { id: "bg-d", type: "D", toleranceType: "tight", tolerancePct: 25, target: 20, unit: "%", requiresPath: false,
+    prompt: "Hedge funds' cash Treasury holdings reached $2.0 trillion at year-end 2025, nearly three times the level five years earlier, while total marketable Treasury debt outstanding rose 29% to $28.9 trillion over the same five years (OFR, 2026). Estimate hedge funds' share of the total increase in marketable Treasury debt over those five years. Use the decomposition skeleton: (a) back out each starting level, (b) take each increase, (c) divide. Enter a number, for example 12 for 12%.",
+    decomposition: "Step 1, hedge funds: $2.0tn now, and 'nearly three times' five years earlier implies a starting level of about 2.0 / 2.9, or roughly $0.7tn. Increase is about $1.3tn. Step 2, total debt: $28.9tn now, up 29%, implies a starting level of 28.9 / 1.29, or about $22.4tn. Increase is about $6.5tn. Step 3: $1.3tn / $6.5tn is about 20%. Lower bound if 'nearly three times' means exactly 3.0x: 1.33 / 6.5, about 21%. Upper bound if it means 2.7x: 1.26 / 6.5, about 19%. The answer is robust at roughly one fifth. The check on this: hedge funds' share of the whole market went from about 3% to 7%, so absorbing a fifth of the increase is exactly what a share rising that fast requires.",
+    tolNote: "Tolerance: within 25% of the target (roughly 15% to 25%). Justification: this is arithmetic from two published anchors, not a Fermi estimate, so the band only needs to absorb the imprecision of the word 'nearly'." },
+  { id: "rq2-d", type: "D", toleranceType: "fermi", acceptLow: 1.5, acceptHigh: 6, target: 3, unit: "$ billion per year", requiresPath: true,
+    prompt: "Estimate the total gross annual profit, in billions of dollars, that the entire cash-futures basis trade generates for all hedge funds combined. Anchors you may use: the trade stood at roughly $830 billion in September 2025; Treasury futures contracts roll four times a year; and the OFR's measure of the profit available at each roll (the option-adjusted basis net of carry) ran at roughly 13 basis points for the 10-year contract and 19 basis points for the 30-year contract in the third quarter of 2025, with several other contracts near zero. Name your decomposition path in the box before entering a number.",
+    decomposition: "Path: position size x spread captured per roll x rolls per year. Take $830bn as the notional. A weighted average captured spread across contracts of roughly 8 basis points per roll is reasonable, since the deepest spreads (13 to 19 bp) sit on two contracts while others are near zero. Four rolls a year gives about 32 basis points, or 0.32% a year. 0.32% x $830bn is about $2.7bn, so roughly $3 billion. Lower bound at 5 bp per roll: 0.20% x $830bn, about $1.7bn. Upper bound at 15 bp per roll: 0.60% x $830bn, about $5.0bn. Why this matters more than the dollar figure: $3bn on $830bn is a return of about 0.36% on the position. No fund can charge a performance fee on that, which is precisely why the trade only exists at 20-to-1 leverage or more — the thinness of the profit is not a detail of the trade, it is the reason the leverage is structural rather than optional.",
+    tolNote: "Tolerance: accepted between $1.5bn and $6bn, roughly within a factor of two of the $3bn point estimate, scored symmetrically so that 2x and 0.5x count equally. Justification: this is a genuine Fermi estimate built from a spread assumption that is itself uncertain and model-dependent, so an order-of-magnitude band is the only honest scoring rule." }
+];
+
+const AUTHORED_INSIGHTS = [
+  "The basis trade did not survive the March 2020 warning shot despite regulation; it grew because the underlying job it does grew. Treasury debt outstanding rose 176% between 2012 and July 2024 while primary dealers' secured financing to clients rose 43% (Federal Reserve, 2024). Someone had to hold the difference, and the entity that stepped in was not capital-constrained. Shrinking the trade without expanding an alternative buyer does not remove the absorption problem, it relocates it.",
+  "Size is the wrong risk metric here, and the evidence for that is that careful teams reading the same regulatory filings put the trade anywhere between roughly $350 billion and $1.5 trillion — a factor of 4.3 (OFR, 2026). What is measurable and decision-relevant is the fragility: 65% of hedge fund repo is done at a zero haircut (OFR, 2025), funding is overnight by choice because it is cheaper, and about 90% of these exposures sit with the top 50 funds (Federal Reserve, 2026). Concentration plus funding tenor plus zero haircuts describes the risk better than any notional figure.",
+  "Central clearing, phasing in on 31 December 2026 for cash trades and 30 June 2027 for repo (SEC, 2025), changes who bears counterparty risk and makes the exposure visible. It does not by itself change how much leverage exists, and its netting benefits could make the trade cheaper to run. A reform that improves measurement is genuinely valuable and is still not the same thing as a reform that reduces the quantity being measured."
+];
+
+const GLOSSARIES = {
+  warmup: [
+    { term: "Substitutes and complements", def: "Two inputs are substitutes if using more of one means using less of the other, and complements if more of one raises demand for the other." },
+    { term: "Aggregate versus subgroup", def: "An aggregate is a total across a whole population; a subgroup figure covers one slice, and a small slice can move a lot without moving the total." }
+  ],
+  intro: [
+    { term: "US Treasury security", def: "A bond or note issued by the US government to borrow money; the market for them is the largest and most widely used government bond market in the world." },
+    { term: "Treasury futures contract", def: "An exchange-traded agreement to buy or sell a Treasury security at a set price on a future date, used by investors who want interest-rate exposure without holding the bond itself." },
+    { term: "Cash-futures basis trade", def: "Buying a Treasury security while selling a futures contract on it, to earn the small price difference between the two." },
+    { term: "Repurchase agreement (repo)", def: "A short-term loan in which a borrower sells a security and agrees to buy it back the next day at a slightly higher price; in practice it is borrowing cash against bonds as collateral." },
+    { term: "Leverage", def: "Using borrowed money so that a small amount of a fund's own capital controls a much larger position." },
+    { term: "Basis point", def: "One hundredth of a percentage point, so 100 basis points equals 1%." },
+    { term: "Hedge fund", def: "A private investment fund, open to institutions and wealthy individuals, that faces far fewer restrictions on borrowing and short selling than a mutual fund." },
+    { term: "Primary dealer", def: "A bank or broker officially designated to trade directly with the Federal Reserve and to bid at Treasury auctions." }
+  ],
+  background: [
+    { term: "SEC Form PF", def: "A confidential report large private funds must file with the US Securities and Exchange Commission describing their positions, borrowing and exposures." },
+    { term: "Supplementary Leverage Ratio (SLR)", def: "A bank capital rule requiring capital against total assets regardless of how risky those assets are, which makes holding large amounts of low-risk Treasuries expensive for a bank." },
+    { term: "System Open Market Account (SOMA)", def: "The portfolio of securities the Federal Reserve holds itself; excluding it shows how much debt the private market must absorb." },
+    { term: "Marketable Treasury debt", def: "The portion of US government debt that can be freely bought and sold in public markets." },
+    { term: "Quantitative tightening", def: "The process of a central bank shrinking its own bond holdings, which pushes those bonds back onto private balance sheets." },
+    { term: "Swap spread arbitrage", def: "A trade that holds Treasury bonds while agreeing to pay a fixed interest rate in a separate contract, profiting when the bond yields more than the fixed rate paid." },
+    { term: "Interest rate swap", def: "A contract in which two parties exchange interest payments, typically one fixed and one floating, on an agreed notional amount." },
+    { term: "Relative value strategy", def: "A strategy that bets on the price gap between two closely related instruments rather than on the market's overall direction." }
+  ],
+  rq1: [
+    { term: "Cheapest to deliver", def: "The specific bond that costs a futures seller the least to hand over at settlement, out of a basket of eligible bonds." },
+    { term: "Conversion factor", def: "A published multiplier that makes bonds of different coupons and maturities comparable for delivery into the same futures contract." },
+    { term: "Roll", def: "The period when holders move a futures position from an expiring contract into the next one." },
+    { term: "First Notice Day", def: "The first day a futures seller may formally notify the buyer of an intention to deliver the underlying bond." },
+    { term: "Initial margin", def: "Collateral an exchange requires up front from a futures position holder, which can be increased when volatility rises." },
+    { term: "Turnover", def: "The total value traded over a period, distinct from the value of positions held at a point in time." }
+  ],
+  rq2: [
+    { term: "Haircut", def: "Extra collateral a lender demands above the cash lent, so a zero haircut means the borrower pledges exactly what it borrows." },
+    { term: "Gross notional leverage", def: "The total face value of a fund's positions divided by its own capital." },
+    { term: "Net asset value (NAV)", def: "A fund's own capital: what its assets are worth after subtracting what it owes." },
+    { term: "On-the-run versus off-the-run", def: "The most recently issued bond of a given maturity versus older bonds of similar maturity, which usually trade slightly cheaper." },
+    { term: "Treasury International Capital (TIC) data", def: "The official US statistics on cross-border holdings of securities, compiled from reports by US financial institutions." },
+    { term: "Stock versus flow", def: "A stock is an amount held at a point in time; a flow is an amount moving over a period." }
+  ],
+  rq3: [
+    { term: "Central clearing", def: "Routing trades through a single institution that stands between buyer and seller, so each side faces the clearing house rather than each other." },
+    { term: "Covered clearing agency", def: "The regulated entity that performs central clearing; for US Treasuries this is principally the Fixed Income Clearing Corporation (FICC)." },
+    { term: "Netting", def: "Offsetting opposite obligations so only the difference has to be settled or funded, which reduces the balance sheet needed to support the same activity." },
+    { term: "Sponsored repo", def: "An arrangement in which a bank sponsors a client's access to centrally cleared repo, letting the client borrow inside the clearing house." },
+    { term: "Enhanced Supplementary Leverage Ratio (eSLR)", def: "The stricter version of the leverage capital rule applied to the largest US banks, recalibrated by a final rule effective 1 April 2026." },
+    { term: "Procyclical", def: "Getting tighter in bad times and looser in good times, so the rule amplifies the cycle instead of dampening it." }
+  ],
+  learning: [
+    { term: "Pre-mortem", def: "Imagining in advance that a plan has already failed, and naming the most likely reason, to surface risks before they occur." },
+    { term: "Disconfirming evidence", def: "The observation that would count against your own conclusion, as opposed to evidence that supports it." },
+    { term: "Falsification", def: "Stating in advance what would have to be observed for your claim to be judged wrong." }
+  ]
+};
+
+const SOURCES = [
+  { name: "Phillip J. Monin, \"Decomposing Hedge Funds' U.S. Treasury Exposures,\" FEDS Notes, Board of Governors of the Federal Reserve System, 22 June 2026", url: "https://www.federalreserve.gov/econres/notes/feds-notes/decomposing-hedge-funds-u-s-treasury-exposures-20260622.html", supports: "Cash-futures basis trade at $830bn in September 2025, about 35% of hedge funds' $2.4 trillion long Treasury exposures and roughly double its early-2020 peak; swap spread arbitrage $305bn (13%); maturity-matched trades $395bn; short futures positions; about $60bn of swap spread positions unwound in April 2025 and a further $40bn in May; roughly 90% of these exposures concentrated among the top 50 funds; gross exposures, repo borrowing and turnover all more than doubled since the start of 2023; low or zero repo haircuts and low futures margin as the source of leverage." },
+  { name: "Federal Reserve Board, \"Decomposing Hedge Funds' U.S. Treasury Exposures, Accessible Data\" (Figures 1-3 underlying series)", url: "https://www.federalreserve.gov/econres/notes/feds-notes/decomposing-hedge-funds-u-s-treasury-exposures-accessible-20260622.htm", supports: "Monthly SEC Form PF series January 2013 to September 2025 for long and short Treasury exposures, repo cash and securities borrowing, market turnover, and the seven-way decomposition of long exposure by estimated use that underlies Charts 1, 3 and 4." },
+  { name: "Ted Berg and Daniel Stemp, \"Hedge Funds' Cash Treasury Holdings Reach $2 Trillion,\" The OFR Blog, Office of Financial Research, 19 August 2026", url: "https://www.financialresearch.gov/the-ofr-blog/2026/08/19/hedge-funds-cash-treasury-holdings/", supports: "Hedge fund cash Treasury holdings $2.0 trillion at year-end 2025, nearly three times the level five years earlier; marketable Treasury debt outstanding up 29% to $28.9 trillion; hedge funds' record 7% share of the cash Treasury market; short futures positions $1.4 trillion and asset manager long futures near $1.7 trillion; published estimates of the trade ranging from $350bn to $1.5 trillion; option-adjusted basis net of carry by contract during 2025 rolls." },
+  { name: "Vladyslav Sushko and Karamfil Todorov, \"Sizing up hedge funds' relative value trades in US Treasuries and interest rate swaps,\" BIS Quarterly Review, 8 December 2025", url: "https://www.bis.org/publ/qtrpdf/r_qt2512y.htm", supports: "Q2 2025 long UST exposures $2,379bn (about 10% of privately held Treasuries) and short $1,748bn, of which $1,060bn short futures matched by $1,060bn cash — the BIS basis-trade measure; swap trade upper bound $631bn in Q2 2025, up from $281bn in Q1 2024 and down 11% from $707bn in March 2025 after the April turbulence; hedge fund bets on Supplementary Leverage Ratio relief." },
+  { name: "Federal Reserve Board, \"Assessment of Dealer Capacity to Intermediate in Treasury and Agency MBS Markets,\" FEDS Notes, 22 October 2024", url: "https://www.federalreserve.gov/econres/notes/feds-notes/assessment-of-dealer-capacity-to-intermediate-in-treasury-and-agency-mbs-markets-20241022.html", supports: "Treasury securities outstanding excluding SOMA grew from about $8.3 trillion in 2012 to $22.9 trillion in July 2024, a 176% increase, while primary dealers' gross positions rose 80% and secured financing provided to clients rose 43%; finding that minimum SLR requirements would not, under normal conditions, have limited dealer intermediation through end-2024, with substantial headroom to expand." },
+  { name: "Federal Reserve Board, \"The Cross-Border Trail of the Treasury Basis Trade,\" FEDS Notes, 15 October 2025", url: "https://www.federalreserve.gov/econres/notes/feds-notes/the-cross-border-trail-of-the-treasury-basis-trade-20251015.html", supports: "Basis trade positions dominated by Cayman Islands-domiciled hedge funds; official Treasury International Capital data appear to undercount their Treasury holdings by around $1.4 trillion as of end-2024; leveraged funds' short Treasury futures rose sharply from 2018, partly unwound in March 2020, and later surpassed 2019-2020 highs." },
+  { name: "Ashlyn Cenicola, Robert Mann and Mark Paddrik, \"Are Zero-Haircut Repos as Common as Advertised?\" The OFR Blog, Office of Financial Research, 12 August 2025", url: "https://www.financialresearch.gov/the-ofr-blog/2025/08/12/are-zero-haircut-repos-as-common-as-advertised/", supports: "2022 pilot found 70% of non-centrally cleared bilateral repo outstanding at zero haircut; January to May 2025 collection shows 56% zero, 34% positive, 10% negative; excluding affiliated-entity trades reduces the zero-haircut share to 42%; hedge fund repo remains 65% zero-haircut; over 60% of Treasury-collateral repo at zero haircut." },
+  { name: "US Securities and Exchange Commission, \"SEC Extends Compliance Dates and Provides Temporary Exemption for Rule Related to Clearing of U.S. Treasury Securities,\" Press Release 2025-43, 25 February 2025", url: "https://www.sec.gov/newsroom/press-releases/2025-43-sec-extends-compliance-dates-provides-temporary-exemption-rule-related-clearing-us-treasury", supports: "Compliance dates for Rule 17ad-22(e)(18)(iv)(A) and (B) extended by one year to 31 December 2026 for eligible cash market transactions and 30 June 2027 for eligible repo transactions; temporary margin-segregation exemption to 30 September 2025." },
+  { name: "Annette Vissing-Jorgensen, \"The Treasury market in spring 2020 and the response of the Federal Reserve,\" BIS Working Papers No. 966, 19 October 2021", url: "https://www.bis.org/publ/work966.htm", supports: "The 10-year Treasury yield rose 64 basis points between 9 and 18 March 2020 while equities fell; the Federal Reserve purchased $1 trillion of Treasuries in 2020 Q1; purchases rather than announcements reversed the yield spike; selling was driven by liquidity needs of mutual funds, foreign official agencies and hedge funds." },
+  { name: "Federal Reserve Board, Financial Stability Report, May 2026, Section 3: Leverage in the Financial Sector", url: "https://www.federalreserve.gov/publications/2026-may-financial-stability-report-leverage.htm", supports: "Hedge fund leverage remained stable at record-high levels over the period for which comprehensive Form PF data exist, with a decrease in the cash-futures basis trade largely offset by other relative value trades such as swap spread trades; gross notional leverage near all-time highs and concentrated in a small number of large funds." },
+  { name: "Board of Governors of the Federal Reserve System, FDIC and OCC, \"Agencies issue final rule to modify certain regulatory capital standards,\" 25 November 2025", url: "https://www.federalreserve.gov/newsevents/pressreleases/bcreg20251125b.htm", supports: "Final rule recalibrating the enhanced Supplementary Leverage Ratio to reduce disincentives to low-risk activity such as Treasury intermediation; effective 1 April 2026 with early adoption permitted from 1 January 2026; aggregate tier 1 capital requirements for affected holding companies reduced by less than two percent." },
+  { name: "President's Working Group on Financial Markets, \"Hedge Funds, Leverage, and the Lessons of Long-Term Capital Management,\" April 1999", url: "https://home.treasury.gov/system/files/236/hedgfund.pdf", supports: "Long-Term Capital Management held over $125 billion in assets on 31 August 1998 against about $4.8 billion of equity capital at the start of that year, implying balance-sheet leverage above 25 to 1; 14 financial institutions contributed about $3.6 billion on 28 September 1998." },
+  { name: "Bank of England, \"Financial stability buy/sell tools: a gilt market case study,\" Quarterly Bulletin, 2023", url: "https://www.bankofengland.co.uk/quarterly-bulletin/2023/2023/financial-stability-buy-sell-tools-a-gilt-market-case-study", supports: "The Bank of England bought GBP 19.3 billion of gilts between 28 September and 14 October 2022 (GBP 12.1 billion conventional, GBP 7.2 billion index-linked) to restore orderly market conditions after forced selling by liability-driven investment funds, and unwound the holdings between 29 November 2022 and 12 January 2023." }
+];
+
+/* ============================== HELPERS ============================== */
+
+function tightScore(guess, target, tolPct) {
+  if (guess === null || guess === undefined || isNaN(guess)) return false;
+  return Math.abs(guess - target) / target * 100 <= tolPct;
+}
+function fermiScore(guess, lo, hi) {
+  if (guess === null || guess === undefined || isNaN(guess)) return false;
+  return guess >= lo && guess <= hi;
+}
+function axisPct(val, lo, hi) {
+  const clamped = Math.max(lo, Math.min(hi, val));
+  return ((clamped - lo) / (hi - lo)) * 100;
+}
+
+/* ============================== SHARED UI ============================== */
+
+function Glossary({ items }) {
+  if (!items || items.length === 0) return null;
+  return (
+    <div className="glossary-panel">
+      <div className="glossary-label">Glossary</div>
+      <ul>{items.map((g, i) => <li key={"gl-" + i}><strong>{g.term}</strong> — {g.def}</li>)}</ul>
+    </div>
+  );
+}
+
+function ChartMeta({ tier, note }) {
+  const cls = tier === "FACT" ? "tier-fact" : tier === "ESTIMATE" ? "tier-estimate" : "tier-illustration";
+  return (
+    <div className="chart-meta">
+      <span className={"tier-badge " + cls}>{tier}</span>
+      <span>{note}</span>
+    </div>
+  );
+}
+
+function ChartInterpretation({ chartKey, prompts, submitted, values, onSubmit }) {
+  const [drafts, setDrafts] = useState(["", ""]);
+  return (
+    <div className="interp-block">
+      {prompts.map((p, i) => {
+        const isSubmitted = submitted[i];
+        return (
+          <div className="interp-prompt" key={"ip-" + i}>
+            <div className="interp-kind">{p.label}</div>
+            <div className="interp-question">{p.prompt}</div>
+            {!isSubmitted && (
+              <div className="interp-input-row">
+                <textarea
+                  placeholder="Type your answer here (at least 15 characters)..."
+                  value={drafts[i]}
+                  onChange={(e) => { const next = drafts.slice(); next[i] = e.target.value; setDrafts(next); }}
+                />
+                <button className="btn-secondary" disabled={drafts[i].trim().length < 15}
+                  onClick={() => onSubmit(chartKey, i, drafts[i])}>
+                  Submit answer
+                </button>
+              </div>
+            )}
+            {isSubmitted && (
+              <div className="interp-revealed">
+                <span className="tag-you">Your answer</span>
+                <p>{values[i]}</p>
+                <span className="tag-authored">Compare your answer to the authored one</span>
+                <p>{p.authored}</p>
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function ChartCard({ chartKey, title, tier, note, children, interpState, onInterpSubmit }) {
+  const prompts = CHART_PROMPTS[chartKey];
+  return (
+    <div className="chart-card">
+      <div className="chart-title">{title}</div>
+      {children}
+      <ChartMeta tier={tier} note={note} />
+      <ChartInterpretation chartKey={chartKey} prompts={prompts} submitted={interpState.submitted}
+        values={interpState.values} onSubmit={onInterpSubmit} />
+    </div>
+  );
+}
+
+function MultipleChoice({ q, state, onSubmit }) {
+  const [selected, setSelected] = useState(null);
+  const letters = ["A", "B", "C", "D"];
+  const submitted = state && state.submitted;
+  return (
+    <div className={"question-card " + (q.cardClass || "")}>
+      {q.cardClass === "case-card" && <div className="case-label">Case Prompt</div>}
+      <div className="q-prompt">{q.prompt}</div>
+      <div className="options-list">
+        {q.options.map((opt, i) => {
+          let cls = "option-card";
+          if (!submitted && selected === i) cls += " option-selected";
+          if (submitted) {
+            if (opt.correct) cls += " option-correct";
+            else if (state.selectedOption === i) cls += " option-wrong";
+          }
+          return (
+            <div key={"opt-" + i} className={cls} onClick={() => !submitted && setSelected(i)}>
+              <span className="option-letter">{letters[i]}.</span>
+              <span>{opt.text}</span>
+            </div>
+          );
+        })}
+      </div>
+      {!submitted && (
+        <button className="btn-primary" disabled={selected === null}
+          onClick={() => onSubmit(q.id, selected, q.options[selected].correct)}>
+          Submit answer
+        </button>
+      )}
+      {submitted && (
+        <div className={"explanation-block " + (state.isCorrect ? "explanation-correct" : "explanation-wrong")}>
+          <div>{state.isCorrect
+            ? "Correct — and this reasoning generalises beyond this article."
+            : "Incorrect — this answer reflects " + (q.options[state.selectedOption].misconception || "a reasoning gap") + "."}</div>
+          <div className="principle-line">Portable principle: {q.principle}</div>
+          <div className="transfer-line">Where this generalises: {q.transfer}</div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function NumericQuestion({ q, state, onSubmit }) {
+  const [val, setVal] = useState("");
+  const [path, setPath] = useState("");
+  const submitted = state && state.submitted;
+  const canSubmit = val !== "" && !isNaN(parseFloat(val)) && (!q.requiresPath || path.trim().length >= 10);
+
+  function handleSubmit() {
+    const guess = parseFloat(val);
+    const isCorrect = q.toleranceType === "tight"
+      ? tightScore(guess, q.target, q.tolerancePct)
+      : fermiScore(guess, q.acceptLow, q.acceptHigh);
+    const signedErrorPct = (guess - q.target) / q.target * 100;
+    onSubmit(q.id, guess, isCorrect, signedErrorPct, path);
+  }
+
+  const lo = q.toleranceType === "tight" ? q.target * 0.4 : q.acceptLow * 0.4;
+  const hi = q.toleranceType === "tight" ? q.target * 1.8 : q.acceptHigh * 1.6;
+
+  return (
+    <div className="question-card">
+      <div className="q-prompt">{q.prompt}</div>
+      {!submitted && (
+        <div>
+          {q.requiresPath && (
+            <textarea className="path-textarea" placeholder="Name your decomposition path (the factors you will multiply)..."
+              value={path} onChange={(e) => setPath(e.target.value)} />
+          )}
+          <div className="numeric-input-row">
+            <input type="number" step="any" value={val} onChange={(e) => setVal(e.target.value)} placeholder="your estimate" />
+            <span>{q.unit}</span>
+          </div>
+          <input className="numeric-slider" type="range" min={lo} max={hi} step={(hi - lo) / 200}
+            value={val === "" ? (lo + hi) / 2 : val} onChange={(e) => setVal(e.target.value)} />
+          <div className="chart-meta"><span>{q.tolNote}</span></div>
+          <button className="btn-primary" disabled={!canSubmit} onClick={handleSubmit}>Submit answer</button>
+        </div>
+      )}
+      {submitted && (
+        <div>
+          <div className="axis-track">
+            <div className="axis-marker" style={{ left: axisPct(state.numericValue, lo, hi) + "%" }}>You: {state.numericValue}</div>
+            <div className="axis-dot" style={{ left: axisPct(state.numericValue, lo, hi) + "%", background: "#2563eb" }}></div>
+            <div className="axis-marker" style={{ left: axisPct(q.target, lo, hi) + "%", top: "30px" }}>Actual: {q.target}</div>
+            <div className="axis-dot" style={{ left: axisPct(q.target, lo, hi) + "%", top: "26px", background: "#16a34a" }}></div>
+          </div>
+          <div className={"explanation-block " + (state.isCorrect ? "explanation-correct" : "explanation-wrong")}>
+            <div>{state.isCorrect
+              ? "Within tolerance — the decomposition below confirms the path."
+              : "Outside tolerance — the specific reasoning error is usually skipping one factor in the chain, most often the number of rolls per year or the size of the spread actually captured."} Signed error: {state.signedErrorPct.toFixed(1)}%.</div>
+            {state.path && state.path.length > 0 && (
+              <div className="transfer-line">Your stated path: {state.path}</div>
+            )}
+            <div className="principle-line">How to estimate this: {q.decomposition}</div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ============================== CHARTS ============================== */
+
+const USE_SERIES = [
+  { dataKey: "basis", name: "Cash-futures basis trade", color: "#dc2626" },
+  { dataKey: "swap", name: "Swap spread arbitrage", color: "#f59e0b" },
+  { dataKey: "matched", name: "Maturity-matched trades", color: "#2563eb" },
+  { dataKey: "steepener", name: "Steepener-like trades", color: "#0891b2" },
+  { dataKey: "flattener", name: "Flattener-like trades", color: "#7c3aed" },
+  { dataKey: "cash", name: "Unencumbered cash", color: "#9ca3af" },
+  { dataKey: "longOnly", name: "Long-only investments", color: "#4b5563" }
+];
+
+function UsesStackedArea() {
+  return (
+    <ResponsiveContainer width="100%" height={340}>
+      <AreaChart data={USES_BY_YEAR} margin={{ top: 16, right: 16, left: 4, bottom: 4 }}>
+        <CartesianGrid strokeDasharray="3 3" stroke="#eee" />
+        <XAxis dataKey="period" tick={{ fontSize: 10 }} interval={0} angle={-40} textAnchor="end" height={54} />
+        <YAxis domain={[0, 2400]} tick={{ fontSize: 11 }}
+          label={{ value: "$ billions of long exposure", angle: -90, position: "insideLeft", fontSize: 10 }} />
+        <Tooltip formatter={(v) => "$" + v + "bn"} />
+        <Legend wrapperStyle={{ fontSize: 11 }} />
+        {USE_SERIES.map((s) => (
+          <Area key={s.dataKey} type="monotone" dataKey={s.dataKey} name={s.name}
+            stackId="uses" stroke={s.color} fill={s.color} fillOpacity={0.85} />
+        ))}
+      </AreaChart>
+    </ResponsiveContainer>
+  );
+}
+
+function DealerSlopeChart() {
+  return (
+    <ResponsiveContainer width="100%" height={320}>
+      <LineChart data={DEALER_SLOPE} margin={{ top: 24, right: 30, left: 4, bottom: 16 }}>
+        <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" vertical={false} />
+        <XAxis dataKey="stage" tick={{ fontSize: 12 }} interval={0} />
+        <YAxis domain={[60, 300]} tick={{ fontSize: 11 }}
+          label={{ value: "Index (2012 = 100)", angle: -90, position: "insideLeft", fontSize: 10 }} />
+        <Tooltip />
+        <Legend wrapperStyle={{ fontSize: 11 }} />
+        <ReferenceLine y={100} stroke="#9ca3af" strokeDasharray="4 4" />
+        <Line type="linear" dataKey="debtOutstanding" name="Treasury debt outstanding (ex-Fed holdings)"
+          stroke="#dc2626" strokeWidth={3} dot={{ r: 6 }}>
+          <LabelList dataKey="debtOutstanding" position="top" fontSize={12} />
+        </Line>
+        <Line type="linear" dataKey="dealerPositions" name="Primary dealer gross Treasury positions"
+          stroke="#2563eb" strokeWidth={3} dot={{ r: 6 }}>
+          <LabelList dataKey="dealerPositions" position="top" fontSize={12} />
+        </Line>
+        <Line type="linear" dataKey="dealerFinancing" name="Primary dealer secured financing to clients"
+          stroke="#4b5563" strokeWidth={3} dot={{ r: 6 }}>
+          <LabelList dataKey="dealerFinancing" position="bottom" fontSize={12} />
+        </Line>
+      </LineChart>
+    </ResponsiveContainer>
+  );
+}
+
+function BasisTrajectoryChart() {
+  return (
+    <ResponsiveContainer width="100%" height={330}>
+      <LineChart data={BASIS_TRAJECTORY} margin={{ top: 20, right: 20, left: 4, bottom: 4 }}>
+        <CartesianGrid strokeDasharray="3 3" stroke="#eee" />
+        <XAxis dataKey="period" tick={{ fontSize: 9 }} interval={0} angle={-55} textAnchor="end" height={58} />
+        <YAxis domain={[0, 1000]} tick={{ fontSize: 11 }}
+          label={{ value: "$ billions", angle: -90, position: "insideLeft", fontSize: 10 }} />
+        <Tooltip formatter={(v) => "$" + v + "bn"} />
+        <Legend wrapperStyle={{ fontSize: 11 }} />
+        <ReferenceLine y={429} stroke="#9ca3af" strokeDasharray="5 5"
+          label={{ value: "Feb 2020 peak: $429bn", position: "insideTopRight", fontSize: 10, fill: "#6b7280" }} />
+        <Line type="monotone" dataKey="size" name="Estimated cash-futures basis trade"
+          stroke="#dc2626" strokeWidth={2.5} dot={{ r: 2.5 }} />
+      </LineChart>
+    </ResponsiveContainer>
+  );
+}
+
+function DriversWaterfallChart() {
+  return (
+    <ResponsiveContainer width="100%" height={380}>
+      <BarChart data={DRIVERS_WATERFALL} margin={{ top: 28, right: 16, left: 4, bottom: 96 }}>
+        <CartesianGrid strokeDasharray="3 3" stroke="#eee" />
+        <XAxis dataKey="name" tick={{ fontSize: 9 }} interval={0} angle={-42} textAnchor="end" height={110} />
+        <YAxis domain={[0, 2600]} tick={{ fontSize: 11 }}
+          label={{ value: "$ billions", angle: -90, position: "insideLeft", fontSize: 10 }} />
+        <Tooltip formatter={(v, n) => (n === "barHeight" ? ["$" + v + "bn", "magnitude"] : v)} />
+        <Bar dataKey="base" stackId="wf" fill="transparent" isAnimationActive={false} />
+        <Bar dataKey="barHeight" stackId="wf" isAnimationActive={false}>
+          {DRIVERS_WATERFALL.map((entry, i) => (
+            <Cell key={"wf-cell-" + i}
+              fill={entry.kind === "total" ? "#111" : entry.kind === "up" ? "#dc2626" : "#0891b2"} />
+          ))}
+          <LabelList dataKey="shown" position="top" fontSize={10}
+            formatter={(v) => (v > 0 ? "+" + v : String(v))} />
+        </Bar>
+      </BarChart>
+    </ResponsiveContainer>
+  );
+}
+
+function SizeEstimatesChart() {
+  return (
+    <ResponsiveContainer width="100%" height={300}>
+      <ComposedChart data={SIZE_ESTIMATES} layout="vertical" margin={{ top: 20, right: 60, left: 10, bottom: 24 }}>
+        <CartesianGrid strokeDasharray="3 3" stroke="#eee" horizontal={false} />
+        <XAxis type="number" domain={[0, 1700]} tick={{ fontSize: 11 }}
+          label={{ value: "Estimated size of the cash-futures basis trade ($ billions)", position: "insideBottom", offset: -14, fontSize: 10 }} />
+        <YAxis type="category" dataKey="source" width={190} tick={{ fontSize: 10 }} />
+        <Tooltip formatter={(v) => "$" + v + "bn"} />
+        <Legend wrapperStyle={{ fontSize: 11 }} />
+        <Bar dataKey="value" name="Estimate (stem)" fill="#d1d5db" barSize={4} isAnimationActive={false} />
+        <Scatter dataKey="value" name="Published point estimate" fill="#dc2626" isAnimationActive={false}>
+          <LabelList dataKey="value" position="right" fontSize={11} formatter={(v) => "$" + v + "bn"} />
+        </Scatter>
+      </ComposedChart>
+    </ResponsiveContainer>
+  );
+}
+
+function HaircutMixChart() {
+  return (
+    <ResponsiveContainer width="100%" height={310}>
+      <BarChart data={HAIRCUT_MIX} margin={{ top: 20, right: 16, left: 4, bottom: 56 }}>
+        <CartesianGrid strokeDasharray="3 3" stroke="#eee" />
+        <XAxis dataKey="population" tick={{ fontSize: 10 }} interval={0} angle={-22} textAnchor="end" height={70} />
+        <YAxis domain={[0, 100]} tick={{ fontSize: 11 }}
+          label={{ value: "% of repo outstanding", angle: -90, position: "insideLeft", fontSize: 10 }} />
+        <Tooltip formatter={(v) => v + "%"} />
+        <Legend wrapperStyle={{ fontSize: 11 }} />
+        <Bar dataKey="zero" stackId="hc" name="Zero haircut" fill="#dc2626">
+          <LabelList dataKey="zero" position="inside" formatter={(v) => v + "%"} fill="#fff" fontSize={12} />
+        </Bar>
+        <Bar dataKey="nonZero" stackId="hc" name="Positive or negative haircut" fill="#d1d5db">
+          <LabelList dataKey="nonZero" position="inside" formatter={(v) => v + "%"} fontSize={12} />
+        </Bar>
+      </BarChart>
+    </ResponsiveContainer>
+  );
+}
+
+/* ============================== SECTION WRAPPER ============================== */
+
+function SectionWrapper({ id, title, kicker, children }) {
+  return (
+    <section id={id} style={{ scrollMarginTop: "70px" }}>
+      {kicker && <div className="subhead-label">{kicker}</div>}
+      {title && <h2>{title}</h2>}
+      {children}
+    </section>
+  );
+}
+
+/* ============================== SECTIONS ============================== */
+
+function WarmUpSection({ mcState, onMcSubmit }) {
+  return (
+    <SectionWrapper id="sec-warmup" title="Warm-Up: What Stuck?">
+      <p>Before turning to the Treasury market, put three principles from recent installments of this series to work on unfamiliar problems. None of the three questions below is about bonds, hedge funds or financial regulation. They test whether the reasoning transfers, not whether you remember the earlier articles.</p>
+      {WARMUP_QUESTIONS.map((q) => (
+        <MultipleChoice key={q.id} q={q} state={mcState[q.id]} onSubmit={onMcSubmit} />
+      ))}
+      <Glossary items={GLOSSARIES.warmup} />
+    </SectionWrapper>
+  );
+}
+
+function IntroSection({ mcState, onMcSubmit }) {
+  return (
+    <SectionWrapper id="sec-intro" title="Introduction">
+      <p>Regulators at the Federal Reserve, the Bank for International Settlements and the US Office of Financial Research all name the same trade as one of the largest hidden leverage risks in the world's most important bond market. That same trade is also the reason the market has been able to absorb a decade of record government borrowing, and six years after it nearly broke, it is roughly twice the size it was then.</p>
+      <p>The trade is called the cash-futures basis trade. A hedge fund buys a US Treasury security and simultaneously sells a futures contract on it, then pockets the small price difference between the two. The gap is tiny, so the position is financed almost entirely with borrowed money through repurchase agreements, or repo. As of September 2025 the Federal Reserve put the trade at about $830 billion, roughly 35% of hedge funds' $2.4 trillion of long Treasury exposures and about double its early-2020 peak (Federal Reserve, 2026). Hedge funds' cash Treasury holdings reached $2.0 trillion at the end of 2025, nearly three times the level five years earlier, giving them a record 7% share of a $28.9 trillion market (Office of Financial Research, 2026).</p>
+      <p>Conventional financial-stability theory says that a leveraged position which unwinds violently in a crisis should shrink afterwards, either because investors lose money and retreat or because supervisors curtail it. In March 2020 both conditions appeared to be met. Between 9 and 18 March the ten-year Treasury yield rose 64 basis points while stock prices were falling, a combination that does not happen in an ordinary flight to safety, and the Federal Reserve bought $1 trillion of Treasuries in that single quarter to reverse it (Vissing-Jorgensen, BIS, 2021). Yet by 2025 the trade was not smaller. It was larger than ever, and the Federal Reserve's own Financial Stability Report describes hedge fund leverage as sitting at record highs (Federal Reserve, 2026).</p>
+      <p>The reason is that the trade is doing a job the market needs done. Between 2012 and July 2024, Treasury debt held outside the Federal Reserve grew 176%, from about $8.3 trillion to $22.9 trillion, while primary dealers' gross Treasury positions grew 80% and the secured financing they provide to clients grew just 43% (Federal Reserve, 2024). Someone had to hold the difference. What stepped in was a set of investors whose capacity is limited not by capital rules but by how cheaply they can borrow overnight.</p>
+      <p>This note addresses three questions: First, why did a trade flagged as a systemic risk in 2020 grow to roughly double its pre-crisis peak instead of shrinking? Second, does a bigger trade mean a bigger risk, or is size the wrong thing to be measuring? Third, will the central clearing mandate now phasing in through mid-2027 actually reduce the danger, or mainly relocate it?</p>
+      {INTRO_QUESTIONS.map((q) => (
+        <MultipleChoice key={q.id} q={q} state={mcState[q.id]} onSubmit={onMcSubmit} />
+      ))}
+      <Glossary items={GLOSSARIES.intro} />
+    </SectionWrapper>
+  );
+}
+
+function BackgroundSection({ chartInterp, onInterpSubmit, mcState, numState, onMcSubmit, onNumSubmit }) {
+  const numQ = NUMERIC_QUESTIONS.find((q) => q.id === "bg-d");
+  return (
+    <SectionWrapper id="sec-background" title="Background">
+      <h3>2A. Trajectory: From a Rounding Error to Half the Book</h3>
+      <p>For most of the 2010s, hedge funds' Treasury activity was unremarkable. Between 2013 and 2017 their total long Treasury exposure hovered between roughly $600 billion and $800 billion, and the basis trade itself was a small line item, ranging from about $26 billion to $87 billion (Federal Reserve, 2026). What changed was the supply of bonds. As US deficits widened after 2017, issuance rose sharply, and by December 2019 the basis trade had reached $363 billion, more than seven times its 2017 level.</p>
+      <p>The chart below shows what hedge funds were actually doing with their Treasury holdings, decomposed into seven uses by the Federal Reserve using confidential fund filings. Two things stand out. The liquidity buffer band stays close to $200 billion for twelve straight years, which tells us the industry did not simply get bigger. And two leveraged relative-value strategies, the basis trade and swap spread arbitrage, go from barely visible to the largest single block.</p>
+      <ChartCard chartKey="chart1" title="Chart 1. Hedge Funds' Long US Treasury Exposure by Estimated Use, 2013 to March 2025"
+        tier="FACT" note="Federal Reserve Board (Monin), FEDS Notes, 22 June 2026, Figure 3 accessible data, built from SEC Form PF filings by large hedge funds. December values shown for each year, plus March 2025."
+        interpState={chartInterp.chart1} onInterpSubmit={onInterpSubmit}>
+        <UsesStackedArea />
+      </ChartCard>
+      <p>The comparison set for this trajectory is instructive. Long-Term Capital Management, the fund whose 1998 collapse produced the modern template for hedge-fund systemic risk, held just over $125 billion in assets against about $4.8 billion of equity, implying leverage above 25 to 1, and required a $3.6 billion rescue organised by 14 institutions (President's Working Group, 1999). The 2022 UK gilt crisis, the most recent case of forced selling by leveraged bond investors, drew GBP 19.3 billion of emergency Bank of England purchases over 13 days (Bank of England, 2023). The basis trade today is measured in hundreds of billions of dollars, and the intervention it triggered in 2020 was $1 trillion of Federal Reserve buying in a quarter. On the same yardstick, the current exposure is roughly an order of magnitude larger than the episode that created the modern regulatory playbook.</p>
+      <h3>2B. Structural Transformation: The Hole That Had to Be Filled</h3>
+      <p>The structural change underneath all of this is not about hedge funds at all. It is about who holds government debt between the moment it is issued and the moment a long-term investor wants it. That job used to belong almost entirely to primary dealers, the banks and brokers designated to trade directly with the Federal Reserve. Their capacity has not kept pace with the debt.</p>
+      <ChartCard chartKey="chart2" title="Chart 2. Treasury Debt Outstanding vs. Primary Dealer Intermediation, 2012 to July 2024 (2012 = 100)"
+        tier="ESTIMATE" note="Modelled index built by arithmetic from the percentage changes the Federal Reserve reports for 2012 to July 2024 (debt outstanding excluding Fed holdings +176%, dealer gross positions +80%, dealer secured financing to clients +43%). The index levels are derived, not reported dollar figures; the underlying percentage changes are FACT (Federal Reserve Board, FEDS Notes, 22 October 2024)."
+        interpState={chartInterp.chart2} onInterpSubmit={onInterpSubmit}>
+        <DealerSlopeChart />
+      </ChartCard>
+      <p className="provenance-note">Method note: Chart 2 rebases all three series to 100 in 2012 and applies the Federal Reserve's reported growth rates to reach the July 2024 endpoints. It is a modelled index of relative growth, not a chart of dollar levels, and no intermediate years are shown or implied.</p>
+      <p>Two candidate explanations compete for this gap, and the honest answer is that the popular one is not well supported on its own. The first is regulation: the Supplementary Leverage Ratio requires banks to hold capital against total assets regardless of risk, which makes warehousing large volumes of very safe Treasuries expensive. The second is that dealers simply chose not to expand, constrained by their own internal desk risk limits and by the fact that low-margin balance-sheet businesses compete with more profitable uses of the same capital. The Federal Reserve's own 2024 assessment leans against the first explanation as a full account. It found that under normal market conditions minimum Supplementary Leverage Ratio requirements would not have limited dealers' Treasury intermediation through the end of 2024, and that dealers subject to it retained substantial headroom to expand (Federal Reserve, 2024). Regulators nonetheless recalibrated the enhanced version of the rule in a final rule effective 1 April 2026, explicitly to reduce disincentives to low-risk activity such as Treasury intermediation (Federal Reserve, FDIC and OCC, 2025).</p>
+      {BACKGROUND_QUESTIONS.map((q) => (
+        <MultipleChoice key={q.id} q={q} state={mcState[q.id]} onSubmit={onMcSubmit} />
+      ))}
+      <p>Whatever the mix of causes, the consequence is the same. Hedge funds now hold a record 7% of all marketable Treasury debt, up from roughly 3% five years earlier, and the Federal Reserve's estimate of their share of privately held Treasuries reached about 8.5% by September 2025 (Office of Financial Research, 2026; Federal Reserve, 2026). Their repo cash borrowing rose from about $1.2 trillion in December 2020 to roughly $3.1 trillion by September 2025. This is the structural gap that creates the central tension: an intermediation function that used to sit inside regulated, capital-constrained institutions now sits substantially inside unregulated, funding-constrained ones, and funding can disappear far faster than capital can.</p>
+      <NumericQuestion q={numQ} state={numState[numQ.id]} onSubmit={onNumSubmit} />
+      <Glossary items={GLOSSARIES.background} />
+    </SectionWrapper>
+  );
+}
+
+function RQ1Section({ chartInterp, onInterpSubmit, mcState, onMcSubmit }) {
+  return (
+    <SectionWrapper id="sec-rq1" title="Section 3. Why Did the Trade Double Instead of Shrinking?">
+      <p>The first research question is a challenge to the standard financial-stability story. If a leveraged position blows up badly enough to require a $1 trillion central bank intervention, the expected sequel is a smaller position. The basis trade delivered the opposite, and understanding why requires separating two things that are usually conflated: the willingness to run the trade and the existence of a reason to run it.</p>
+      <p>The obstacle to be quantified is the collapse itself, which was real and fast. The trade stood at about $429 billion in February 2020. By the end of March it was $312 billion, and by April $266 billion, a fall of roughly 38% from peak in two months (Federal Reserve, 2026). It kept falling long after the crisis had passed, bottoming at $59 billion in March 2022, about 86% below the peak. That two-year flatline is the part most narratives skip.</p>
+      <ChartCard chartKey="chart3" title="Chart 3. Estimated Size of the Cash-Futures Basis Trade, March 2019 to September 2025"
+        tier="FACT" note="Federal Reserve Board (Monin), FEDS Notes, 22 June 2026, from SEC Form PF filings. Points are quarter-end values plus the February 2020 peak, so spacing on the horizontal axis is by observation rather than by calendar time. The September 2025 value of $830bn is stated in the note's text."
+        interpState={chartInterp.chart3} onInterpSubmit={onInterpSubmit}>
+        <BasisTrajectoryChart />
+      </ChartCard>
+      <p>The evidence for a demand-driven rather than a risk-appetite-driven explanation is in what happened during the flatline. Between 2020 and 2022 the Federal Reserve was buying Treasuries in size and holding short-term rates near zero. Under those conditions the price gap between a cash bond and its futures contract, which is the entire source of the trade's profit, largely closed. There was nothing to arbitrage. When quantitative tightening began pushing bonds back onto private balance sheets in 2022 and asset managers resumed buying long Treasury futures for cheap duration exposure, the gap reopened and the trade rebuilt from $59 billion to $509 billion in under two years.</p>
+      <p>The mechanism on the other side of the trade is worth stating plainly, because it explains why the position is structural rather than opportunistic. Asset managers such as pension funds and index-tracking bond funds increasingly prefer Treasury futures to cash bonds for interest-rate exposure, partly because the weighting of Treasuries in major fixed-income benchmarks has risen. Their long futures positions reached roughly $1.7 trillion by the end of 2025, mirrored by roughly $1.4 trillion of hedge fund short futures (Office of Financial Research, 2026). That persistent one-sided demand keeps futures priced slightly rich to cash bonds at every quarterly roll, which is what the Office of Financial Research describes as a structural, recurring profit opportunity rather than a temporary mispricing.</p>
+      {RQ1_QUESTIONS.filter((q) => q.id === "rq1-b").map((q) => (
+        <MultipleChoice key={q.id} q={q} state={mcState[q.id]} onSubmit={onMcSubmit} />
+      ))}
+      <p>The evidence against a purely benign reading is equally clear. The trade grew alongside a documented rise in its own opacity. Basis trade positions are dominated by funds domiciled in the Cayman Islands, and the official US Treasury International Capital statistics, which are the primary source for cross-border securities data and feed into the Federal Reserve's Financial Accounts, appear to undercount those funds' Treasury holdings by around $1.4 trillion as of the end of 2024 (Federal Reserve, 2025). A position that has doubled while its footprint in the headline cross-border statistics has not is a measurement problem, not just a market one.</p>
+      <p>April 2025 supplied a live reminder that the fragility persists. When tariff announcements sent Treasury yields sharply higher and liquidity deteriorated, roughly $60 billion, or about 20%, of hedge funds' swap spread positions unwound in a single month, with a further $40 billion in May (Federal Reserve, 2026). The BIS, using a different method, measured the same episode as an 11% contraction in the swap trade, from $707 billion in March 2025 to $631 billion in June (BIS, 2025). The trade recovered within months. But it demonstrated the transmission channel intact: a rate shock raises margin requirements, margin calls force position sales, and position sales move the market that generated the shock.</p>
+      {RQ1_QUESTIONS.filter((q) => q.id === "rq1-c").map((q) => (
+        <MultipleChoice key={q.id} q={q} state={mcState[q.id]} onSubmit={onMcSubmit} />
+      ))}
+      <p>The honest section-level conclusion is that the trade grew because the conditions that make it profitable strengthened, not because anyone ignored the 2020 lesson. Issuance is far larger, dealer capacity expanded far less, and asset manager demand for futures is structural. Regulators were not defeated; the underlying imbalance simply grew faster than any of the responses to it.</p>
+      <Glossary items={GLOSSARIES.rq1} />
+    </SectionWrapper>
+  );
+}
+
+function RQ2Section({ chartInterp, onInterpSubmit, mcState, numState, onMcSubmit, onNumSubmit }) {
+  const numQ = NUMERIC_QUESTIONS.find((q) => q.id === "rq2-d");
+  return (
+    <SectionWrapper id="sec-rq2" title="Section 4. Does a Bigger Trade Mean a Bigger Risk?">
+      <p>The second research question challenges the framing that dominates commentary on this topic. Almost every account, including the alarmed ones, treats the notional size of the trade as the risk measure. This section argues that size is close to the least reliable number available, and that three other quantities describe the danger far better.</p>
+      <p>Start with what actually drove the growth. The waterfall below decomposes the $820 billion increase in hedge funds' long Treasury exposure between February 2020 and March 2025 into the seven uses the Federal Reserve tracks. The result is not a story about hedge funds becoming more bullish on bonds. Directional exposure fell.</p>
+      <ChartCard chartKey="chart4" title="Chart 4. What Drove the $820bn Increase in Hedge Funds' Long Treasury Exposure, February 2020 to March 2025"
+        tier="ESTIMATE" note="Component levels for February 2020 and March 2025 are FACT (Federal Reserve Board, FEDS Notes, 22 June 2026, Figure 3 accessible data). The contributions shown are ESTIMATES derived by subtracting the two reported levels for each use. Components sum to $2,278bn against a reported total long exposure of $2,277bn in March 2025, a $1bn rounding difference."
+        interpState={chartInterp.chart4} onInterpSubmit={onInterpSubmit}>
+        <DriversWaterfallChart />
+      </ChartCard>
+      <p>Now consider how well the headline number is actually known. Four credible estimates of the same trade, all built from the same underlying regulatory filings, are shown below. The Federal Reserve puts it at $830 billion for September 2025. The BIS, matching aggregate short futures notional against long cash exposure, reaches $1,060 billion for the second quarter of 2025. The Office of Financial Research, surveying the published literature including work by the Commodity Futures Trading Commission, the BIS, the Federal Reserve and sell-side researchers, reports a range of $350 billion to $1.5 trillion.</p>
+      <ChartCard chartKey="chart5" title="Chart 5. Published Estimates of the Same Trade, 2024 to 2026"
+        tier="FACT" note="Federal Reserve Board, FEDS Notes, 22 June 2026 ($830bn, September 2025); BIS Quarterly Review, 8 December 2025 ($1,060bn, Q2 2025); range of $350bn to $1.5tn as characterised by the Office of Financial Research, 19 August 2026, citing CFTC, BIS, Federal Reserve and Morgan Stanley estimates."
+        interpState={chartInterp.chart5} onInterpSubmit={onInterpSubmit}>
+        <SizeEstimatesChart />
+      </ChartCard>
+      {RQ2_QUESTIONS.map((q) => (
+        <MultipleChoice key={q.id} q={q} state={mcState[q.id]} onSubmit={onMcSubmit} />
+      ))}
+      <p>The disagreement is structural, not sloppy. Neither Form PF nor futures position data contains a field marking a position as one leg of a basis trade. The Federal Reserve infers it fund by fund from the combination of long cash holdings, short futures and repo borrowing; the BIS infers it in aggregate by matching short futures notional against cash holdings. Since not every short futures position is one leg of a basis trade, the two methods must differ, and improving the data does not close a gap that comes from a definitional choice.</p>
+      <p>Three quantities are far better measured and far more decision-relevant. The first is concentration: about 90% of hedge funds' Treasury exposures sit with the top 50 funds (Federal Reserve, 2026), so this is not a diversified market of many small participants whose errors offset. The second is funding tenor: funds rely on overnight repo by preference because it is cheaper than term financing, which means the entire position must be refinanced every business day. The third is haircuts, which determine how much leverage the funding permits at all. Together these describe a position that is not dangerous because it is large, but dangerous because a large amount of it belongs to a small number of participants who must all reborrow on the same morning.</p>
+      <p>The counter-argument deserves a fair hearing. The Federal Reserve's own assessment is that the basis trade plays an important role in price discovery and liquidity provision, and the Office of Financial Research notes that hedge fund leverage allows these funds to absorb more Treasury issuance precisely when dealers face balance-sheet constraints. Treasury market turnover, including cash and derivatives, rose from about $1.5 trillion a month in 2013 to roughly $7.9 trillion in September 2025. The absorption is real, and any assessment that counts only the risk side is incomplete.</p>
+      <NumericQuestion q={numQ} state={numState[numQ.id]} onSubmit={onNumSubmit} />
+      <p>The section's conclusion is that the notional size of the trade is a poor risk statistic and an unusually well-advertised one. A figure whose credible range spans a factor of 4.3 cannot support a threshold-based rule. What can support one is the structure of the funding, and that structure is measured well.</p>
+      <Glossary items={GLOSSARIES.rq2} />
+    </SectionWrapper>
+  );
+}
+
+function RQ3Section({ chartInterp, onInterpSubmit, mcState, onMcSubmit }) {
+  return (
+    <SectionWrapper id="sec-rq3" title="Section 5. Will Central Clearing Fix It?">
+      <p>The third research question tests the leading policy response. The US Securities and Exchange Commission has required that eligible secondary-market Treasury transactions be submitted for central clearing, with compliance dates now set at 31 December 2026 for cash trades and 30 June 2027 for repo, each extended by one year from the original schedule (SEC, 2025). The question is whether this reduces the leverage, or changes where it is recorded.</p>
+      <p>What clearing unambiguously does is replace a web of bilateral exposures with a single counterparty standing between both sides, and impose that clearing house's margin rules on trades that previously had none. The obstacle it is aimed at is visible in the collateral practice of the market it will absorb.</p>
+      <ChartCard chartKey="chart6" title="Chart 6. Share of Non-Centrally Cleared Bilateral Repo at Zero Haircut, by Population Measured"
+        tier="FACT" note="Office of Financial Research, The OFR Blog, 12 August 2025. The 2022 figure is from the OFR pilot study; 2025 figures are from the OFR's daily Non-Centrally Cleared Bilateral Repo collection covering 2 January to 30 May 2025. 'Non-zero' combines positive and negative haircuts (34% and 10% respectively in the all-repo 2025 sample)."
+        interpState={chartInterp.chart6} onInterpSubmit={onInterpSubmit}>
+        <HaircutMixChart />
+      </ChartCard>
+      <p>A zero haircut means the borrower pledges collateral exactly equal to the cash borrowed, so the repo lender imposes no leverage limit whatsoever. Among hedge fund counterparties, 65% of repo is transacted this way (Office of Financial Research, 2025). Combined with modest futures initial margin, this is the mechanical explanation for how a trade with a return measured in tens of basis points becomes worth doing at all. Central clearing changes this directly: a clearing house sets and enforces margin on every cleared trade, so a mandate converts a large slice of zero-haircut bilateral borrowing into margined cleared borrowing.</p>
+      {RQ3_QUESTIONS.filter((q) => q.id === "rq3-b").map((q) => (
+        <MultipleChoice key={q.id} q={q} state={mcState[q.id]} onSubmit={onMcSubmit} />
+      ))}
+      <p>The evidence against treating this as a solution runs in two directions. The first is that clearing delivers balance-sheet netting. When both legs of a repo face the same clearing house, a dealer can offset opposite obligations and support the same client activity with less balance sheet, which lowers the cost of financing the trade. A reform that raises margin and lowers financing cost has an ambiguous net effect on position size, and no published estimate reviewed here establishes which effect dominates. It is entirely possible for the mandate to make the market safer per dollar of exposure while increasing the number of dollars.</p>
+      <p>The second is that the mandate does not touch the demand that generates the trade. Asset managers will still prefer futures to cash bonds for duration. The Treasury will still issue. Dealers will still expand their intermediation more slowly than the debt grows. Clearing changes the plumbing through which the leverage flows; it does not change the pressure in the pipe.</p>
+      <p>There is a related development that cuts the other way and deserves credit. The recalibration of the enhanced Supplementary Leverage Ratio, effective 1 April 2026, was explicitly designed to reduce disincentives for banks to intermediate in Treasury markets, reducing tier 1 capital requirements for affected holding companies by less than two percent in aggregate (Federal Reserve, FDIC and OCC, 2025). If it works as intended, it addresses the actual structural cause identified in Section 2 rather than the symptom, by making it cheaper for balance-sheet-constrained institutions to hold Treasuries themselves. Its effect is not yet measurable, and the BIS notes that hedge funds had already been positioning for leverage-ratio relief as a trade in its own right (BIS, 2025), which is an uncomfortable indication of how quickly the market converts an intended capacity expansion into a new arbitrage.</p>
+      {RQ3_QUESTIONS.filter((q) => q.id === "rq3-c").map((q) => (
+        <MultipleChoice key={q.id} q={q} state={mcState[q.id]} onSubmit={onMcSubmit} />
+      ))}
+      <p>The honest conclusion is that central clearing is a genuine and valuable improvement to a market whose exposures have been partly invisible, including a $1.4 trillion undercount in the official cross-border statistics. It converts an opaque bilateral network into a measurable, margined one. What it does not do, on the evidence available, is reduce the quantity of leverage in the system, and it would be a mistake to announce it as though it had.</p>
+      <Glossary items={GLOSSARIES.rq3} />
+    </SectionWrapper>
+  );
+}
+
+function LearningSummarySection({ mcState, numState, applyA, setApplyA, applyB, setApplyB, applyEval, onEvaluate, govInsight, setGovInsight, insightRevealed, onRevealInsight }) {
+  const allMc = [...WARMUP_QUESTIONS, ...INTRO_QUESTIONS, ...BACKGROUND_QUESTIONS, ...RQ1_QUESTIONS, ...RQ2_QUESTIONS, ...RQ3_QUESTIONS, CONCLUSION_QUESTION];
+  const byType = {};
+  allMc.forEach((q) => {
+    if (!byType[q.type]) byType[q.type] = { correct: 0, total: 0 };
+    const st = mcState[q.id];
+    if (st && st.submitted) {
+      byType[q.type].total += 1;
+      if (st.isCorrect) byType[q.type].correct += 1;
+    }
+  });
+  let dTotal = 0, dCorrect = 0, dBiasSum = 0, dBiasCount = 0;
+  NUMERIC_QUESTIONS.forEach((q) => {
+    const st = numState[q.id];
+    if (st && st.submitted) {
+      dTotal += 1;
+      if (st.isCorrect) dCorrect += 1;
+      dBiasSum += st.signedErrorPct;
+      dBiasCount += 1;
+    }
+  });
+  if (dTotal > 0) byType["D"] = { correct: dCorrect, total: dTotal };
+  const avgBias = dBiasCount > 0 ? (dBiasSum / dBiasCount).toFixed(1) : null;
+
+  const missed = allMc.filter((q) => {
+    const st = mcState[q.id];
+    return st && st.submitted && !st.isCorrect;
+  });
+
+  const scoreCount = allMc.filter((q) => mcState[q.id] && mcState[q.id].submitted && mcState[q.id].isCorrect).length
+    + NUMERIC_QUESTIONS.filter((q) => numState[q.id] && numState[q.id].submitted && numState[q.id].isCorrect).length;
+  const totalScorable = allMc.length + NUMERIC_QUESTIONS.length;
+
+  return (
+    <SectionWrapper id="sec-learning" title="Learning Summary">
+      <p>Score so far: {scoreCount} of {totalScorable} scorable questions correct.</p>
+      <div className="ls-block">
+        <h3>Score by question type</h3>
+        <table className="ls-table">
+          <thead><tr><th>Type</th><th>What it tests</th><th>Correct</th><th>Answered</th></tr></thead>
+          <tbody>
+            <tr><td>B</td><td>Trend and mechanism reasoning</td><td>{byType["B"] ? byType["B"].correct : 0}</td><td>{byType["B"] ? byType["B"].total : 0}</td></tr>
+            <tr><td>C</td><td>Applied case judgement</td><td>{byType["C"] ? byType["C"].correct : 0}</td><td>{byType["C"] ? byType["C"].total : 0}</td></tr>
+            <tr><td>D</td><td>Numeric estimation</td><td>{byType["D"] ? byType["D"].correct : 0}</td><td>{byType["D"] ? byType["D"].total : 0}</td></tr>
+            <tr><td>E</td><td>Implication and falsification</td><td>{byType["E"] ? byType["E"].correct : 0}</td><td>{byType["E"] ? byType["E"].total : 0}</td></tr>
+          </tbody>
+        </table>
+        {avgBias !== null && (
+          <p>Average signed error across your numeric estimates: {avgBias}%. {parseFloat(avgBias) > 0
+            ? "You tend to over-estimate magnitudes; the usual cause is anchoring on the headline notional rather than working through the factor chain."
+            : "You tend to under-estimate magnitudes; the usual cause is dropping a factor from the chain, most often the number of repetitions per year."} This reports directional bias only; no pre-reveal certainty rating is captured anywhere in this article.</p>
+        )}
+      </div>
+
+      <div className="ls-block">
+        <h3>Your governing insight</h3>
+        <p>You have now seen six charts covering position size, market structure, contribution to change, measurement disagreement and collateral practice. Before this note reveals its own three takeaways, write the single most non-obvious insight you would defend to a skeptical executive who has read only the headline that hedge funds are running a record-sized Treasury trade.</p>
+        {!insightRevealed && (
+          <div>
+            <textarea className="apply-textarea" value={govInsight} onChange={(e) => setGovInsight(e.target.value)} placeholder="Type at least 20 characters..." />
+            <button className="btn-primary" disabled={govInsight.trim().length < 20} onClick={onRevealInsight}>Reveal the authored insights</button>
+          </div>
+        )}
+        {insightRevealed && (
+          <div>
+            <div className="interp-revealed"><span className="tag-you">Your insight</span><p>{govInsight}</p></div>
+            <h3>How your insight compares to the article's three</h3>
+            {AUTHORED_INSIGHTS.map((ins, i) => <div className="insight-card" key={"ins-" + i}>{ins}</div>)}
+          </div>
+        )}
+      </div>
+
+      <div className="ls-block">
+        <h3>Apply It (a): Transfer to a New Domain</h3>
+        <p>Leave finance behind. A regional electricity grid operator publishes the following data on who supplies power during the evening demand peak. Grid-scale batteries have become the marginal supplier, and their operators are financed on short-term credit lines.</p>
+        <table className="snippet-table">
+          <thead><tr><th>Year</th><th>Peak demand (GW)</th><th>Firm generation capacity (GW)</th><th>Battery output at peak (GW)</th><th>Battery share of peak</th></tr></thead>
+          <tbody>
+            <tr><td>2019</td><td>41</td><td>44</td><td>0.4</td><td>1%</td></tr>
+            <tr><td>2022</td><td>44</td><td>42</td><td>3.1</td><td>7%</td></tr>
+            <tr><td>2025</td><td>49</td><td>41</td><td>9.8</td><td>20%</td></tr>
+          </tbody>
+        </table>
+        <p>Write a response with four explicitly labelled parts: (1) a one-sentence so-what thesis about what this pattern means for the grid operator's reliability planning; (2) the single load-bearing assumption your thesis depends on; (3) the strongest disconfirming evidence that would undermine it; (4) a one-line pre-mortem completing the sentence "If this fails within 12 months, the most likely reason is ___."</p>
+        <textarea className="apply-textarea" value={applyA} onChange={(e) => setApplyA(e.target.value)} placeholder="Label each of the four parts explicitly..." />
+        <h3>Apply It (b): Cross-Link a Prior Principle</h3>
+        <p>Name one principle from an earlier article in this series, including the three revisited in the Warm-Up, and explain whether it reinforces or conflicts with today's thesis that the basis trade's liquidity benefit and its stability risk are two effects of one mechanism.</p>
+        <textarea className="apply-textarea" value={applyB} onChange={(e) => setApplyB(e.target.value)} placeholder="Name the principle and explain the connection..." />
+        <button className="btn-primary" onClick={onEvaluate}>Evaluate my response</button>
+        {applyEval && (
+          <div className={"explanation-block " + (applyEval.gaps.length === 0 ? "explanation-correct" : "explanation-wrong")} style={{ marginTop: "12px" }}>
+            {applyEval.gaps.map((g, i) => <div className="gap-note" key={"gap-" + i}>{g}</div>)}
+            <p>{applyEval.summary}</p>
+          </div>
+        )}
+      </div>
+
+      <div className="ls-block">
+        <h3>Principles to Revisit</h3>
+        {missed.length === 0 && <p>Nothing to revisit yet. This list fills in as you answer questions and names the transferable principle behind each one you miss, rather than listing question numbers.</p>}
+        {missed.length > 0 && (
+          <ul>
+            {missed.map((q) => <li key={"miss-" + q.id}><strong>{q.principle}</strong></li>)}
+          </ul>
+        )}
+      </div>
+      <Glossary items={GLOSSARIES.learning} />
+    </SectionWrapper>
+  );
+}
+
+function ConclusionSection({ mcState, onMcSubmit }) {
+  return (
+    <SectionWrapper id="sec-conclusion" title="Conclusion">
+      <p>The central challenge is that the basis trade's contribution to Treasury market liquidity and its contribution to Treasury market fragility are not two separate facts to be weighed against each other; they are two consequences of the same arrangement, in which leveraged investors have absorbed an intermediation role that regulated dealers did not expand to meet. Under partial success, the most likely path through 2027 and 2028 is that central clearing arrives late but arrives, making the exposure visible and margined for the first time, while the trade itself stays large or grows, because the imbalance that generates it, record issuance meeting slow-growing dealer capacity, is not addressed by either the clearing mandate or the leverage-ratio recalibration on any timescale that matters.</p>
+      <p>For investors, the practical implication is that Treasury market depth should now be treated as conditional rather than given. Pension funds and asset managers holding roughly $1.7 trillion of long Treasury futures are buying an exposure whose price depends on a small number of leveraged counterparties being able to refinance overnight. That is a perfectly reasonable trade in normal conditions and a poor assumption to build a liquidity plan around. Corporate treasurers and issuers who benchmark to Treasury yields should assume that yield moves during funding stress will overshoot what fundamentals justify, because the marginal seller in those windows will be selling to meet a margin call rather than to express a view.</p>
+      <p>Institutionally, the deeper implication is about where the state's exposure has moved. The Federal Reserve's $1 trillion of purchases in the first quarter of 2020 established, in practice if not in doctrine, that the public balance sheet stands behind private intermediation of government debt. Every subsequent year in which the trade has grown has enlarged that implicit commitment without a corresponding expansion of supervisory reach, since the largest positions sit in Cayman-domiciled vehicles whose holdings the official US cross-border statistics undercount by around $1.4 trillion. Central clearing closes part of the measurement gap. It does not resolve the more uncomfortable question of whether an intervention that worked once has now made itself more likely to be needed again.</p>
+      <p>The unresolved question is this: if a future stress episode forces another intervention, will it be treated as evidence that the arrangement needs replacing, or as confirmation that the backstop works — and which of those two readings would actually make the next episode less likely?</p>
+      <MultipleChoice q={CONCLUSION_QUESTION} state={mcState[CONCLUSION_QUESTION.id]} onSubmit={onMcSubmit} />
+    </SectionWrapper>
+  );
+}
+
+function SourcesSection() {
+  return (
+    <SectionWrapper id="sec-sources" title="Sources">
+      <p>Every figure in this article is tagged FACT (a measured value from the source named), ESTIMATE (derived by stated arithmetic from FACTs) or ILLUSTRATION (disclosed synthetic teaching data). No ILLUSTRATION values appear in this article; the two ESTIMATE charts carry method notes stating exactly what was derived.</p>
+      <ol className="source-list">
+        {SOURCES.map((s, i) => (
+          <li key={"src-" + i}>
+            <a href={s.url} target="_blank" rel="noopener noreferrer">{s.name}</a>
+            <div>Supports: {s.supports}</div>
+          </li>
+        ))}
+      </ol>
+    </SectionWrapper>
+  );
+}
+
+/* ============================== APP ============================== */
+
+const NAV_ITEMS = [
+  { id: "sec-warmup", label: "Warm-Up" },
+  { id: "sec-intro", label: "Introduction" },
+  { id: "sec-background", label: "Background" },
+  { id: "sec-rq1", label: "Q1: Why It Doubled" },
+  { id: "sec-rq2", label: "Q2: Is Size the Risk?" },
+  { id: "sec-rq3", label: "Q3: Central Clearing" },
+  { id: "sec-learning", label: "Learning Summary" },
+  { id: "sec-conclusion", label: "Conclusion" },
+  { id: "sec-sources", label: "Sources" }
+];
+
+function App() {
+  const [mcState, setMcState] = useState({});
+  const [numState, setNumState] = useState({});
+  const [chartInterp, setChartInterp] = useState({
+    chart1: { submitted: [false, false], values: ["", ""] },
+    chart2: { submitted: [false, false], values: ["", ""] },
+    chart3: { submitted: [false, false], values: ["", ""] },
+    chart4: { submitted: [false, false], values: ["", ""] },
+    chart5: { submitted: [false, false], values: ["", ""] },
+    chart6: { submitted: [false, false], values: ["", ""] }
+  });
+  const [active, setActive] = useState("sec-warmup");
+  const [isWide, setIsWide] = useState(typeof window !== "undefined" ? window.innerWidth >= 1160 : true);
+  const [govInsight, setGovInsight] = useState("");
+  const [insightRevealed, setInsightRevealed] = useState(false);
+  const [applyA, setApplyA] = useState("");
+  const [applyB, setApplyB] = useState("");
+  const [applyEval, setApplyEval] = useState(null);
+
+  useEffect(() => {
+    function onScroll() {
+      let current = NAV_ITEMS[0].id;
+      for (const item of NAV_ITEMS) {
+        const el = document.getElementById(item.id);
+        if (el && el.getBoundingClientRect().top < 140) current = item.id;
+      }
+      setActive(current);
+    }
+    function onResize() { setIsWide(window.innerWidth >= 1160); }
+    window.addEventListener("scroll", onScroll);
+    window.addEventListener("resize", onResize);
+    onScroll();
+    return () => {
+      window.removeEventListener("scroll", onScroll);
+      window.removeEventListener("resize", onResize);
+    };
+  }, []);
+
+  function handleMcSubmit(id, selectedOption, isCorrect) {
+    setMcState((prev) => ({ ...prev, [id]: { submitted: true, selectedOption, isCorrect } }));
+  }
+  function handleNumSubmit(id, numericValue, isCorrect, signedErrorPct, path) {
+    setNumState((prev) => ({ ...prev, [id]: { submitted: true, numericValue, isCorrect, signedErrorPct, path } }));
+  }
+  function handleInterpSubmit(chartKey, idx, value) {
+    setChartInterp((prev) => {
+      const cur = prev[chartKey];
+      const nextSubmitted = cur.submitted.slice(); nextSubmitted[idx] = true;
+      const nextValues = cur.values.slice(); nextValues[idx] = value;
+      return { ...prev, [chartKey]: { submitted: nextSubmitted, values: nextValues } };
+    });
+  }
+  function handleRevealInsight() { setInsightRevealed(true); }
+
+  /* Local, evidence-based Apply It evaluator.
+     This static artifact does not call a live model API. The evaluator is isolated behind this
+     one function so a secure server-side call could replace its body without touching the UI.
+     It does not score keyword presence: it checks that each of the four required parts is present
+     AND non-trivial (a labelled part with fewer than ~25 characters of substance is flagged),
+     checks that the response climbs from description to a quantified, decision-relevant claim,
+     and names which specific part is weakest rather than confirming which words appeared. */
+  function evaluateApplyIt() {
+    const raw = applyA.trim();
+    const lower = raw.toLowerCase();
+    const gaps = [];
+
+    function segmentAfter(patterns) {
+      for (const p of patterns) {
+        const idx = lower.indexOf(p);
+        if (idx !== -1) return raw.slice(idx + p.length, idx + p.length + 260).trim();
+      }
+      return null;
+    }
+    const thesisSeg = segmentAfter(["thesis", "so-what", "so what", "(1)", "1."]);
+    const assumptionSeg = segmentAfter(["assumption", "(2)", "2."]);
+    const disconfirmSeg = segmentAfter(["disconfirm", "undermine", "evidence against", "counter-evidence", "(3)", "3."]);
+    const premortemSeg = segmentAfter(["pre-mortem", "premortem", "if this fails", "most likely reason", "(4)", "4."]);
+
+    if (raw.length < 120) {
+      gaps.push("Length: the whole response is under 120 characters, which is not enough space to develop four distinct parts. Expand before re-evaluating.");
+    }
+    if (!thesisSeg || thesisSeg.length < 25) {
+      gaps.push("Weakest part — thesis: no substantive one-sentence so-what about what a battery share rising from 1% to 20% of peak means for reliability planning. State the consequence, not the observation.");
+    }
+    if (!assumptionSeg || assumptionSeg.length < 25) {
+      gaps.push("Weakest part — load-bearing assumption: name the single claim that, if false, breaks your thesis. A thesis with no stated assumption cannot be tested.");
+    }
+    if (!disconfirmSeg || disconfirmSeg.length < 25) {
+      gaps.push("Weakest part — disconfirming evidence: name the observation that would count against your own conclusion, not further support for it.");
+    }
+    if (!premortemSeg || premortemSeg.length < 20) {
+      gaps.push("Weakest part — pre-mortem: complete the sentence 'If this fails within 12 months, the most likely reason is ___' with a specific mechanism, not a general risk.");
+    }
+    const hasNumber = /\d/.test(raw);
+    const hasImplicationVerb = /(should|must|need|require|recommend|plan|hedge|contract|procure|reserve|price)/.test(lower);
+    if (raw.length >= 120 && !hasNumber) {
+      gaps.push("Climb from observation to implication: your response contains no quantity. A decision-relevant thesis normally carries a magnitude — for example the 8 GW of firm capacity lost while peak demand rose 8 GW.");
+    }
+    if (raw.length >= 120 && !hasImplicationVerb) {
+      gaps.push("Climb from observation to implication: your response describes the pattern but does not say what the grid operator should do differently as a result.");
+    }
+    if (applyB.trim().length < 30) {
+      gaps.push("Apply It (b): name a specific prior principle and say whether it reinforces or conflicts with today's thesis. A title alone is not a connection.");
+    }
+    const summary = gaps.length === 0
+      ? "All four parts are present and substantive, the response carries a magnitude, and it names an action rather than stopping at description. The cross-link in part (b) is developed. This is a strong transfer to an unfamiliar domain."
+      : "This evaluator checks whether each of the four required parts exists and is substantive, whether the response reaches a quantified and decision-relevant implication, and which part is weakest. It does not score keywords. Address the items above, then re-evaluate.";
+    setApplyEval({ gaps, summary });
+  }
+
+  const allMc = [...WARMUP_QUESTIONS, ...INTRO_QUESTIONS, ...BACKGROUND_QUESTIONS, ...RQ1_QUESTIONS, ...RQ2_QUESTIONS, ...RQ3_QUESTIONS, CONCLUSION_QUESTION];
+  const totalScorable = allMc.length + NUMERIC_QUESTIONS.length;
+  const answeredCount = allMc.filter((q) => mcState[q.id] && mcState[q.id].submitted).length
+    + NUMERIC_QUESTIONS.filter((q) => numState[q.id] && numState[q.id].submitted).length;
+  const progress = Math.min(100, Math.round((answeredCount / totalScorable) * 100));
+  const score = allMc.filter((q) => mcState[q.id] && mcState[q.id].submitted && mcState[q.id].isCorrect).length
+    + NUMERIC_QUESTIONS.filter((q) => numState[q.id] && numState[q.id].submitted && numState[q.id].isCorrect).length;
+
+  function scrollToId(id) {
+    const el = document.getElementById(id);
+    if (el) el.scrollIntoView({ behavior: "smooth" });
+  }
+  function goTo(dir) {
+    const idx = NAV_ITEMS.findIndex((n) => n.id === active);
+    const nextIdx = Math.max(0, Math.min(NAV_ITEMS.length - 1, idx + dir));
+    scrollToId(NAV_ITEMS[nextIdx].id);
+  }
+
+  return (
+    <div className="app-root">
+      <div className="progress-bar-track"><div className="progress-bar-fill" style={{ width: progress + "%" }}></div></div>
+      <div className="score-badge">Score: {score} / {totalScorable}</div>
+      {isWide && (
+        <nav className="section-nav">
+          {NAV_ITEMS.map((item) => (
+            <div key={item.id} className={"nav-item " + (active === item.id ? "nav-active" : "")}
+              onClick={() => scrollToId(item.id)}>
+              {item.label}
+            </div>
+          ))}
+        </nav>
+      )}
+      <div className="content-column">
+        <div className="article-header">
+          <div className="kicker">Economic Research &middot; No. 24 &middot; Finance &amp; Markets</div>
+          <h1>The Basis Trade Paradox: The Hidden Leverage That Makes the Treasury Market Work</h1>
+          <p className="standfirst">Why the trade regulators call one of the biggest risks to the world's most important bond market is also the reason that market can absorb record borrowing — and why it doubled after nearly breaking.</p>
+        </div>
+        <WarmUpSection mcState={mcState} onMcSubmit={handleMcSubmit} />
+        <IntroSection mcState={mcState} onMcSubmit={handleMcSubmit} />
+        <BackgroundSection chartInterp={chartInterp} onInterpSubmit={handleInterpSubmit}
+          mcState={mcState} numState={numState} onMcSubmit={handleMcSubmit} onNumSubmit={handleNumSubmit} />
+        <RQ1Section chartInterp={chartInterp} onInterpSubmit={handleInterpSubmit} mcState={mcState} onMcSubmit={handleMcSubmit} />
+        <RQ2Section chartInterp={chartInterp} onInterpSubmit={handleInterpSubmit}
+          mcState={mcState} numState={numState} onMcSubmit={handleMcSubmit} onNumSubmit={handleNumSubmit} />
+        <RQ3Section chartInterp={chartInterp} onInterpSubmit={handleInterpSubmit} mcState={mcState} onMcSubmit={handleMcSubmit} />
+        <LearningSummarySection mcState={mcState} numState={numState} applyA={applyA} setApplyA={setApplyA}
+          applyB={applyB} setApplyB={setApplyB} applyEval={applyEval} onEvaluate={evaluateApplyIt}
+          govInsight={govInsight} setGovInsight={setGovInsight} insightRevealed={insightRevealed} onRevealInsight={handleRevealInsight} />
+        <ConclusionSection mcState={mcState} onMcSubmit={handleMcSubmit} />
+        <SourcesSection />
+      </div>
+      <div className="back-next-controls">
+        <button className="btn-backnext" onClick={() => goTo(-1)}>&#8592; Back</button>
+        <button className="btn-backnext" onClick={() => goTo(1)}>Next &#8594;</button>
+      </div>
+    </div>
+  );
+}
+
+const root = ReactDOM.createRoot(document.getElementById("root"));
+root.render(<App />);

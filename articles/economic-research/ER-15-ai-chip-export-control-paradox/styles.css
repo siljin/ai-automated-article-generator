@@ -1,0 +1,234 @@
+/* Readable source copy of the CSS inlined in index.html. Not loaded externally. */
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: #ffffff;
+  color: #111111;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  font-size: 16px;
+  line-height: 1.7;
+}
+
+.app-root { position: relative; min-height: 100vh; }
+
+.progress-bar {
+  position: fixed;
+  top: 0; left: 0;
+  height: 4px;
+  background: #1d4ed8;
+  z-index: 50;
+  transition: width 0.2s ease;
+}
+
+.score-badge {
+  position: fixed;
+  top: 10px; right: 16px;
+  background: #111827;
+  color: #fff;
+  padding: 6px 12px;
+  border-radius: 999px;
+  font-size: 13px;
+  z-index: 50;
+}
+
+.left-nav {
+  position: fixed;
+  top: 60px; left: 0;
+  width: 220px;
+  padding: 12px 8px;
+  z-index: 40;
+}
+
+.nav-item {
+  padding: 8px 12px;
+  font-size: 13px;
+  color: #4b5563;
+  border-left: 3px solid transparent;
+  cursor: pointer;
+  border-radius: 4px;
+}
+.nav-item:hover { background: #f3f4f6; }
+.nav-active {
+  border-left: 3px solid #1d4ed8;
+  background: #eff6ff;
+  font-weight: 600;
+  color: #1d4ed8;
+}
+
+.prose-column {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 60px 20px 120px;
+}
+@media (min-width: 1160px) {
+  .prose-column { margin-left: 260px; }
+}
+
+.page-section { padding-top: 24px; padding-bottom: 24px; border-bottom: 1px solid #f0f0f0; }
+.page-section:last-child { border-bottom: none; }
+
+h1 { font-size: 28px; margin-bottom: 8px; }
+h2 { font-size: 20px; margin-top: 32px; margin-bottom: 8px; }
+p { margin: 14px 0; }
+.lede { font-size: 18px; color: #374151; }
+.final-question { font-style: italic; font-size: 17px; margin-top: 24px; }
+
+/* Tags */
+.tag {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 4px;
+  margin-left: 4px;
+  vertical-align: middle;
+}
+.tag-fact { background: #dcfce7; color: #166534; }
+.tag-estimate { background: #fef3c7; color: #92400e; }
+.tag-illustration { background: #e5e7eb; color: #374151; }
+
+/* Charts */
+.chart-wrap { margin: 24px 0; }
+.chart-title { font-weight: 700; font-size: 15px; margin-bottom: 8px; }
+.chart-note { font-size: 12.5px; color: #6b7280; margin-top: 6px; }
+.dumbbell-legend { display: flex; gap: 20px; font-size: 12.5px; color: #4b5563; margin-top: 4px; }
+.dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 4px; }
+.dot-blue { background: #1d4ed8; }
+.dot-orange { background: #f97316; }
+
+/* Chart interpretation prompts */
+.interp-block { margin: 8px 0 20px; }
+.interp-row {
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  padding: 14px 16px;
+  margin-bottom: 10px;
+  background: #fafafa;
+}
+.interp-kind { font-size: 11px; font-weight: 700; text-transform: uppercase; color: #1d4ed8; margin-bottom: 4px; }
+.interp-prompt { font-size: 14.5px; margin: 4px 0 10px; }
+.interp-form textarea {
+  width: 100%;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  padding: 8px;
+  font-family: inherit;
+  font-size: 14px;
+  resize: vertical;
+}
+.interp-yours { font-size: 14px; margin-bottom: 8px; }
+.authored-answer {
+  background: #eff6ff;
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 14px;
+}
+.authored-label { font-size: 11px; font-weight: 700; color: #1d4ed8; margin-bottom: 4px; }
+
+/* Question cards */
+.question-card {
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  padding: 16px;
+  margin: 16px 0;
+}
+.consulting-case { background: #fffbeb; border-left: 3px solid #d97706; }
+.case-label { font-size: 11px; font-weight: 700; color: #d97706; text-transform: uppercase; margin-bottom: 6px; }
+.q-type-tag { font-size: 11px; font-weight: 700; color: #6b7280; text-transform: uppercase; margin-bottom: 6px; }
+.q-prompt { font-size: 15px; margin-bottom: 12px; }
+
+.options { display: flex; flex-direction: column; gap: 8px; }
+.option {
+  display: flex;
+  gap: 10px;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 14px;
+  cursor: pointer;
+}
+.option:hover { background: #f9fafb; }
+.option-selected { border-color: #1d4ed8; background: #eff6ff; }
+.option-correct { border-color: #16a34a; background: #f0fdf4; }
+.option-wrong { border-color: #dc2626; background: #fef2f2; }
+.option-letter { font-weight: 700; color: #6b7280; }
+
+.btn-primary, .btn-secondary {
+  margin-top: 12px;
+  border: none;
+  border-radius: 8px;
+  padding: 10px 18px;
+  font-size: 14px;
+  cursor: pointer;
+}
+.btn-primary { background: #1d4ed8; color: #fff; }
+.btn-primary:disabled { background: #93c5fd; cursor: not-allowed; }
+.btn-secondary { background: #e5e7eb; color: #111; }
+.btn-secondary:disabled { background: #f3f4f6; color: #9ca3af; cursor: not-allowed; }
+
+.explanation { margin-top: 14px; border-top: 1px solid #e5e7eb; padding-top: 12px; }
+.calib-correct { color: #166534; font-weight: 600; }
+.calib-wrong { color: #b91c1c; font-weight: 600; }
+.explanation-body { font-size: 14px; margin-top: 6px; }
+.principle-tag { font-size: 12.5px; color: #6b7280; margin-top: 6px; font-style: italic; }
+.generalizes-tag { font-size: 12.5px; color: #1d4ed8; margin-top: 4px; font-style: italic; }
+
+/* Numeric question */
+.numeric-input-row { display: flex; align-items: center; gap: 8px; }
+.numeric-input-row input {
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  padding: 8px;
+  width: 120px;
+  font-size: 14px;
+}
+.numeric-unit { font-size: 13px; color: #6b7280; }
+.tolerance-note { font-size: 12.5px; color: #6b7280; font-style: italic; }
+.how-to-estimate { background: #f9fafb; border-radius: 8px; padding: 10px 12px; margin-top: 8px; }
+.hte-label { font-size: 11px; font-weight: 700; color: #6b7280; margin-bottom: 4px; }
+
+/* Glossary */
+.glossary-panel {
+  background: #f9fafb;
+  border-radius: 10px;
+  padding: 14px 16px;
+  margin-top: 24px;
+  font-size: 13.5px;
+}
+.glossary-label { font-size: 11px; font-weight: 700; color: #6b7280; text-transform: uppercase; margin-bottom: 8px; }
+.glossary-item { margin: 4px 0; }
+
+/* Learning summary */
+.score-table { display: flex; flex-direction: column; gap: 6px; margin: 12px 0; }
+.score-row { display: flex; justify-content: space-between; font-size: 14px; border-bottom: 1px dashed #e5e7eb; padding-bottom: 4px; }
+.numeric-bias-note { font-size: 13.5px; color: #4b5563; }
+.governing-input, .apply-input {
+  width: 100%;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  padding: 10px;
+  font-family: inherit;
+  font-size: 14px;
+  margin: 10px 0;
+  resize: vertical;
+}
+.insight-cards { margin-top: 12px; }
+.insight-yours { background: #eff6ff; border-radius: 8px; padding: 10px 12px; font-size: 14px; margin-bottom: 10px; }
+.how-your-insight-label { font-size: 12px; font-weight: 700; color: #6b7280; margin-bottom: 8px; }
+.insight-card { border: 1px solid #e5e7eb; border-radius: 8px; padding: 10px 12px; font-size: 14px; margin-bottom: 8px; }
+.apply-it-block { margin-top: 12px; }
+.apply-feedback { background: #fffbeb; border-radius: 8px; padding: 10px 12px; margin-top: 10px; font-size: 13.5px; }
+.apply-feedback-label { font-weight: 700; font-size: 12px; margin-bottom: 6px; }
+.apply-note { color: #6b7280; font-style: italic; margin-top: 8px; }
+.principles-list { font-size: 14px; }
+.sources-list { font-size: 13px; color: #374151; padding-left: 20px; }
+.sources-list li { margin-bottom: 6px; }
+.sources-list a { color: #1d4ed8; }
+
+@media (max-width: 600px) {
+  .prose-column { padding: 50px 14px 100px; }
+  h1 { font-size: 24px; }
+  .numeric-input-row { flex-wrap: wrap; }
+}

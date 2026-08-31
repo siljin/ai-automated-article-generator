@@ -56,9 +56,10 @@ Each evidence section follows this internal structure:
 3. Present evidence for the thesis (from the real case, cited).
 4. Present evidence against or limits (where the thesis fails or requires caveats).
 5. The technical or product context that makes this non-obvious.
-6. Insert 1–2 charts at data-dense points.
-7. **Pattern transfer prompt:** At the section's end, the reader is prompted: "In one sentence, state the transferable principle from this section — something a PM or CTO at a different company could apply tomorrow." Minimum 20 characters. Not scored, and not required to move on — sections remain freely navigable.
-8. End with an honest section-level conclusion: what the evidence supports, what it doesn't.
+6. **Adjacent capability or complementary concept:** One paragraph that widens the reader's map without restating the thesis — a related technique, feature, or approach in the same domain that the article's central case does not fully cover (for example, a complementary signal, a different company's parallel solution, or an adjacent product capability). This paragraph earns its place only if it introduces a fact or technique the reader does not already have from steps 1–5, not a rephrased version of the section's principle. This is where breadth lives — the section's depth comes from one well-defended thesis; its breadth comes from this paragraph.
+7. Insert 1–2 charts at data-dense points.
+8. **Pattern transfer prompt:** At the section's end, the reader is prompted: "In one sentence, state the transferable principle from this section — something a PM or CTO at a different company could apply tomorrow." Minimum 20 characters. Not scored, and not required to move on — sections remain freely navigable.
+9. End with an honest section-level conclusion: what the evidence supports, what it doesn't.
 
 ### Section 6: What Broke (mandatory for all types)
 
@@ -84,6 +85,8 @@ Do not summarize. Synthesize implications for the target reader.
 ---
 
 ## Type-Specific Blueprints
+
+Each type's "Chart types" list below is the required minimum. A section may also draw on the general chart forms and the sparing conceptual-diagram forms (flowchart, timeline, flywheel/loop — see Visual Variety in chart-and-question-design.md) whenever one of those better reveals the principle than the type's default chart forms. Use conceptual diagrams sparingly across the article, not per section.
 
 ### Phase 0: AI Product Lifecycle Spine
 
@@ -268,7 +271,8 @@ Do not summarize. Synthesize implications for the target reader.
 - Every statistic carries an inline source label in the form `(Source, Year)`.
 - Distinguish observation (what the data shows), insight (why it is non-obvious or matters), and implication (what a PM or CTO should do). Prose and chart interpretations must reach at least the insight level.
 - No bullet points in analytical prose inside the final article.
-- Introduction: 4 paragraphs. Background: 4–6 paragraphs with at least 2 charts. Each evidence section: 5–8 paragraphs with 1–2 charts. What Broke: 4 paragraphs. Conclusion: 3–4 paragraphs.
+- **Say each insight once, then build on it.** If a later sentence would only restate an earlier claim in different words, cut it or replace it with new information — a number, a mechanism, a counterexample, or an application. This applies across prose and questions together: a chart's so-what, its attached MCQ, and its consulting-case question must each add a different layer of understanding, never the same layer restated (see the Insight Budget rule in chart-and-question-design.md). Repetition is not thoroughness; it is a sign the section has one idea stretched across several question slots instead of several ideas.
+- Introduction: 4 paragraphs. Background: 4–6 paragraphs with at least 2 charts. Each evidence section: 6–9 paragraphs with 1–2 charts, including the adjacent-capability paragraph (step 6 above) that introduces a related technique or comparison the core case does not cover. What Broke: 4 paragraphs. Conclusion: 3–4 paragraphs.
 - Forward-looking Apply It: always includes both a present-day application and a 2027 variant ("given the same constraints, what would you build differently as foundation model capabilities change?").
 
 ## Plain Language (all types)
@@ -282,6 +286,7 @@ Write so a reader new to this corner of AI can follow every sentence on the firs
 - Go easy on dashes and semicolons. If a sentence leans on several, rewrite it as two plain sentences.
 - Spell out and explain every technical term, acronym, model name, or piece of jargon the first time it appears, in everyday words. After that you may reuse it.
 - Read each paragraph aloud in your head. If you lose the thread, simplify.
+- Maximize new-information density: after drafting, check whether each sentence tells the reader something they did not already know from the sentence before it. A paragraph that restates the same claim three times in three sentences should become one sharp sentence plus two sentences of new evidence, mechanism, or example. The target is a high ratio of new knowledge to words — not shorter for its own sake, but no word spent restating what was already said.
 
 This standard does not lower the rigor of the argument, the citations, the architecture detail, or the quantitative reasoning. It only changes the diction and sentence shape.
 

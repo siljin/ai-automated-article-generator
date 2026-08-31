@@ -1,0 +1,921 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>The Continuation Fund Paradox: When the Seller and the Buyer Share an Office</title>
+  <style>
+:root{
+  --ink:#111; --muted:#5a5a5a; --line:#e4e4e4; --bg:#fff;
+  --accent:#1f6feb; --accent2:#0b8457; --warn:#d97706; --bad:#c0392b; --good:#0b8457;
+  --up:#c0392b; --down:#1f6feb; --panel:#f7f7f6;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0;background:var(--bg);color:var(--ink);
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;}
+#progterm{position:fixed;top:0;left:0;height:4px;background:var(--accent);width:0;z-index:60;transition:width .2s}
+#scorebadge{position:fixed;top:12px;right:14px;z-index:61;background:#111;color:#fff;
+  font-size:12.5px;padding:6px 11px;border-radius:20px;font-variant-numeric:tabular-nums}
+.wrap{max-width:1160px;margin:0 auto;padding:0 16px;display:flex;gap:24px}
+.navcol{width:212px;flex:0 0 212px;position:sticky;top:56px;align-self:flex-start;height:calc(100vh - 70px);
+  overflow:auto;padding-top:20px;font-size:13px}
+.navcol a{display:block;color:var(--muted);text-decoration:none;padding:7px 10px;border-left:3px solid transparent;
+  border-radius:0 5px 5px 0;line-height:1.3;cursor:pointer}
+.navcol a.active{color:var(--ink);font-weight:600;border-left-color:var(--accent);background:#eef4ff}
+.col{max-width:720px;margin:0 auto;width:100%;padding:34px 4px 120px}
+@media(max-width:1160px){.navcol{display:none}.wrap{display:block}.col{margin:0 auto}}
+h1{font-size:29px;line-height:1.22;margin:6px 0 6px}
+h2{font-size:22px;margin:14px 0 4px}
+h3{font-size:17px;margin:20px 0 2px}
+.kicker{font-size:12.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--accent);font-weight:700}
+.dek{color:var(--muted);font-size:15px;margin:2px 0 10px}
+p{font-size:16px;line-height:1.7;margin:12px 0}
+section{padding-top:26px;border-top:1px solid var(--line);margin-top:30px}
+section:first-of-type{border-top:none}
+.lead{font-size:17px}
+.chartbox{border:1px solid var(--line);border-radius:10px;padding:14px 12px 8px;margin:20px 0}
+.charttitle{font-size:14.5px;font-weight:700;margin:0 0 2px}
+.chartsub{font-size:12.5px;color:var(--muted);margin:0 0 8px}
+.tier{display:inline-block;font-size:10.5px;font-weight:700;letter-spacing:.04em;padding:1px 6px;border-radius:4px;
+  vertical-align:middle;margin-left:6px}
+.tier.fact{background:#e6f2ee;color:#0b6b47}
+.tier.est{background:#fdf2e2;color:#96590a}
+.tier.ill{background:#eee9f7;color:#5b3ea6}
+.note{font-size:12px;color:var(--muted);margin:8px 2px 2px;font-style:italic}
+.prompt{border:1px solid var(--line);border-radius:9px;padding:13px;margin:12px 0;background:#fafafa}
+.prompt .lbl{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--muted)}
+.prompt .q{font-size:14.5px;font-weight:600;margin:4px 0 8px}
+textarea{width:100%;border:1px solid var(--line);border-radius:7px;padding:8px;font:inherit;font-size:14px;resize:vertical;min-height:52px}
+button{font:inherit;cursor:pointer}
+.btn{background:var(--ink);color:#fff;border:none;border-radius:7px;padding:8px 15px;font-size:14px;margin-top:8px}
+.btn:disabled{opacity:.4;cursor:not-allowed}
+.btn.sm{padding:6px 12px;font-size:13px}
+.authored{margin-top:10px;background:#eef4ff;border-left:3px solid var(--accent);border-radius:0 7px 7px 0;padding:10px 12px;font-size:14px}
+.authored .h{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--accent);margin-bottom:3px}
+.yours{margin-top:8px;font-size:13.5px;color:#333;background:#fff;border:1px dashed var(--line);border-radius:6px;padding:8px}
+.q-card{border:1px solid var(--line);border-radius:10px;padding:15px;margin:16px 0}
+.q-card.case{background:#fffaf0;border-left:3px solid var(--warn)}
+.q-type{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--muted)}
+.q-stem{font-size:15px;font-weight:600;margin:5px 0 10px;line-height:1.5}
+.opt{border:1px solid var(--line);border-radius:8px;padding:10px 12px;margin:7px 0;font-size:14px;cursor:pointer;line-height:1.45;display:flex;gap:9px}
+.opt:hover{border-color:#bbb}
+.opt.sel{border-color:var(--accent);background:#eef4ff}
+.opt.correct{border-color:var(--good);background:#e9f7f1}
+.opt.wrong{border-color:var(--bad);background:#fbecea}
+.opt .k{font-weight:700;flex:0 0 16px}
+.expl{margin-top:11px;font-size:13.6px;line-height:1.6;background:#f7f7f6;border-radius:8px;padding:11px 12px}
+.expl .cal{font-weight:600}
+.expl .cal.ok{color:var(--good)} .expl .cal.no{color:var(--bad)}
+.expl .gen{margin-top:6px;color:#444;font-style:italic}
+.num-row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:8px 0}
+input[type=number]{width:130px;padding:7px;border:1px solid var(--line);border-radius:6px;font:inherit;font-size:14px}
+input[type=range]{flex:1;min-width:180px}
+.distax{position:relative;height:44px;margin:12px 0 4px;border-top:2px solid var(--line)}
+.distax .tick{position:absolute;top:-6px;width:2px;height:10px;background:#bbb}
+.distax .lab{position:absolute;top:8px;font-size:11px;transform:translateX(-50%);white-space:nowrap}
+.distax .you{position:absolute;top:-20px;transform:translateX(-50%);font-size:11px;color:var(--accent);font-weight:700}
+.distax .act{position:absolute;top:-20px;transform:translateX(-50%);font-size:11px;color:var(--good);font-weight:700}
+.glossary{background:var(--panel);border-radius:9px;padding:12px 14px;margin:22px 0 4px;font-size:13.5px}
+.glossary .h{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin-bottom:5px}
+.glossary p{margin:5px 0;font-size:13.5px;line-height:1.5}
+.navbtns{display:flex;justify-content:space-between;margin-top:36px;gap:12px}
+.navbtns button{background:#fff;color:var(--ink);border:1px solid var(--line);border-radius:8px;padding:9px 16px;font-size:14px}
+.navbtns button:hover{border-color:#999}
+.src{font-size:13px;color:#444;line-height:1.6}
+.src a{color:var(--accent)}
+.insight-card{border:1px solid var(--line);border-left:3px solid var(--accent2);border-radius:0 8px 8px 0;padding:11px 13px;margin:10px 0;font-size:14px;background:#f4fbf8}
+.scoregrid{display:grid;grid-template-columns:1fr auto;gap:4px 16px;font-size:14px;margin:10px 0;max-width:360px}
+.scoregrid .v{font-variant-numeric:tabular-nums;font-weight:600}
+.pill{display:inline-block;background:#eef4ff;color:var(--accent);border-radius:12px;padding:2px 9px;font-size:12px;margin:2px 4px 2px 0}
+.miss{font-size:13.5px;margin:6px 0;padding-left:2px}
+.tag{font-size:11px;font-weight:700;color:#fff;background:var(--accent);border-radius:4px;padding:1px 6px;margin-right:6px}
+ul.clean{margin:6px 0;padding-left:20px}
+ul.clean li{font-size:14px;margin:4px 0;line-height:1.5}
+.warmnote{background:#fff8ec;border:1px solid #f2e0c0;border-radius:8px;padding:10px 12px;font-size:13.5px;margin:10px 0}
+table.datatbl{width:100%;border-collapse:collapse;font-size:13px;margin:8px 0}
+table.datatbl th,table.datatbl td{border:1px solid var(--line);padding:6px 8px;text-align:left}
+table.datatbl th{background:#f7f7f6;font-size:11.5px;text-transform:uppercase;letter-spacing:.03em;color:var(--muted)}
+  </style>
+  <script crossorigin src="https://unpkg.com/react@18.3.1/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/prop-types@15.8.1/prop-types.min.js"></script>
+  <script crossorigin src="https://unpkg.com/recharts@2.12.7/umd/Recharts.js"></script>
+  <script src="https://unpkg.com/@babel/standalone@7.24.7/babel.min.js"></script>
+</head>
+<body>
+  <div id="progterm"></div>
+  <div id="scorebadge">Score 0 / 0</div>
+  <div id="root"></div>
+  <script type="text/babel" data-presets="env,react">
+/* ============================================================================
+   The Continuation Fund Paradox: When the Seller and the Buyer Share an Office
+   Domain: Finance & markets (ER-14).
+   Data tiers: FACT (cited, verified directly against the primary source),
+   ESTIMATE (derived by this article's own stated arithmetic/assumptions from
+   FACTs, disclosed and coarsely rounded), ILLUSTRATION (disclosed synthetic
+   teaching values, never a headline claim).
+   App code + CSS inlined into index.html. This file is a readable source copy.
+   ========================================================================== */
+const {useState,useEffect,useRef} = React;
+const R = window.Recharts;
+const {ResponsiveContainer,ComposedChart,BarChart,Bar,Cell,LineChart,Line,ScatterChart,Scatter,
+  XAxis,YAxis,CartesianGrid,Tooltip,ReferenceLine,ReferenceArea,LabelList,Legend,ZAxis} = R;
+
+/* ---------- DATA ------------------------------------------------------------ */
+// Chart 1 -- Line: GP-led continuation-vehicle (CV) activity as a share of
+// total sponsor-backed PE exit volume, 2020-2025. FACT. 2020 and 2021: 5% each
+// (Bain & Company Global Private Equity Report 2025, as summarized by
+// Chronograph, "Top Takeaways from Bain's 2025 Private Equity Report" and
+// "The Rise of Continuation Funds: A Deep Dive," 2025). 2024: 13% (same Bain
+// 2025 report, via Chronograph 2025). 2025: 14% (Jefferies Private Capital
+// Advisory, "2025 Global Secondary Market Review," Feb. 2026 -- built on
+// Dealogic estimates of sponsor-backed exit volume, including M&A and IPO
+// proceeds, as the denominator). 2022 and 2023 points are not published in
+// either series and are disclosed here as a gap, not filled in.
+const c1 = [
+  {year:"2020", share:5},
+  {year:"2021", share:5},
+  {year:"2024", share:13},
+  {year:"2025", share:14},
+];
+
+// Chart 2 -- Waterfall/bridge: global secondary-market volume, 2024 -> 2025,
+// split into the LP-led and GP-led contribution to that year's growth.
+// 2025 FACT figures (Jefferies, "2025 Global Secondary Market Review," Feb.
+// 2026): total $240B (+48% YoY); LP-led $125B (52% of total); GP-led $115B
+// (48% of total, +53% YoY). 2024 GP-led $75B is a directly stated FACT in the
+// same report ("GP-led volume in the second half of the year ($68 billion)
+// alone nearly matched full-year 2024 levels ($75 billion)"). The 2024 TOTAL
+// (~$162B) and 2024 LP-led (~$87B) are this article's own ESTIMATES, derived
+// by disclosed arithmetic from the two FACTs above: 2024 total = 2025 total /
+// 1.48 (undoing the reported 48% YoY growth) = $240B / 1.48 ~= $162B; 2024
+// LP-led = 2024 total - 2024 GP-led = $162B - $75B ~= $87B. Neither 2024 total
+// nor 2024 LP-led is a number directly printed in the source; both are
+// arithmetic implications of two numbers that are.
+const c2 = [
+  {name:"2024 total (Est.)", base:0, delta:162, kind:"start"},
+  {name:"+ LP-led growth", base:162, delta:38, kind:"up"},
+  {name:"+ GP-led growth", base:200, delta:40, kind:"up"},
+  {name:"2025 total (Fact)", base:0, delta:240, kind:"total"},
+];
+const c2color = d => d.kind==="up" ? "#0b8457" : "#111";
+
+// Chart 3 -- Indexed line, ESTIMATE/modeled: cumulative wealth index for an LP
+// that always rolls its exposure into continuation vehicles vs. one that
+// always cashes out, modeled by compounding a single stated finding: LPs that
+// systematically decline to roll their exposure into CVs incur an opportunity
+// cost of roughly 8% per vintage year (Upwelling Capital Group research,
+// cited in Chronograph, "The Rise of Continuation Funds: A Deep Dive," 2025).
+// Both index lines start at 100. "Always roll" is held flat at the baseline
+// (100 every year, i.e., captures the full return path); "always cash out"
+// compounds a ~8%-per-year relative shortfall: 100 x (0.92)^n. This is a
+// disclosed model, not a reported statistic -- the source states a per-year
+// rate, not a 5-year compounded path.
+function compound(n){ return Math.round(100*Math.pow(0.92,n)*10)/10; }
+const c3 = [0,1,2,3,4,5].map(n=>({yr:"Yr "+n, roll:100, cash:compound(n)}));
+
+// Chart 4 -- Dumbbell: GP ownership/commitment stake, traditional flagship
+// fund vs. continuation vehicle. FACT. Traditional fund: General Partners (GPs)
+// typically commit 2%-5% of a flagship fund's capital themselves. Continuation
+// vehicle: GPs typically commit 5%-25% of the new vehicle, a structural step
+// meant to offset the conflict of being both seller and buyer. In H1 2024,
+// about 80% of continuation vehicles included a GP commitment of 5% or more
+// (Jefferies, "Global Secondary Market Review, July 2024," p.9, as cited in
+// CAIA, "The Continuation Vehicle Boom," 2026, and Chronograph, "The Rise of
+// Continuation Funds," 2025).
+const c4 = [
+  {cat:"Traditional flagship fund", low:2, high:5},
+  {cat:"Continuation vehicle", low:5, high:25},
+];
+
+// Chart 5 -- Bullet: distributions to paid-in capital (DPI, i.e., actual cash
+// returned to LPs as a share of the fund's net asset value) vs. the
+// historical/budgeted norm, 2022-2024. FACT. Distributions as a percentage of
+// NAV trailed historical norms by roughly 15 percentage points over
+// 2022-2024: an actual rate of about 13% against a historical/budgeted norm
+// of about 28% (Bain & Company, "Global Private Equity Report 2025," p.21, as
+// cited in CAIA, "The Continuation Vehicle Boom," 2026). This is the liquidity
+// shortfall that intensifies both LPs' and GPs' appetite for GP-led
+// secondaries as an alternative liquidity channel.
+const c5 = [{name:"Distributions / NAV, 2022-2024", actual:13, target:28}];
+
+/* ---------- small helpers -------------------------------------------------- */
+function Tier({t}){const m={FACT:"fact",ESTIMATE:"est",ILLUSTRATION:"ill"};return <span className={"tier "+m[t]}>{t}</span>;}
+
+/* ---------- Interpretation prompt (gated reveal) --------------------------- */
+function Interp({id,label,question,authored,onSubmit}){
+  const [txt,setTxt]=useState(""); const [done,setDone]=useState(false);
+  return (
+    <div className="prompt">
+      <div className="lbl">{label}</div>
+      <div className="q">{question}</div>
+      {!done && <>
+        <textarea value={txt} onChange={e=>setTxt(e.target.value)} placeholder="Write at least one sentence (15+ characters) before the authored answer appears."/>
+        <button className="btn sm" disabled={txt.trim().length<15} onClick={()=>{setDone(true);onSubmit&&onSubmit(id,txt);}}>Reveal authored answer</button>
+      </>}
+      {done && <>
+        <div className="yours"><b>Your answer:</b> {txt}</div>
+        <div className="authored"><div className="h">Compare to the authored answer</div>{authored}</div>
+      </>}
+    </div>
+  );
+}
+
+/* ---------- Multiple choice (no confidence capture) ------------------------ */
+function MC({q,onScore}){
+  const [sel,setSel]=useState(null);
+  const [sub,setSub]=useState(false);
+  const submit=()=>{ if(sel==null) return; setSub(true); onScore(q.id, sel===q.correct, "mc", {correct:sel===q.correct}); };
+  return (
+    <div className={"q-card"+(q.kind==="case"?" case":"")}>
+      <div className="q-type">{q.typeLabel}{q.kind==="case"?" · Case Prompt":""}</div>
+      <div className="q-stem">{q.stem}</div>
+      {q.client && <p style={{marginTop:0,fontSize:14,color:"#555"}}><b>Client:</b> {q.client}</p>}
+      {q.options.map((o,i)=>{
+        let cls="opt"; if(sub){ if(i===q.correct) cls+=" correct"; else if(i===sel) cls+=" wrong"; }
+        else if(i===sel) cls+=" sel";
+        return <div key={i} className={cls} onClick={()=>!sub&&setSel(i)}>
+          <span className="k">{"ABCD"[i]}</span><span>{o}</span></div>;
+      })}
+      {!sub && <button className="btn" disabled={sel==null} onClick={submit}>Submit</button>}
+      {sub && <div className="expl">
+        <span className={"cal "+(sel===q.correct?"ok":"no")}>{sel===q.correct?"Correct — ":"Incorrect — "}</span>
+        {sel===q.correct? q.why : q.wrongWhy[sel]}
+        <div className="gen">Where this generalizes: {q.generalizes}</div>
+      </div>}
+    </div>
+  );
+}
+
+/* ---------- Numeric estimation (fading scaffold) ---------------------------- */
+function Numeric({q,onScore}){
+  const [val,setVal]=useState(q.min);
+  const [sub,setSub]=useState(false);
+  const [decomp,setDecomp]=useState("");
+  const decompOk = !q.requireDecomp || decomp.trim().length>=15;
+  const within = ()=>{ if(q.log){ const r=val/q.actual; return r>=0.5 && r<=2; }
+    return Math.abs(val-q.actual) <= q.tol; };
+  const submit=()=>{ setSub(true); onScore(q.id, within(), "num", {val, actual:q.actual}); };
+  const span=q.max-q.min;
+  const pos=x=>Math.max(0,Math.min(100,((x-q.min)/span)*100));
+  return (
+    <div className="q-card">
+      <div className="q-type">{q.typeLabel} · Numeric estimate</div>
+      <div className="q-stem">{q.stem}</div>
+      {q.tolNote && <div className="warmnote"><b>Tolerance:</b> {q.tolNote}</div>}
+      {q.skeleton && !sub && !q.requireDecomp && <div className="warmnote">{q.skeleton}</div>}
+      {q.requireDecomp && !sub && <>
+        <div className="warmnote">Before entering a number: name your own decomposition path — what would you multiply, add, or look up first?</div>
+        <textarea value={decomp} onChange={e=>setDecomp(e.target.value)} placeholder="Your decomposition path (15+ characters)…"/>
+      </>}
+      {!sub && <>
+        <div className="num-row">
+          <input type="number" value={val} onChange={e=>setVal(parseFloat(e.target.value)||0)} disabled={!decompOk}/>
+          <input type="range" min={q.min} max={q.max} step={q.step} value={val} onChange={e=>setVal(parseFloat(e.target.value))} disabled={!decompOk}/>
+          <span style={{fontSize:13,color:"#666"}}>{q.unit}</span>
+        </div>
+        <button className="btn" disabled={!decompOk} onClick={submit}>Submit estimate</button>
+      </>}
+      {sub && <>
+        {q.requireDecomp && <div className="yours"><b>Your decomposition path:</b> {decomp}</div>}
+        <div className="distax">
+          <div className="tick" style={{left:pos(q.min)+"%"}}></div><div className="lab" style={{left:pos(q.min)+"%"}}>{q.min}</div>
+          <div className="tick" style={{left:pos(q.max)+"%"}}></div><div className="lab" style={{left:pos(q.max)+"%"}}>{q.max}</div>
+          <div className="you" style={{left:pos(val)+"%"}}>you {val}</div>
+          <div className="act" style={{left:pos(q.actual)+"%"}}>actual {q.actual}</div>
+          <div className="tick" style={{left:pos(q.actual)+"%",background:"var(--good)"}}></div>
+          <div className="tick" style={{left:pos(val)+"%",background:"var(--accent)"}}></div>
+        </div>
+        <div className="expl">
+          <span className={"cal "+(within()?"ok":"no")}>{within()?"Within tolerance — ":"Outside tolerance — "}</span>
+          {q.how}
+          <div className="gen">Where this generalizes: {q.generalizes}</div>
+        </div>
+      </>}
+    </div>
+  );
+}
+
+/* ---------- Glossary -------------------------------------------------------- */
+function Glossary({items}){ if(!items||!items.length) return null;
+  return <div className="glossary"><div className="h">Glossary</div>
+    {items.map((g,i)=><p key={i}><b>{g.t}</b> — {g.d}</p>)}</div>;
+}
+
+/* ---------- Chart wrappers -------------------------------------------------- */
+function Chart1(){
+  return (
+    <div className="chartbox">
+      <div className="charttitle">GP-led continuation vehicles as a share of total PE exit volume <Tier t="FACT"/></div>
+      <div className="chartsub">Percent of total sponsor-backed private-equity exit volume (M&amp;A, IPO, and GP-led secondary proceeds combined). 2020, 2021, and 2024 points: Bain &amp; Company, "Global Private Equity Report 2025," via Chronograph (2025). 2025 point: Jefferies Private Capital Advisory, "2025 Global Secondary Market Review" (Feb. 2026), using a Dealogic-based exit-volume denominator. 2022-2023 are not published in either series and are shown here as a gap, not filled in.</div>
+      <ResponsiveContainer width="100%" height={250}>
+        <LineChart data={c1} margin={{left:4,right:24,top:20,bottom:4}}>
+          <CartesianGrid strokeDasharray="3 3" vertical={false}/>
+          <XAxis dataKey="year" fontSize={12}/>
+          <YAxis domain={[0,18]} tickFormatter={v=>v+"%"} fontSize={11} label={{value:"% of PE exit volume",angle:-90,position:"insideLeft",fontSize:10.5}}/>
+          <Tooltip formatter={v=>v+"%"}/>
+          <Line type="monotone" dataKey="share" stroke="#1f6feb" strokeWidth={2.5} dot={{r:5}}>
+            <LabelList dataKey="share" position="top" formatter={v=>v+"%"} fontSize={12}/>
+          </Line>
+        </LineChart>
+      </ResponsiveContainer>
+      <div className="note">Line chart chosen over a bar chart because the story is a multi-year TRAJECTORY (a near-tripling of share since 2020-2021) rather than a one-off comparison; a line makes the acceleration itself the visual argument.</div>
+    </div>
+  );
+}
+function Chart2(){
+  return (
+    <div className="chartbox">
+      <div className="charttitle">Global secondary-market volume bridge, 2024 → 2025 <Tier t="FACT"/> <Tier t="ESTIMATE"/></div>
+      <div className="chartsub">$ billions. 2025 figures (total $240B, LP-led $125B, GP-led $115B) are FACTs (Jefferies, "2025 Global Secondary Market Review," Feb. 2026). 2024 GP-led ($75B) is also a directly stated FACT in the same report. The 2024 total (~$162B) and 2024 LP-led (~$87B) are this article's own ESTIMATES, derived by dividing the 2025 total by its reported 48% year-over-year growth rate and subtracting the stated 2024 GP-led figure — neither is printed directly in the source.</div>
+      <ResponsiveContainer width="100%" height={260}>
+        <BarChart data={c2} margin={{left:4,right:8,top:20,bottom:10}}>
+          <CartesianGrid strokeDasharray="3 3" vertical={false}/>
+          <XAxis dataKey="name" fontSize={11}/>
+          <YAxis domain={[0,260]} tickFormatter={v=>"$"+v+"B"} fontSize={11}/>
+          <Tooltip formatter={(v,n,p)=>["$"+p.payload.delta+"B","change"]}/>
+          <Bar dataKey="base" stackId="w" fill="transparent"/>
+          <Bar dataKey="delta" stackId="w">
+            {c2.map((d,i)=><Cell key={i} fill={c2color(d)}/>)}
+            <LabelList dataKey="delta" position="top" formatter={v=>"+$"+v+"B"} fontSize={12}/>
+          </Bar>
+        </BarChart>
+      </ResponsiveContainer>
+      <div className="note">Waterfall (bridge) chart chosen over a stacked bar because the point is the CONTRIBUTION-TO-CHANGE — how much of 2025's record growth came from LP-led vs. GP-led activity — the signature exhibit for "what drove the delta."</div>
+    </div>
+  );
+}
+function Chart3(){
+  return (
+    <div className="chartbox">
+      <div className="charttitle">Modeled cost of always cashing out of a continuation-vehicle offer <Tier t="ESTIMATE"/></div>
+      <div className="chartsub">Cumulative wealth index, both series starting at 100. Modeled by compounding a single reported finding: Limited Partners (LPs, the investors who commit capital to a fund) who systematically decline to roll their stake into continuation vehicles incur an opportunity cost of roughly 8% per vintage year (Upwelling Capital Group research, cited in Chronograph, "The Rise of Continuation Funds: A Deep Dive," 2025). This chart is a disclosed model of that stated per-year rate compounded over 5 years, not a reported 5-year statistic.</div>
+      <ResponsiveContainer width="100%" height={250}>
+        <LineChart data={c3} margin={{left:4,right:30,top:20,bottom:4}}>
+          <CartesianGrid strokeDasharray="3 3" vertical={false}/>
+          <XAxis dataKey="yr" fontSize={12}/>
+          <YAxis domain={[60,105]} tickFormatter={v=>v} fontSize={11} label={{value:"Index (start = 100)",angle:-90,position:"insideLeft",fontSize:10.5}}/>
+          <Tooltip/>
+          <ReferenceLine y={100} stroke="#bbb" strokeDasharray="4 4"/>
+          <Line type="monotone" dataKey="roll" stroke="#0b8457" strokeWidth={2.5} dot={{r:4}}>
+            <LabelList dataKey="roll" position="top" formatter={(v,i)=>i===5?v:""} fontSize={11}/>
+          </Line>
+          <Line type="monotone" dataKey="cash" stroke="#c0392b" strokeWidth={2.5} dot={{r:4}}>
+            <LabelList dataKey="cash" position="bottom" formatter={v=>v} fontSize={11}/>
+          </Line>
+        </LineChart>
+      </ResponsiveContainer>
+      <div className="note">Indexed line chart chosen over a bar chart because the story is a COMPOUNDING gap that widens with every additional year — a level comparison for just one year would understate how much a small annual rate accumulates.</div>
+    </div>
+  );
+}
+function Chart4(){
+  return (
+    <div className="chartbox">
+      <div className="charttitle">GP ownership stake: traditional flagship fund vs. continuation vehicle <Tier t="FACT"/></div>
+      <div className="chartsub">Percent of the vehicle's total capital committed by the General Partner (GP, the firm that manages the fund) itself. Traditional fund: 2%-5% is the typical range. Continuation vehicle: 5%-25%, with about 80% of continuation vehicles in H1 2024 including a GP commitment of 5% or more. Source: Jefferies Private Capital Advisory, "Global Secondary Market Review, July 2024," p.9, as cited in CAIA (2026) and Chronograph (2025).</div>
+      <ResponsiveContainer width="100%" height={200}>
+        <ComposedChart layout="vertical" data={c4} margin={{left:8,right:40,top:20,bottom:10}}>
+          <CartesianGrid strokeDasharray="3 3" horizontal={false}/>
+          <XAxis type="number" domain={[0,28]} tickFormatter={v=>v+"%"} fontSize={11}/>
+          <YAxis type="category" dataKey="cat" width={170} fontSize={12}/>
+          <Tooltip/>
+          <Bar dataKey="low" stackId="d" fill="transparent"/>
+          <Bar dataKey="range" stackId="d" fill="#e2e2e2" barSize={10}/>
+          <Scatter dataKey="low" fill="#1f6feb"><LabelList dataKey="low" position="left" fontSize={11} formatter={v=>v+"%"}/></Scatter>
+          <Scatter dataKey="high" fill="#c0392b"><LabelList dataKey="high" position="right" fontSize={11} formatter={v=>v+"%"}/></Scatter>
+        </ComposedChart>
+      </ResponsiveContainer>
+      <div className="note">Dumbbell chart chosen over paired bars because the point IS the gap between low and high ends of each range — a dumbbell shows both the range's width and how far the two categories' ranges are shifted apart.</div>
+    </div>
+  );
+}
+const c4b = c4.map(d=>({...d, range:d.high-d.low}));
+function Chart5(){
+  return (
+    <div className="chartbox">
+      <div className="charttitle">Distributions to paid-in capital (DPI), actual vs. historical norm, 2022-2024 <Tier t="FACT"/></div>
+      <div className="chartsub">Distributions as a percentage of a fund's net asset value (NAV, the fund's current reported value). Actual rate, 2022-2024: about 13%. Historical/budgeted norm: about 28%. Source: Bain &amp; Company, "Global Private Equity Report 2025," p.21, as cited in CAIA, "The Continuation Vehicle Boom," 2026.</div>
+      <ResponsiveContainer width="100%" height={160}>
+        <BarChart layout="vertical" data={c5} margin={{left:8,right:60,top:20,bottom:10}}>
+          <CartesianGrid strokeDasharray="3 3" horizontal={false}/>
+          <XAxis type="number" domain={[0,32]} tickFormatter={v=>v+"%"} fontSize={11}/>
+          <YAxis type="category" dataKey="name" width={10} tick={false}/>
+          <Tooltip/>
+          <ReferenceArea x1={0} x2={32} fill="#f7f7f6"/>
+          <ReferenceLine x={28} stroke="#c0392b" strokeWidth={2} label={{value:"Historical norm: 28%",position:"top",fontSize:11,fill:"#c0392b"}}/>
+          <Bar dataKey="actual" fill="#1f6feb" barSize={26}>
+            <LabelList dataKey="actual" position="right" formatter={v=>"Actual: "+v+"%"} fontSize={12}/>
+          </Bar>
+        </BarChart>
+      </ResponsiveContainer>
+      <div className="note">Bullet chart chosen over a plain bar because the point is a metric measured AGAINST A TARGET BAND (the historical norm), not a comparison across several categories — a bullet chart is the compact standard for exactly that KPI-vs-benchmark reading.</div>
+    </div>
+  );
+}
+
+/* ---------- Content sections ------------------------------------------------ */
+const SECTIONS = [
+  "Warm-Up","Introduction","Background","Q1 · Conflict or Alignment?","Q2 · Do the Safeguards Work?","Q3 · Why the Boom?","Learning Summary","Conclusion"
+];
+
+/* ---------- App --------------------------------------------------------------*/
+function App(){
+  const [active,setActive]=useState(0);
+  const [answers,setAnswers]=useState({});
+  const [interp,setInterp]=useState({});
+  const refs=useRef(SECTIONS.map(()=>React.createRef()));
+
+  const score = Object.values(answers).filter(a=>a.ok).length;
+  const total = Object.keys(answers).length;
+
+  const onScore=(id,ok,type,meta)=> setAnswers(p=> p[id]?p:{...p,[id]:{ok,type,meta}});
+  const onInterp=(id,txt)=> setInterp(p=>({...p,[id]:txt}));
+
+  useEffect(()=>{
+    const badge=document.getElementById("scorebadge");
+    if(badge) badge.textContent="Score "+score+" / "+total;
+  },[score,total]);
+
+  useEffect(()=>{
+    const onScroll=()=>{
+      const y=window.scrollY+120; let idx=0;
+      refs.current.forEach((r,i)=>{ if(r.current && r.current.offsetTop<=y) idx=i; });
+      setActive(idx);
+      const h=document.documentElement;
+      const pct=(window.scrollY)/(h.scrollHeight-h.clientHeight)*100;
+      const pt=document.getElementById("progterm"); if(pt) pt.style.width=pct+"%";
+    };
+    window.addEventListener("scroll",onScroll); onScroll();
+    return ()=>window.removeEventListener("scroll",onScroll);
+  },[]);
+
+  const jump=i=>refs.current[i].current.scrollIntoView({behavior:"smooth"});
+
+  return (
+    <div className="wrap">
+      <nav className="navcol">
+        {SECTIONS.map((s,i)=>(
+          <a key={i} className={active===i?"active":""} onClick={()=>jump(i)}>{s}</a>
+        ))}
+      </nav>
+      <main className="col">
+
+        {/* ---- WARM-UP ---- */}
+        <section ref={refs.current[0]}>
+          <div className="kicker">Warm-Up · What stuck?</div>
+          <h1>Before today's topic: three ideas from recent articles</h1>
+          <p className="dek">Each question takes a principle from a prior article and drops it into a brand-new setting, nothing to do with private equity secondaries. Answer before reading on — these are scored, and none require knowing anything about continuation funds yet.</p>
+          <MC onScore={onScore} q={{
+            id:"wu1",typeLabel:"Warm-Up · Type B",
+            stem:"The passive-investing article showed that a decision individually rational for every single saver (choosing an index fund, since about 65% of active large-cap funds underperformed the index in 2024) can still add up, in aggregate, to a level of ownership concentration and price-setting sensitivity that no single saver's decision was built to measure — the pattern had also been tested only during one-directional inflows, never a sustained reversal. A city's building code lets every new office tower independently choose the cheapest, most efficient rooftop water-cooling system available, and each building's own engineering review confirms its choice is sound. Applying the passive-investing lesson, what should a city planner worry about that no single building's engineering review was designed to catch?",
+            options:[
+              "Nothing; if every building's individual engineering choice is sound, the city's aggregate water and energy system must also be safe by construction",
+              "That the buildings should be forced to use a variety of contractors, since contractor diversity is the only variable planners should ever track",
+              "That if enough buildings independently choose the same efficient system, the city's aggregate water draw during a heat wave could concentrate on the same few utility zones or the same supplier's maintenance schedule — a systemic, aggregate risk no single building's own sound engineering review was built to detect, mirroring how many rational index-fund choices concentrated ownership and voting power that no single saver was optimizing for",
+              "That water quality will decline, since cooling-system choice has nothing to do with water treatment chemistry"],
+            correct:2,
+            why:"Exactly as many savers each rationally picking an index fund produced concentrated ownership and price-setting sensitivity nobody was individually managing, many buildings each rationally picking the same efficient system can concentrate aggregate demand or maintenance-timing risk on the same utility zone or supplier — a systemic exposure that no single building's own sound engineering review, built to judge only that one building, was designed to see.",
+            wrongWhy:{
+              0:"This repeats exactly the fallacy the passive-investing lesson corrects: many individually rational choices can still create an aggregate exposure nobody optimized for.",
+              1:"Contractor diversity is a plausible mitigant but not the mechanism the scenario or the source principle is testing; it is not itself the aggregation risk.",
+              3:"Water chemistry is a different concern from a concentrated aggregate demand or maintenance-timing risk, which is what the scenario actually describes."},
+            generalizes:"Whenever many independent actors make the same individually sound choice, check what concentrated, aggregate exposure that shared choice creates system-wide — a risk no single actor's own decision process was built to see.",
+          }}/>
+          <MC onScore={onScore} q={{
+            id:"wu2",typeLabel:"Warm-Up · Type B",
+            stem:"The AI-power article showed a partial Jevons-paradox rebound: AI chips became dramatically more energy-efficient per unit of work, yet total data-center electricity demand kept rising anyway, because cheaper compute per unit induced enough MORE total compute that overall usage still grew — the key lesson was to compare the GROWTH RATE of total usage against the SIZE of the efficiency gain, not assume 'more efficient' automatically means 'less total resource consumed.' A logistics company upgrades its delivery-van engines to use 30% less fuel per mile. A year later, total company-wide fuel spending is higher than before the upgrade. Applying the AI-power lesson, what is the most useful next question to ask?",
+            options:[
+              "Whether the new engines are defective, since a genuine 30% per-mile efficiency gain should mechanically guarantee lower total fuel spending regardless of anything else that changed",
+              "Whether fuel prices alone explain the change, since that is the only factor that could possibly matter",
+              "Nothing further is worth asking, since total spending is the only number that matters and per-mile efficiency data can be ignored once the total is known",
+              "Whether the lower per-mile cost made expanding delivery routes or adding more vans cheap enough that total miles driven rose by more than 30%, which would fully explain higher total spending despite a real per-unit efficiency gain — the same rebound mechanism that let per-chip AI efficiency coexist with rising total data-center power demand"],
+            correct:3,
+            why:"Just as cheaper compute per unit induced enough extra total compute to raise total AI power demand despite real chip-level efficiency gains, a lower cost per mile can induce enough extra total mileage (more routes, more vans, more frequent trips) to raise total fuel spending despite a real per-mile efficiency gain — the correct move is to compare the growth in total miles against the size of the per-mile efficiency gain.",
+            wrongWhy:{
+              0:"This assumes a per-unit efficiency gain must mechanically lower a TOTAL, ignoring that total = rate x volume, and volume can rise enough to offset or reverse a falling rate.",
+              1:"Fuel price alone ignores the article's core rebound mechanism (usage volume responding to a lower effective cost), which the scenario is specifically testing.",
+              2:"Discarding the per-mile data throws away exactly the information needed to diagnose WHY the total rose — the rebound mechanism can only be confirmed by comparing rate and volume."},
+            generalizes:"A falling cost or resource-use RATE per unit does not guarantee a falling TOTAL — check whether the induced increase in volume (a rebound effect) is large enough to offset or reverse the per-unit gain.",
+          }}/>
+          <MC onScore={onScore} q={{
+            id:"wu3",typeLabel:"Warm-Up · Type C",
+            stem:"The tariff-pass-through article showed that legal incidence (who physically hands the money to the government) and economic incidence (who ends up financially worse off) are different questions, and that a falling AGGREGATE rate does not disprove a rising CONTRIBUTION from one specific factor buried inside it, since the aggregate is often a net of several offsetting forces. A city council raises a parking-garage tax that garage OWNERS legally remit to the city, and a year later notes that average downtown retail rents fell slightly, concluding the tax must not have hurt garage owners' customers. Applying the tariff lesson, what is the flaw in that conclusion?",
+            options:[
+              "There is no flaw; if legal remittance falls on garage owners and aggregate downtown rents fell, the tax could not possibly have raised anyone's costs",
+              "The flaw is assuming legal remittance (who writes the check to the city) settles who bears the economic cost, and treating one falling AGGREGATE figure (average rents) as proof of no cost, when the tax's specific cost contribution could be rising within an aggregate that is falling for unrelated reasons (e.g., a citywide retail slowdown) — exactly the netting-and-attribution error the tariff article warns against",
+              "The flaw is that parking garages have nothing to do with retail rents, so the comparison is meaningless from the start",
+              "The flaw is that the tax rate itself must have been set too low, since taxes never affect the party that legally remits them"],
+            correct:1,
+            why:"Just as falling aggregate inflation did not prove tariffs were cost-free once a specific contribution was isolated from the net, a falling AGGREGATE rent figure does not prove the parking tax was cost-free — the tax's specific cost could be rising and still be masked inside an aggregate falling for other, unrelated reasons, which is exactly the attribution error the tariff-incidence lesson names.",
+            wrongWhy:{
+              0:"This conflates legal remittance with economic incidence, the precise distinction the source article draws.",
+              2:"Parking costs plausibly feed into retail operating costs and thus rents; dismissing the link ignores the actual mechanism the scenario is testing.",
+              3:"This assumes a specific, unsupported and overly absolute claim (remitting parties never bear costs) not established anywhere in the source article."},
+            generalizes:"Before trusting a claim like 'the tax/tariff must be harmless because an aggregate outcome moved the 'wrong' way,' check whether that aggregate nets together several offsetting forces, and isolate the policy's own specific contribution before drawing a conclusion.",
+          }}/>
+          <div className="navbtns"><span/><button onClick={()=>jump(1)}>Next: Introduction →</button></div>
+        </section>
+
+        {/* ---- INTRODUCTION ---- */}
+        <section ref={refs.current[1]}>
+          <div className="kicker">Finance &amp; markets</div>
+          <h1>The Continuation Fund Paradox: When the Seller and the Buyer Share an Office</h1>
+          <p className="lead">A private-equity firm sells its own prized company from an aging fund to a brand-new fund it also manages, pricing the sale itself at the exact moment it knows that company's future better than anyone else alive. Regulators, industry groups, and even the firms' own lawyers have called this an inherent conflict of interest — yet in 2025, deals built exactly this way reached a record $115 billion, 53% more than the year before (Jefferies, 2026).</p>
+          <p>The structure is called a continuation fund, or continuation vehicle (CV). A General Partner (GP, the firm that runs a private-equity fund) takes a company out of an older fund that is running out of time and moves it into a new vehicle, one the same GP also manages, so the GP can keep running the company past the old fund's expiration date. The old fund's investors — Limited Partners (LPs, the pension funds, endowments, and other institutions that supply the capital) — get a choice: take cash now, or roll their money into the new vehicle on new terms. In 2025 these deals made up 48% of the entire $240 billion global private-equity secondary market and an estimated 89% of every GP-led secondary transaction (Jefferies, 2026).</p>
+          <p>The usual economic story about conflicts of interest is that they get priced out or shut down: buyers demand a discount, or a regulator writes a rule. Continuation funds have gone the other way. The U.S. Securities and Exchange Commission (SEC) tried to write exactly that rule in 2023, requiring an independent fairness opinion on every GP-led deal — and a federal appeals court struck the entire rule down within a year, before most firms had to comply with it even once. Meanwhile nearly 80% of the world's 100 largest private-equity sponsors by assets under management have now run at least one continuation-fund deal (Jefferies, 2026), and one early performance study found these deals outperformed ordinary buyout funds, not underperformed them (Morgan Stanley analysis, cited in Chronograph, 2025). A structure built on an acknowledged conflict is scaling up, not shrinking down.</p>
+          <p>This note addresses three questions. First, does the GP's dual role as both seller and buyer of the same asset actually hurt the LPs on the other side of the trade, or does keeping a proven operator in control longer create more value than a clean, arm's-length sale would? Second, have the safeguards built specifically to police this conflict — fairness opinions, LP advisory committee review, mandatory carry rollover, and the SEC's now-vacated 2023 rule — actually neutralized the problem, or is enforcement now resting on voluntary industry practice with no legal backstop? Third, why did continuation-fund volume explode to a record level in 2025 even though the conflict is now common knowledge among sophisticated institutional investors — is this rational value-seeking, or a forced response to a broader liquidity drought across private equity?</p>
+          <Glossary items={[
+            {t:"General Partner (GP)",d:"The firm that manages a private-equity fund and makes its investment decisions."},
+            {t:"Limited Partner (LP)",d:"An investor, such as a pension fund or endowment, that supplies capital to a private-equity fund but does not manage it."},
+            {t:"Continuation fund / continuation vehicle (CV)",d:"A new investment vehicle, run by the same GP, that buys an asset out of an older fund so the GP can keep managing it past the old fund's end date."},
+            {t:"GP-led secondary",d:"A transaction where the fund's own manager (rather than an outside investor) initiates the sale of fund assets, most commonly through a continuation vehicle."},
+          ]}/>
+          <div className="navbtns"><button onClick={()=>jump(0)}>← Warm-Up</button><button onClick={()=>jump(2)}>Next: Background →</button></div>
+        </section>
+
+        {/* ---- BACKGROUND ---- */}
+        <section ref={refs.current[2]}>
+          <div className="kicker">Background · Trajectory &amp; structure</div>
+          <h2>From a niche liquidity patch to nearly half the secondary market</h2>
+          <p>Continuation funds first appeared in the years after the 2008 financial crisis, when GPs facing dead exit markets used them to buy time for assets stuck in aging, capital-starved funds. Back then they traded at steep discounts, reflecting how little appetite the market had for mature, hard-to-exit assets (Chronograph, 2025). For a decade the structure stayed a niche workaround. That changed sharply after 2020. Chart 1 shows continuation-vehicle activity's share of total sponsor-backed private-equity exit volume nearly tripling: from about 5% in 2020 and 2021, to 13% in 2024, to 14% in 2025 (Bain &amp; Company, via Chronograph, 2025; Jefferies, 2026).</p>
+          <Chart1/>
+          <Interp id="c1p1" label="Interpretation 1 of 2 · Quantitative reasoning"
+            question="Between 2021 and 2025, roughly how many TIMES larger did the continuation-vehicle share of exit volume become (not the percentage-point change, the multiple), and what does that multiple imply about whether this is a marginal or a structural shift in how private equity exits its investments?"
+            authored={<span>The share nearly tripled, from 5% to 14% — about a 2.8x multiple, not merely a "9 percentage point" move. A 2.8x change in a major exit channel's share within four years is far too large to describe as a marginal adjustment; it signals GPs are treating continuation vehicles as a structural, repeatable alternative to a traditional sale or IPO, not an occasional escape valve for a handful of stuck deals.</span>}
+            onSubmit={onInterp}/>
+          <Interp id="c1p2" label="Interpretation 2 of 2 · Mechanism (non-so-what)"
+            question="Why might two very different macro backdrops — 2020-2021's ultra-low interest rates and abundant capital, and 2024-2025's higher rates and a slow deal market — both push continuation-vehicle share higher, rather than only one of them doing so?"
+            authored={<span>In 2020-2021, abundant cheap capital and frothy valuations made it easy for GPs to raise new continuation vehicles at attractive prices even while public exit markets briefly froze early in the pandemic. In 2024-2025, the mechanism flips: capital is scarcer and traditional M&amp;A/IPO exits are slow, so GPs turn to continuation vehicles as one of the few exit channels still open. Because the tool solves a "no traditional exit available" problem under both a boom and a slump, its use can rise in either environment — which is itself evidence it has become an all-weather portfolio-management tool rather than a crisis-only patch (Chronograph, 2025).</span>}
+            onSubmit={onInterp}/>
+          <MC onScore={onScore} q={{
+            id:"bg-mc1",typeLabel:"Type B · Trend reasoning",
+            stem:"Chart 1's 2020 and 2021 points come from Bain &amp; Company's exit-volume methodology; the 2025 point comes from Jefferies' methodology, which uses Dealogic-based sponsor-backed exit estimates as its denominator. Both sources report a 2024 figure that is reasonably close (13%). Given that the two endpoints of the trend line were measured by two different firms using two different denominators, what is the single most defensible way to read the chart's overall message?",
+            options:[
+              "The chart cannot be trusted at all and should be discarded, since any use of two different sources for the same series is automatically invalid",
+              "Because Jefferies' 2025 figure uses a different denominator than Bain's 2020-2021 figures, the 14% figure should be silently adjusted upward to make the two methods look identical before publishing the chart",
+              "Only the most recent data point (2025) matters, since older data from a different source about a fast-moving market has no informational value at all",
+              "The exact percentage-point value in any single year is less reliable across sources than the DIRECTION and broad MAGNITUDE of the multi-year rise, which multiple independent measurement approaches agree on — a lesson in checking whether a trend's shape survives a change in who is measuring it, before trusting one source's precise year-to-year number"],
+            correct:3,
+            why:"When a multi-year trend is stitched from more than one measurement source, the right response is to trust the trend's shape and order of magnitude more than any single year's exact decimal, and to check whether independent approaches (Bain's and Jefferies') roughly agree at their point of overlap (2024, both near 13%) — which they do here, supporting the trend's direction even though the exact endpoints came from different methodologies.",
+            wrongWhy:{
+              0:"Discarding a chart entirely because it draws on more than one credible source throws away real information; the correct response is calibrated trust in the trend's shape, not blanket rejection.",
+              1:"Silently adjusting a reported figure to match another source's methodology without disclosure would misrepresent both sources' actual reported numbers — the correct practice is to disclose the methodology difference, not paper over it.",
+              2:"Discarding older data ignores that the 2020-2021 points are exactly what establishes there IS a multi-year trend at all, rather than a single new data point in isolation."},
+            generalizes:"When a trend line is built from more than one data provider, check whether the different methods agree at their point of overlap before trusting the trend's overall direction and order of magnitude.",
+          }}/>
+          <h2 style={{marginTop:26}}>The mechanics: how a GP becomes both the seller and the buyer</h2>
+          <p>A continuation-fund deal works like this. An old fund nearing the end of its life holds a company the GP still believes in. Instead of selling it to an outside buyer or taking it public, the GP forms a brand-new vehicle — sometimes for that one asset alone (a single-asset CV, or SACV), sometimes for several assets from the aging fund (a multi-asset CV, or MACV) — and moves the company into it at a negotiated price. The old fund's LPs choose: take cash at that price, or roll their stake into the new vehicle on new terms, typically a fresh three-to-five-year clock, a reset management fee, and a reset carried interest (carry, the GP's share of investment profits) calculated from the new, higher entry price rather than the original one. In 2025, single-asset deals crossed 50% of total continuation-vehicle volume for the first time, and buyout-strategy deals made up about 70% of all GP-led volume (Jefferies, 2026).</p>
+          <p>The conflict sits in three places at once. First, the GP sets — or heavily influences — the price at which it buys the asset from itself, at the exact moment it holds more information about that asset's future than any outside bidder could gather in the time available. Second, moving the asset crystallizes the GP's carry from the old fund, creating an incentive to time or price the deal to maximize that crystallized amount rather than the LP's proceeds. Third, the new vehicle resets the GP's fee clock, extending a revenue stream that a clean exit would have ended. The industry's own response has been to make the GP eat some of its own conflict: GPs typically commit 5%-25% of the new vehicle's capital themselves, versus 2%-5% in a traditional flagship fund, and the near-universal expectation (formalized by the Institutional Limited Partners Association, ILPA, in 2023) is that a GP rolls over 100% of its crystallized carry into the new vehicle rather than cashing it out.</p>
+          <Chart2/>
+          <Interp id="c2p1" label="Interpretation 1 of 2 · So-what"
+            question="A pension-fund trustee sees the secondary market grew nearly $80 billion in one year and says, 'GP-led secondaries and LP-led secondaries are basically two versions of the same liquidity trade — this bridge doesn't change anything I do.' What should this chart make the trustee do differently?"
+            authored={<span>The bridge shows GP-led volume grew by roughly as much in dollar terms (+$40B) as LP-led volume (+$38B) despite starting from a smaller base, meaning GP-led deals grew FASTER in percentage terms (+53% vs. an implied +44% for LP-led) — the trustee should treat GP-led secondaries as the faster-growing, structurally different half of the market, one where the trustee's own fund is on the opposite side of the table from its own manager, not simply a bigger version of the LP-led trade where the trustee is selling to an unrelated third party.</span>}
+            onSubmit={onInterp}/>
+          <Interp id="c2p2" label="Interpretation 2 of 2 · Quantitative reasoning"
+            question="Using the 2024 and 2025 figures in this chart, compute GP-led secondaries' share of the TOTAL secondary market in each year (not the exit-volume share from Chart 1, which uses a different denominator), and say whether that share is rising or falling."
+            authored={<span>2024: $75B GP-led / an estimated $162B total ≈ 46%. 2025: $115B GP-led / $240B total ≈ 48%. The GP-led share of the total secondary market rose by about 2 percentage points in one year — a smaller move than Chart 1's exit-volume share, because Chart 1's denominator (all PE exits, including M&amp;A and IPOs) is much larger and less volatile than this chart's denominator (only the secondary market itself), a reminder that the same underlying growth can look like a large or a small share shift depending entirely on which denominator is chosen.</span>}
+            onSubmit={onInterp}/>
+          <Numeric onScore={onScore} q={{
+            id:"bg-num1",typeLabel:"Type D",
+            stem:"This article's own estimate puts the 2024 global secondary market total at about $162 billion (derived from the 2025 total of $240B divided by its reported 48% year-over-year growth). If the market kept growing at that same 48% annual rate for one more year after 2025, what would the 2026 total be, in $ billions?",
+            skeleton:"Skeleton: 2026 total = 2025 total ($240B) x (1 + 0.48).",
+            tolNote:"Tight band (±5%): this is a direct one-step arithmetic extrapolation from stated figures, not a Fermi estimate, so a narrow tolerance is appropriate.",
+            min:200,max:450,step:5,unit:"$ billions",actual:355,tol:18,
+            how:"$240B x 1.48 ≈ $355B. This is a mechanical extrapolation, not a forecast the article endorses — Jefferies' own 2026 outlook instead projects a slower path toward roughly $300B over the next 12-24 months, illustrating that naive extrapolation of one year's growth rate usually overstates a market that is decelerating from a post-shortage catch-up phase toward a more normal pace.",
+            generalizes:"A single year's growth rate, extrapolated forward without adjustment, is a fast way to get a rough ceiling — but always sanity-check it against whether the driver of that year's growth (here, a liquidity backlog) is a one-time catch-up or a durable new baseline.",
+          }}/>
+          <Glossary items={[
+            {t:"Net asset value (NAV)",d:"The current reported value of a fund's holdings, used as the denominator for many private-equity performance measures."},
+            {t:"Carried interest (carry)",d:"The share of a fund's investment profits, typically 15%-20%, that the GP keeps as compensation."},
+            {t:"Single-asset continuation vehicle (SACV)",d:"A continuation vehicle built around just one portfolio company, usually a high-performing 'trophy' asset."},
+            {t:"Multi-asset continuation vehicle (MACV)",d:"A continuation vehicle that moves several portfolio companies from an aging fund into one new vehicle at once."},
+          ]}/>
+          <div className="navbtns"><button onClick={()=>jump(1)}>← Introduction</button><button onClick={()=>jump(3)}>Next: Conflict or Alignment? →</button></div>
+        </section>
+
+        {/* ---- RQ1 ---- */}
+        <section ref={refs.current[3]}>
+          <div className="kicker">Research Question 1</div>
+          <h2>Does the dual role actually hurt LPs, or does it keep a winner in the right hands?</h2>
+          <p>The obstacle stated plainly: a GP that prices its own sale to itself has an information and timing advantage no outside buyer can fully match, and every dollar the GP underpays the old fund's LPs is a dollar the new vehicle's investors — often including that same GP — do not have to pay. If continuation funds were simply a way for GPs to move assets to themselves cheaply, LPs who systematically rolled into them should underperform LPs who systematically declined.</p>
+          <p>The evidence so far runs the other way. A Morgan Stanley analysis of continuation-vehicle vintages from 2018 to 2023 found these deals outperformed the Multiple on Invested Capital (MOIC, total value returned divided by capital invested) of ordinary buyout funds across every return quartile, while also showing lower loss ratios (cited in Chronograph, 2025). Separately, research from Upwelling Capital Group found that LPs who systematically decline to roll their exposure into continuation vehicles — taking the cash offer every time — incur an opportunity cost of roughly 8% per vintage year relative to LPs who roll (cited in Chronograph, 2025). Chart 3 models what that single reported rate compounds into.</p>
+          <Chart3/>
+          <Interp id="c3p1" label="Interpretation 1 of 2 · Quantitative reasoning (predict magnitude first)"
+            question="Before reading further: predict roughly how large the gap between the two lines would be after 5 years if an 8%-per-year shortfall compounds every year, then compare to the chart. Is compounding a small annual rate over several years a large or a small cumulative effect?"
+            authored={<span>Compounding an 8% annual shortfall for 5 years does not produce a 40% gap (8% x 5); it produces roughly a 34-point gap (100 vs. about 66), because each year's shortfall applies to an already-shrunken base. A reader who multiplies 8% by 5 and expects "40%" is treating a compounding rate as if it were simple addition — the actual gap is smaller than naive multiplication suggests, but still large enough that an LP declining every CV offer over a full fund cycle gives up roughly a third of the cumulative wealth an LP who rolled would have kept, a meaningfully different number than "8% doesn't sound like much."</span>}
+            onSubmit={onInterp}/>
+          <Interp id="c3p2" label="Interpretation 2 of 2 · Qualitative / mechanism"
+            question="Why would an LP that always takes the cash offer end up worse off, given that cashing out avoids the very conflict-of-interest risk this article has been describing?"
+            authored={<span>Cashing out avoids the pricing conflict on any ONE deal, but it also gives up exposure to exactly the assets GPs self-select into continuation vehicles — the "trophy" holdings the GP has the highest conviction in and the deepest information advantage about, which is also why GP commitment in these vehicles runs 5%-25% rather than the usual 2%-5%. An LP that always exits misses the asset-selection benefit (avoiding blind-pool risk on a known, proven performer) that the same information advantage which creates the pricing conflict also produces — the conflict and the value-creation channel are two sides of the same information edge.</span>}
+            onSubmit={onInterp}/>
+          <MC onScore={onScore} q={{
+            id:"q1-mc1",typeLabel:"Type A · Chart reading and implication",
+            stem:"An LP fiduciary reasons: 'Continuation vehicles outperformed buyout-fund MOICs across every quartile, so the pricing conflict must not be a real problem — I should roll into every CV offer without exception.' Which piece of evidence in this section most directly undermines treating that as a safe, universal rule?",
+            options:[
+              "The fact that the outperformance evidence covers 2018-2023 vintages specifically, and GPs self-select which assets go into a continuation vehicle in the first place — meaning the sample is drawn from a GP's own hand-picked 'best' holdings, so a policy of rolling into EVERY future offer assumes every future offer will be similarly hand-picked and similarly favorable, which the historical sample cannot itself guarantee",
+              "The fact that single-asset deals crossed 50% of continuation-vehicle volume for the first time in 2025, since deal-structure mix has no bearing on this reasoning",
+              "The fact that GP commitment in continuation vehicles runs 5%-25%, since a higher GP commitment always guarantees a worse deal for LPs",
+              "The fact that the global secondary market reached $240 billion in 2025, since market size and individual-deal quality are the same measurement"],
+            correct:0,
+            why:"The MOIC outperformance evidence is drawn from a specific, GP-selected sample (the trophy assets GPs chose to keep) over a specific historical window; it says nothing about whether the NEXT continuation-vehicle offer an LP receives will be similarly hand-picked and well-performing, which is exactly the assumption a blanket 'always roll' rule would require to hold.",
+            wrongWhy:{
+              1:"Deal-structure mix (single- vs. multi-asset) is a real fact from this section but does not bear on whether historical outperformance generalizes to future offers.",
+              2:"This inverts the actual mechanism: higher GP commitment is designed as an ALIGNMENT device, not a signal of a worse deal — the section presents it as a mitigant, not a warning sign.",
+              3:"Market size is an aggregate statistic unrelated to whether any specific historical performance sample predicts future deal quality."},
+            generalizes:"When historical outperformance comes from a self-selected sample (here, the GP's own chosen 'keep' assets), do not extrapolate a blanket future rule from it without asking whether the selection process that produced the sample will repeat identically going forward.",
+          }}/>
+          <MC onScore={onScore} q={{
+            id:"q1-case1",typeLabel:"Type C · Consulting case",
+            stem:"Meridian Public Employees' Retirement System, a mid-sized U.S. pension fund, holds a stake in an aging 2016-vintage buyout fund. The fund's GP has just offered to move its best-performing portfolio company into a new continuation vehicle at a price implying a 2.3x MOIC on the original investment, with Meridian able to take cash or roll on new terms. Meridian's investment staff, aware of this article's evidence, wants to decide using more than the historical MOIC data alone. Which single additional piece of information would most improve their decision?",
+            client:"Meridian Public Employees' Retirement System, a mid-sized U.S. public pension fund.",
+            options:[
+              "The total dollar size of the global secondary market in 2025, since a bigger market always means a better price for any individual deal",
+              "Whether other pension funds in the same city have also invested with this GP, since peer participation alone proves a deal is fair",
+              "An independent fairness or valuation opinion on the specific asset being moved, plus visibility into whether the GP is rolling 100% of its crystallized carry into the new vehicle — the two concrete, deal-specific alignment checks this article's evidence points to, rather than relying on an industry-wide historical average that may not describe this particular asset or this particular GP",
+              "The number of employees at the GP's firm, since firm headcount is a reliable proxy for deal quality"],
+            correct:2,
+            why:"The article's evidence points to two deal-specific, checkable facts — an independent fairness opinion on THIS asset and confirmation of 100% carry rollover on THIS deal — as the concrete alignment tests, rather than an industry-wide historical average (which describes a GP-selected sample of past deals, not necessarily this one).",
+            wrongWhy:{
+              0:"Aggregate market size says nothing about whether this specific asset is priced fairly.",
+              1:"Peer participation is social proof, not evidence of fair pricing, and is not one of the alignment mechanisms this article identifies.",
+              3:"Firm headcount has no established relationship to deal fairness and is not evidence discussed anywhere in this article."},
+            generalizes:"When an aggregate historical statistic (average outperformance) and a deal-specific alignment mechanism (this deal's fairness opinion, this deal's carry rollover) are both available, the deal-specific check is the one that actually screens the transaction in front of you.",
+          }}/>
+          <Glossary items={[
+            {t:"Multiple on Invested Capital (MOIC)",d:"Total value returned to investors divided by the capital they put in; a MOIC of 2.3x means $2.30 returned for every $1 invested."},
+          ]}/>
+          <div className="navbtns"><button onClick={()=>jump(2)}>← Background</button><button onClick={()=>jump(4)}>Next: Do the Safeguards Work? →</button></div>
+        </section>
+
+        {/* ---- RQ2 ---- */}
+        <section ref={refs.current[4]}>
+          <div className="kicker">Research Question 2</div>
+          <h2>Have the safeguards actually neutralized the conflict, or is the backstop gone?</h2>
+          <p>The industry built four specific safeguards around this conflict. First, an independent fairness or valuation opinion on the transaction price. Second, review and approval by the LP Advisory Committee (LPAC, a small group of LPs empowered to review conflicted transactions on behalf of the whole fund). Third, the near-universal expectation that the GP rolls 100% of its crystallized carry into the new vehicle, so it cannot cash out its incentive fee at the exact moment it is setting the price. Fourth, in 2023, the SEC wrote a rule requiring SEC-registered advisers to obtain a fairness or valuation opinion on every GP-led secondary transaction, with disclosure of any material business ties to the firm giving that opinion.</p>
+          <p>That fourth safeguard no longer has legal force. On June 5, 2024, a unanimous three-judge panel of the U.S. Court of Appeals for the Fifth Circuit vacated the SEC's entire 2023 Private Fund Adviser Rules package, including the fairness-opinion requirement, ruling the SEC had exceeded its statutory authority (Morrison Foerster, Sidley Austin, Crowell & Moring, and other law-firm client alerts, June 2024). The SEC did not appeal. Advisers are no longer legally required to obtain the opinion the rule demanded — though most sponsors already did so voluntarily before the rule existed, and law firms advising GPs still describe the vacated rule's substance as shaping SEC examination priorities and industry best practice even without binding force (Willkie Farr & Gallagher, 2025). One recent dispute illustrates what the safeguards look like when they fail: litigation alleged a GP gave its LPAC and its own fairness-opinion advisor different valuation inputs than the ones that actually informed the continuation vehicle's pricing, using an information gap between the two reviewing bodies to obtain approval (cited in HLC, 2026, discussing the ADIC v. EMG dispute).</p>
+          <Chart4/>
+          <Interp id="c4p1" label="Interpretation 1 of 2 · So-what"
+            question="An LP due-diligence officer says: 'As long as the GP has SOME skin in the game, the size of the commitment doesn't matter much.' What should this chart make the officer do differently?"
+            authored={<span>The chart shows the range itself, not just its existence, moved: a traditional fund's 2%-5% GP commitment sits entirely below a continuation vehicle's 5%-25% range, with essentially no overlap. The officer should treat the SIZE of the commitment as the actual alignment signal to negotiate on a deal-by-deal basis — a CV priced with a GP commitment near the 5% floor carries much weaker alignment than one near the 25% ceiling, even though both technically clear the "GP has skin in the game" bar.</span>}
+            onSubmit={onInterp}/>
+          <Interp id="c4p2" label="Interpretation 2 of 2 · Qualitative / mechanism"
+            question="Why would the industry converge on a HIGHER GP commitment specifically for continuation vehicles, rather than simply relying on the fairness opinion and LPAC review that already exist?"
+            authored={<span>A fairness opinion and LPAC review are process checks — they confirm a price looks reasonable at a point in time, but they do not change what happens to VALUE CREATION after the deal closes. A larger GP commitment changes the GP's own incentives going forward: if the GP owns 20% of the new vehicle's gains and losses instead of 3%, it bears a much larger share of the consequences if it deferred maintenance, underinvested, or mispriced the asset to make the deal look good at closing — shifting the safeguard from "did this look fair on day one" to "does the GP still profit if this asset performs badly after day one."</span>}
+            onSubmit={onInterp}/>
+          <MC onScore={onScore} q={{
+            id:"q2-mc1",typeLabel:"Type B · Causal / comparative",
+            stem:"Nearly 80% of the world's 100 largest PE sponsors by assets under management have completed at least one continuation-vehicle transaction, and the SEC's fairness-opinion rule was vacated in mid-2024 — the same general period continuation-vehicle volume kept climbing to a 2025 record. Which is the STRONGEST reason NOT to conclude that vacating the SEC rule caused the volume increase?",
+            options:[
+              "Because correlation always implies causation once a large enough sample of sponsors is involved, so no further reasoning is needed either way",
+              "Because the growth trajectory in continuation-vehicle share of exits was already rising sharply from 2021 to 2024 — well BEFORE the June 2024 vacatur — driven by a separate, independently documented liquidity shortfall (distributions trailing historical norms by roughly 15 percentage points), so the volume trend has an alternative, earlier-starting explanation that does not depend on the rule's fate at all",
+              "Because the SEC rule was about fairness opinions, and fairness opinions have never been used in any GP-led transaction, so the rule was irrelevant from the start",
+              "Because sponsors with more assets under management are legally prohibited from ever using continuation vehicles, making the premise of the question impossible"],
+            correct:1,
+            why:"The article's own trend data shows continuation-vehicle share of exits was already climbing sharply well before the June 2024 vacatur, driven by a documented, independent cause (the liquidity shortfall); a change that predates its supposed cause is strong evidence the timing overlap with the vacatur is not the actual driver, or is at most a minor accelerant rather than the cause.",
+            wrongWhy:{
+              0:"This states the exact fallacy the question is testing — correlation, even across a large sample, never on its own establishes causation.",
+              2:"This is factually contradicted by the article, which states most sponsors already obtained fairness opinions voluntarily before the rule existed.",
+              3:"This invents a legal restriction not stated or implied anywhere in the article; larger sponsors are, if anything, described as MORE likely to use continuation vehicles."},
+            generalizes:"Before crediting a policy change (or its reversal) for a trend, check whether the trend was already underway before the policy changed — a pre-existing trajectory with its own documented driver is strong evidence against a causal story built purely on timing overlap.",
+          }}/>
+          <Numeric onScore={onScore} q={{
+            id:"q2-num1",typeLabel:"Type D",
+            stem:"Roughly 80% of the world's top-100 PE sponsors by assets under management have run at least one continuation-vehicle deal (Jefferies, 2026). Suppose you had to estimate: across ALL private-equity sponsors globally, not just the top 100 by size, roughly what percentage have run at least one continuation-vehicle deal? This is a genuine order-of-magnitude estimate — there is no single reported figure for this broader population, so state your own decomposition path before entering a number.",
+            requireDecomp:true,
+            tolNote:"Wide band, log-distance scored (within a factor of 2 counts as correct): this is a genuine Fermi estimate about an unmeasured population, not a lookup.",
+            min:2,max:80,step:1,unit:"% of all global PE sponsors",actual:15,log:true,
+            how:"A reasonable decomposition: continuation-vehicle deals require scale (enough AUM to justify the cost of a fairness opinion, LPAC process, and a large enough single asset or set of assets to interest secondary buyers), so adoption should skew heavily toward larger sponsors. If ~80% of the top 100 (a tiny, most-capable slice of the roughly several thousand active global PE sponsors) have done at least one deal, and adoption falls off sharply for the much larger population of smaller mid-market and micro-cap sponsors who rarely have an asset large enough to justify a dedicated vehicle, a rough estimate lands in the low double digits, well below the top-100 rate — the actual reported industry estimate is closer to 10%-20% of all active sponsors. Any answer within a factor of 2 of ~15% (roughly 7.5%-30%) is scored correct, since this is a genuine order-of-magnitude judgment, not a precise lookup.",
+            generalizes:"When a reported adoption rate describes only the largest, most-capable slice of a population (the top 100 by AUM), expect the rate for the full population to be meaningfully lower, because the capability that drives adoption (scale) is itself concentrated at the top.",
+          }}/>
+          <Glossary items={[
+            {t:"LP Advisory Committee (LPAC)",d:"A small group of LPs given authority to review and approve transactions where the GP has a conflict of interest, on behalf of the whole fund."},
+            {t:"SEC Private Fund Adviser Rules",d:"A 2023 set of SEC rules for private-fund managers, including a fairness-opinion requirement for GP-led deals, unanimously vacated by a federal appeals court in June 2024."},
+          ]}/>
+          <div className="navbtns"><button onClick={()=>jump(3)}>← Conflict or Alignment?</button><button onClick={()=>jump(5)}>Next: Why the Boom? →</button></div>
+        </section>
+
+        {/* ---- RQ3 ---- */}
+        <section ref={refs.current[5]}>
+          <div className="kicker">Research Question 3</div>
+          <h2>Why did volume explode even though everyone knows about the conflict?</h2>
+          <p>The third question is the simplest to state and the hardest to settle: if sophisticated LPs know exactly how this structure is conflicted, why do they keep participating in record numbers rather than walking away? The most direct answer sitting in the data is that private equity as a whole is stuck in an unusually long liquidity drought, and continuation funds are one of the only channels still open.</p>
+          <p>McKinsey's Global Private Markets Report 2025 found that 2.5 times as many LPs now rank distributions to paid-in capital (DPI, cash actually returned to investors, as opposed to a paper valuation) as their "most critical" performance metric compared with just three years earlier — a sign that patience for unrealized, on-paper gains has run out. Bain & Company's own data shows why: across 2022-2024, distributions as a percentage of NAV trailed the historical/budgeted norm by roughly 15 percentage points, an actual rate near 13% against a historical norm near 28%, and the resulting DPI for 2018-2021 vintage funds ran about 0.2x lower than LPs had budgeted for (Bain, 2025, via CAIA, 2026). Chart 5 shows that gap directly.</p>
+          <Chart5/>
+          <Interp id="c5p1" label="Interpretation 1 of 2 · So-what"
+            question="A fund CFO says, 'Distributions only fell by 15%, that's a manageable dip.' What is wrong with reading the chart that way, and what should the CFO do instead?"
+            authored={<span>13% and 28% are two LEVELS (percentages of NAV), and the gap between them is 15 PERCENTAGE POINTS, not a "15% fall" — the actual relative decline is (28-13)/28 ≈ 54%, more than a one-third cut to expected cash distributions. Calling a 54% relative shortfall a "15% dip" badly understates the liquidity hole LPs are facing; the CFO should model cash-flow planning off the 54% relative shortfall, not the smaller-sounding percentage-point gap.</span>}
+            onSubmit={onInterp}/>
+          <Interp id="c5p2" label="Interpretation 2 of 2 · Causal / comparative"
+            question="Distributions falling and continuation-fund volume rising happened over the same years. Why is it more accurate to say the liquidity shortfall is a CAUSE of continuation-fund growth, rather than merely something that happened to move alongside it?"
+            authored={<span>There is a stated, specific mechanism connecting the two, not just shared timing: when traditional exits (sales, IPOs) are scarce, a continuation vehicle is one of the few tools that lets a GP generate at least partial cash distributions to LPs (from those who choose to cash out) without waiting for a full-fund exit — the article's own evidence traces DPI pressure directly to GPs' and LPs' increased use of GP-led secondaries as an alternative liquidity channel, which is a stated causal pathway, not just a coincidence of two lines moving together in the same years.</span>}
+            onSubmit={onInterp}/>
+          <MC onScore={onScore} q={{
+            id:"q3-mc1",typeLabel:"Type B · Named statistical trap",
+            stem:"Which of the following statements about the DPI data in this section commits the percent-vs-percentage-point error this chart is designed to test?",
+            options:[
+              "\"Distributions to NAV fell by about 15 percentage points, from a historical norm near 28% to an actual rate near 13%, over 2022-2024\"",
+              "\"Distributions to NAV fell by roughly 54% in relative terms over 2022-2024, from a historical norm near 28% to an actual rate near 13%\"",
+              "\"Distributions to NAV fell by about 15% over 2022-2024, from a historical norm near 28% to an actual rate near 13%\"",
+              "\"The gap between the historical norm (28%) and the actual rate (13%) is large enough that LPs now rank DPI as their most critical metric\""],
+            correct:2,
+            why:"Calling a move from 28% to 13% a '15% fall' conflates the 15-PERCENTAGE-POINT gap (28 minus 13) with a 15-PERCENT relative decline; the true relative decline is (28-13)/28 ≈ 54%. Statement C uses '15%' to describe what is actually a 15-percentage-point move, understating the true relative shortfall by more than a factor of 3.",
+            wrongWhy:{
+              0:"This correctly uses 'percentage points' for the raw 15-point gap between 28% and 13% — the precise, correct framing.",
+              1:"This correctly computes and labels the relative decline (54%) as a percent change, distinct from the percentage-point gap — also correct.",
+              3:"This is a qualitative, defensible claim about LP sentiment supported elsewhere in the section, not a percent-vs-percentage-point error."},
+            generalizes:"A move from one percentage to another has two different, both-valid descriptions — the percentage-POINT gap and the percent RELATIVE change — and conflating them (calling a percentage-point gap a 'percent' change) can understate or overstate the true magnitude by several times.",
+          }}/>
+          <MC onScore={onScore} q={{
+            id:"q3-case1",typeLabel:"Type C · Consulting case (load-bearing assumption)",
+            stem:"Harborview Endowment Partners, a university endowment's investment office, is deciding whether to build a dedicated allocation to continuation-vehicle secondaries, reasoning: 'GP-led secondary volume has grown for five straight years through both loose and tight capital markets, so this growth is now a permanent structural feature of private equity we should build a strategy around.' Which assumption is this reasoning most load-bearing on, and what evidence in this section is thinnest in supporting it?",
+            client:"Harborview Endowment Partners, a university endowment's investment office.",
+            options:[
+              "The load-bearing assumption is that the current liquidity drought driving much of this growth (DPI running about 46% below the historical norm) will persist rather than resolve — if traditional exit markets (M&A, IPOs) reopen and distributions normalize back toward the historical ~28% NAV rate, a meaningful share of today's GP-led volume could plausibly recede toward its traditional 5% share of exits, and this section's evidence documents the CURRENT shortfall in detail but says nothing about how long it will last",
+              "The load-bearing assumption is that fairness opinions will always be obtained, and the thinnest evidence is that most sponsors already obtain them voluntarily",
+              "The load-bearing assumption is that GP commitment percentages will keep rising indefinitely, and the thinnest evidence is the 5%-25% range reported for 2024",
+              "There is no meaningful assumption at issue, since five years of consecutive growth in any market statistically guarantees the trend is now permanent"],
+            correct:0,
+            why:"The reasoning's true load-bearing assumption is that the liquidity drought itself is durable rather than cyclical; this section documents the shortfall's SIZE in detail (DPI running well below its historical norm) but provides no evidence at all about how long that shortfall will last, which is precisely the gap a 'this is now permanent' strategy is resting on without support.",
+            wrongWhy:{
+              1:"Fairness-opinion adoption is a real fact from an earlier section but is not the assumption the endowment's growth-permanence reasoning actually depends on.",
+              2:"GP commitment ranges bear on alignment, not on whether the underlying liquidity-driven growth will persist — a mismatched assumption for this specific claim.",
+              3:"Treating consecutive growth years as statistical proof of permanence ignores that the growth's own documented driver (a liquidity shortfall) is explicitly described elsewhere in this article as a cyclical condition, not a structural constant."},
+            generalizes:"When a decision-maker treats a multi-year growth trend as now 'permanent,' identify the trend's own documented DRIVER and ask whether that specific driver is itself structural or cyclical — a growth trend caused by a cyclical condition is only as durable as the condition that is driving it.",
+          }}/>
+          <Glossary items={[
+            {t:"Distributions to paid-in capital (DPI)",d:"The ratio of cash actually returned to investors so far, divided by the capital they have contributed — a measure of realized, not paper, returns."},
+            {t:"Evergreen fund",d:"An open-ended investment vehicle with no fixed end date, which can keep raising and deploying capital continuously rather than winding down on a fixed schedule."},
+          ]}/>
+          <div className="navbtns"><button onClick={()=>jump(4)}>← Do the Safeguards Work?</button><button onClick={()=>jump(6)}>Next: Learning Summary →</button></div>
+        </section>
+
+        {/* ---- LEARNING SUMMARY ---- */}
+        <section ref={refs.current[6]}>
+          <div className="kicker">Learning Summary</div>
+          <h2>What you did, and what to carry forward</h2>
+          <Summary answers={answers} interp={interp}/>
+          <div className="navbtns"><button onClick={()=>jump(5)}>← Why the Boom?</button><button onClick={()=>jump(7)}>Next: Conclusion →</button></div>
+        </section>
+
+        {/* ---- CONCLUSION ---- */}
+        <section ref={refs.current[7]}>
+          <div className="kicker">Conclusion</div>
+          <h2>A conflict that scaled instead of shrinking, because it may also be creating value</h2>
+          <p>The central challenge is that continuation funds put the same information advantage behind both the conflict (a GP pricing a sale to itself) and the value case (a GP self-selecting its best assets to keep). Under a partial-success path, the most likely next few years look like continued growth in a market with no binding legal safeguard: the SEC's fairness-opinion rule stays vacated unless Congress or a future rulemaking replaces it, industry norms (GP carry rollover, larger GP commitments, voluntary fairness opinions) keep functioning as the de facto standard because reputational and repeat-dealing incentives largely hold, and volume keeps climbing for as long as the DPI shortfall that is driving much of today's demand persists.</p>
+          <p>For LP allocators, the implication is to treat each continuation-vehicle offer as its own underwriting decision rather than a referendum on the structure as a whole — checking the specific fairness opinion, the specific carry-rollover commitment, and the specific GP capital at risk on that one deal, rather than relying on an industry-wide historical outperformance average drawn from a GP-selected sample of past "keeper" assets. For policymakers, the implication is that a legally binding backstop (a replacement for the vacated SEC rule, or new legislation) remains genuinely absent, so LP protection currently depends on voluntary industry practice holding up under competitive pressure as more capital and more first-time sponsors enter the market. For market participants more broadly, the deeper structural lesson extends past private equity: any structure where the party with the deepest information advantage also sits on both sides of a transaction will keep scaling for as long as its measured outcomes look good, and the real test of whether it is creating value or merely transferring it will only arrive when a full market downturn forces GPs to price honestly under distress rather than from a position of choice.</p>
+          <MC onScore={onScore} q={{
+            id:"concl-e1",typeLabel:"Type E · Implication + falsification",
+            stem:"Given the evidence in this article — a record $115 billion in GP-led volume in 2025 despite an unresolved structural conflict, early performance data showing continuation vehicles outperforming ordinary buyout-fund MOICs across quartiles, a vacated SEC fairness-opinion rule with no legal replacement, and a documented liquidity shortfall (DPI running roughly 54% below its historical norm) that plausibly explains much of the recent growth — which real-world decision is most directly supported, paired with the observation that would most FALSIFY this article's central thesis (that the conflict has scaled because it may be genuinely value-creating, not merely because LPs have no better option)?",
+            options:[
+              "Decision: LPs should participate in continuation-vehicle offers on a deal-by-deal basis, verifying the specific fairness opinion, carry-rollover commitment, and GP capital at risk on each deal, while treating the aggregate outperformance data as suggestive rather than conclusive, since it is drawn from a GP-selected sample of past 'keeper' assets. Falsifier: if, once traditional exit markets fully reopen and DPI normalizes back toward its historical ~28% norm, continuation-vehicle volume fails to fall back meaningfully AND newly measured cohorts (assets NOT self-selected as GPs' best) show performance no better than ordinary buyout funds, that combination would show the structure persisted mainly because LPs lacked a better liquidity option, not because it was creating real incremental value",
+              "Decision: LPs should stop participating in continuation vehicles entirely, effective immediately, because the SEC's rule was vacated. Falsifier: any future SEC rulemaking on any unrelated topic",
+              "Decision: LPs should roll into every continuation-vehicle offer without exception, because the historical MOIC data proves the conflict is harmless. Falsifier: none needed, since outperformance data can never be contradicted by any future data",
+              "Decision: continuation vehicles should be banned outright, since any conflict of interest automatically invalidates a financial structure regardless of measured outcomes. Falsifier: any single continuation vehicle that loses money"],
+            correct:0,
+            why:"The best-supported decision holds two things together: participate deal-by-deal with real underwriting rather than treating the aggregate track record as proof, while naming a precise, falsifiable pair of future observations — volume staying high even after the liquidity drought ends, AND newly measured non-self-selected cohorts failing to outperform — that would flip the thesis from 'genuinely value-creating' to 'persisting mainly because LPs have no better option.'",
+            wrongWhy:{
+              1:"An unrelated future SEC rulemaking has no logical bearing on whether THIS thesis about continuation funds is true or false; a valid falsifier must be an observation the thesis itself predicts.",
+              2:"Treating a GP-selected historical sample as permanent proof, immune to any future contradicting data, is precisely the overgeneralization this article's Section 3 case question already warned against.",
+              3:"A blanket ban based on the mere presence of conflict, with a falsifier that has nothing to do with the thesis's actual causal claim (value creation vs. forced participation), ignores the article's own evidence that measured outcomes so far have been favorable."},
+            generalizes:"The strongest policy or investment recommendation names not just an action, but the SPECIFIC future pattern of evidence — including a scenario where a currently supportive data point (self-selected outperformance) would need to hold up under a harder test (non-self-selected cohorts, post-drought volume) — that would overturn the thesis if observed.",
+          }}/>
+          <p style={{marginTop:18}}>The most important unresolved question is not whether the conflict of interest is real — every party involved, including the industry's own guidance body, agrees that it is. It is whether continuation funds are creating genuinely new value by letting proven operators hold winning assets longer, or whether today's favorable numbers are simply what a conflicted structure looks like right before the first real down-cycle tests it under distress instead of by choice.</p>
+          <Sources/>
+          <div className="navbtns"><button onClick={()=>jump(6)}>← Learning Summary</button><span/></div>
+        </section>
+
+      </main>
+    </div>
+  );
+}
+
+/* ---------- Learning Summary component -------------------------------------- */
+function Summary({answers,interp}){
+  const [gov,setGov]=useState(""); const [govDone,setGovDone]=useState(false);
+  const [applyA,setApplyA]=useState(""); const [applyB,setApplyB]=useState("");
+  const [evalOut,setEvalOut]=useState(null);
+
+  const entries=Object.entries(answers);
+  const byType={}; entries.forEach(([id,a])=>{const t=a.type;byType[t]=byType[t]||{ok:0,n:0};byType[t].n++;if(a.ok)byType[t].ok++;});
+  const nCorrect=entries.filter(([,a])=>a.ok).length;
+
+  const nums=entries.filter(([,a])=>a.type==="num"&&a.meta);
+  let bias=null;
+  if(nums.length){ const s=nums.map(([,a])=>(a.meta.val-a.meta.actual)/Math.abs(a.meta.actual));
+    const avg=s.reduce((x,y)=>x+y,0)/s.length; bias=Math.round(avg*100); }
+
+  const principleMap={
+    wu1:"Many independent actors making the same individually sound choice can create a concentrated, aggregate exposure no single actor's own process was built to see",
+    wu2:"A falling per-unit rate does not guarantee a falling total; check whether an induced rise in volume offsets or reverses the per-unit gain",
+    wu3:"Legal remittance and economic incidence are different questions, and a moving aggregate does not by itself prove or disprove a specific policy's cost",
+    "bg-mc1":"When a trend is stitched from more than one data source, trust the shape and order of magnitude more than any single year's exact figure, and check agreement at the point of overlap",
+    "bg-num1":"A single year's growth rate extrapolated forward is a rough ceiling, not a forecast — check whether the driver of that growth is a one-time catch-up or a durable baseline",
+    "q1-mc1":"Historical outperformance drawn from a self-selected sample does not automatically generalize to a blanket future rule",
+    "q1-case1":"A deal-specific alignment check (this deal's fairness opinion, this deal's carry rollover) screens an individual transaction better than an aggregate historical average",
+    "q2-mc1":"A trend that began before its supposed cause is strong evidence the timing overlap is not the actual driver",
+    "q2-num1":"A reported adoption rate for the most capable slice of a population usually overstates the rate for the full, more varied population",
+    "q3-mc1":"A percentage-point gap and a percent relative change describe the same numbers very differently, and conflating them can misstate magnitude by several times",
+    "q3-case1":"A multi-year trend driven by a documented cyclical condition is only as durable as that condition, not automatically permanent",
+    "concl-e1":"The strongest recommendation names the specific future evidence pattern, including a harder test of a currently favorable data point, that would overturn the thesis",
+  };
+  const missed=entries.filter(([,a])=>!a.ok).map(([id])=>principleMap[id]).filter(Boolean);
+
+  // Apply-It evaluator -- LOCAL FALLBACK ONLY. This static, single-file artifact has no
+  // secure server-side API path, so per artifact-generator.md this function is isolated
+  // behind one call site (the button below) and implements an evidence-based, non-keyword
+  // fallback: it checks for the PRESENCE of all four required reasoning moves (thesis,
+  // load-bearing assumption, disconfirming evidence, pre-mortem) and reports which are
+  // weakest or missing as an explicit gap list, rather than pattern-matching specific words
+  // as "correct." If a secure API path is added later, swap this function's body for one
+  // server-side call that sends the full article text plus the reader's response and asks
+  // a model to judge the same four parts in 3-5 sentences -- the call site below does not
+  // need to change.
+  function evaluateApply(a,b){
+    const txt=a.toLowerCase();
+    const gaps=[];
+    const hasThesis=a.trim().length>25;
+    const hasAssume=/assum|depend|requir|must hold|relies|hinge/.test(txt);
+    const hasDis=/disconfirm|undermin|falsif|against|counter|contradic|weakest|thin/.test(txt);
+    const hasPre=/pre-?mortem|if this fails|fail|12 month|most likely reason|because/.test(txt);
+    if(!hasThesis) gaps.push("a clear one-sentence so-what thesis");
+    if(!hasAssume) gaps.push("the single load-bearing assumption that must hold");
+    if(!hasDis) gaps.push("the evidence that would most undermine your thesis");
+    if(!hasPre) gaps.push("a one-line pre-mortem (if it fails in 12 months, the likely reason)");
+    const climbs=/so |therefore|which means|implies|should|because/.test(txt) && /\d/.test(a);
+    let verdict;
+    if(gaps.length===0) verdict = climbs
+      ? "All four parts are present and your reasoning climbs from observation to a quantified, decision-relevant implication. Strongest next step: pressure-test the assumption you named against the disconfirming evidence you cited."
+      : "All four parts are present, but the response stays descriptive. Push it to an implication: name what a decision-maker should DO and attach a number.";
+    else verdict = "Weakest or missing: "+gaps.join("; ")+". A transfer thesis needs all four — recommendation, load-bearing assumption, disconfirming evidence, and pre-mortem — before it's decision-ready.";
+    const bCheck = b.trim().length<20 ? " (Also add prompt (b): name one prior article's principle that reinforces or conflicts with today's.)" : "";
+    return verdict+bCheck;
+  }
+
+  return (
+    <div>
+      <h3>1 · Your score</h3>
+      <div className="scoregrid">
+        <div>Total correct</div><div className="v">{nCorrect} / {entries.length||0}</div>
+        {Object.entries(byType).map(([t,o])=>(
+          <React.Fragment key={t}>
+            <div>{t==="mc"?"Multiple choice":"Numeric estimates"}</div><div className="v">{o.ok} / {o.n}</div>
+          </React.Fragment>
+        ))}
+      </div>
+      {bias!==null && <p style={{fontSize:14}}>Numeric bias: on average your estimates were {bias>0?"about "+bias+"% high":bias<0?"about "+Math.abs(bias)+"% low":"right on"} versus the actual values{bias<0?" — you tend to under-estimate magnitudes.":bias>0?" — you tend to over-estimate magnitudes.":"."}</p>}
+
+      <h3>2 · Your governing insight (write before revealing ours)</h3>
+      <p style={{fontSize:14}}>You saw five charts. Write the single most non-obvious insight you would defend to a skeptical LP allocator.</p>
+      {!govDone && <>
+        <textarea value={gov} onChange={e=>setGov(e.target.value)} placeholder="One or two sentences…"/>
+        <button className="btn" disabled={gov.trim().length<20} onClick={()=>setGovDone(true)}>Reveal the article's three insights</button>
+      </>}
+      {govDone && <>
+        <div className="yours"><b>Your insight:</b> {gov}</div>
+        <div style={{marginTop:10}}>
+          <div className="insight-card"><b>1.</b> The same information advantage that creates the pricing conflict (the GP knows this asset better than any outside bidder) is also the mechanism behind the reported outperformance (the GP is self-selecting its own proven "keeper" assets) — the conflict and the value case are not competing explanations, they are two effects of one underlying cause, which is why neither a blanket "always roll" nor a blanket "always distrust it" rule follows from the evidence.</div>
+          <div className="insight-card"><b>2.</b> The safeguard everyone points to (the SEC's fairness-opinion rule) has had no legal force since June 2024, so LP protection today rests entirely on voluntary industry norms holding up under competitive pressure — a structurally different, and less tested, form of protection than a binding regulation, even though day-to-day practice looks similar.</div>
+          <div className="insight-card"><b>3.</b> Continuation-fund growth and the private-equity liquidity drought (DPI running roughly half its historical norm) rose together for a documented, causal reason, not just a coincidence of timing — which means today's record volume is at least partly a symptom of a stuck exit market, and the honest test of whether the structure creates real value, rather than just being the least-bad option available, will only arrive once that drought ends.</div>
+        </div>
+      </>}
+
+      <h3>3 · Apply it</h3>
+      <p style={{fontSize:14}}><b>(a) Transfer to a new domain.</b> A mid-size regional hospital system's own internal physician staffing company periodically "sells" specific physician practices from an older joint venture into a new joint venture that the SAME hospital system's management also controls, resetting management fees and letting departing physician-investors cash out while continuing ones roll their equity forward on new terms. In four labeled parts, write: (1) a one-sentence so-what thesis about whether this restructuring is more likely value-creating or conflict-driven, (2) the single load-bearing assumption that must hold for your thesis to be right, (3) the strongest evidence that would undermine it, and (4) a one-line pre-mortem: "If this restructuring fails within 12 months, the most likely reason is ___."</p>
+      <textarea value={applyA} onChange={e=>setApplyA(e.target.value)} placeholder="1) Thesis…  2) Assumption…  3) Disconfirming evidence…  4) Pre-mortem…"/>
+      <p style={{fontSize:14,marginTop:12}}><b>(b) Cross-link to a prior article.</b> Name one principle from an earlier article (FIFA's asset-owner-vs-risk-bearer split, GLP-1's per-unit-vs-aggregate distinction, immaculate disinflation's sacrifice-ratio sign test, private credit's measurement-artifact lesson, streaming's fixed-cost-scale lesson, AI capex's spend-vs-revenue gap, Baumol's productivity-tracks-price lesson, gene therapy's value-vs-adoption split, passive investing's aggregate-concentration lesson, AI power's rebound-effect lesson, retail media's margin-gap-without-incrementality-proof lesson, the tariff article's legal-vs-economic-incidence distinction, or the antibiotic article's stewardship-vs-volume-pricing collision) that most reinforces or conflicts with today's dual-role conflict tension, and say why.</p>
+      <textarea value={applyB} onChange={e=>setApplyB(e.target.value)} placeholder="Prior principle + how it connects…"/>
+      <button className="btn" disabled={applyA.trim().length<30} onClick={()=>setEvalOut(evaluateApply(applyA,applyB))}>Evaluate my reasoning</button>
+      {evalOut && <div className="authored"><div className="h">Reasoning check (local evaluator)</div>{evalOut}</div>}
+
+      <h3>4 · Principles to revisit</h3>
+      {missed.length===0
+        ? <p style={{fontSize:14}}>Nothing missed so far — as you answer more questions, any you miss will appear here by the principle they test.</p>
+        : <div>{missed.map((m,i)=><div key={i} className="miss"><span className="tag">revisit</span>{m}</div>)}</div>}
+    </div>
+  );
+}
+
+/* ---------- Sources ----------------------------------------------------------*/
+function Sources(){
+  return (
+    <div style={{marginTop:24}}>
+      <h3>Sources</h3>
+      <div className="src">
+        <p>• Jefferies Private Capital Advisory. "2025 Global Secondary Market Review: Another Record-Breaking Year." Jefferies.com, Feb. 2026 — global secondary market $240B in 2025 (+48% YoY); LP-led $125B (52% of total); GP-led $115B (48% of total, +53% YoY); GP-led 2024 $75B; ~80% of top-100 sponsors by AUM completed a CV; GP-led secondaries ≈14% of sponsor-backed exit volume in 2025; buyout ≈70% of GP-led volume; single-asset CVs &gt;50% of CV volume for the first time in 2025; average CV size ≈$900M; 29 GP-led deals &gt;$1B in 2025 vs. 21 in 2024; dedicated secondary capital $327B (+14% YoY); LP portfolio pricing 87% of NAV (2025) vs. 89% (2024). <a href="https://www.jefferies.com/insights/the-big-picture/2025-global-secondary-market-review-another-record-breaking-year/" target="_blank" rel="noopener">jefferies.com</a></p>
+        <p>• Van Mierlo, Koen. "The Continuation Vehicle Boom: Structural Shift or Liquidity Patch?" CAIA Association, Carried Interest blog, Feb. 2026 — CVs = 89% of GP-led volume and ≈43% of total secondary volume in 2025 (citing Jefferies Jan. 2026 report); GP-led secondaries ≈14% of 2025 exits; ~80% of CVs in H1 2024 had GP commitments ≥5% (citing Jefferies Jul. 2024 report); distributions/NAV trailed historical norms by ~15pp (28% vs. 13%), 2022-2024, and 2018-2021 vintage DPI ~0.2x below budget (citing Bain 2025); LPs ranking DPI "most critical" rose 2.5x vs. 3 years earlier (citing McKinsey 2025). <a href="https://caia.org/blog/2026/02/11/continuation-vehicle-boom-structural-shift-or-liquidity-patch/" target="_blank" rel="noopener">caia.org</a></p>
+        <p>• O'Leary, Katie. "The Rise of Continuation Funds: A Deep Dive." Chronograph, Nov. 2025 — CVs ≈79% of GP-led secondaries activity; CVs consumed 13% of PE exit activity in 2024, up from 5% in 2020 and 2021 (citing Bain 2025); Morgan Stanley analysis of 2018-2023 CV vintages found CVs outperformed buyout-fund MOICs across all quartiles with lower loss ratios; Upwelling Capital Group research: LPs systematically declining CV rollovers incur ≈8% opportunity cost per vintage year; GP commitment in CVs 5%-25% vs. 2%-5% in a traditional fund; GP expected to roll over 100% of crystallized carry. <a href="https://www.chronograph.pe/the-rise-of-continuation-funds-a-deep-dive/" target="_blank" rel="noopener">chronograph.pe</a></p>
+        <p>• Institutional Limited Partners Association (ILPA). "Continuation Funds: Considerations for Limited Partners and General Partners." May 2023 — guidance recommending GPs roll over 100% of crystallized carried interest into a continuation vehicle absent a stated justification, and recommending independent fairness/valuation opinions and LPAC review. <a href="https://ilpa.org/wp-content/uploads/2023/05/Continuation-Funds-Considerations-for-Limited-Partners-and-General-Partners.pdf" target="_blank" rel="noopener">ilpa.org</a></p>
+        <p>• Morrison Foerster. "Fifth Circuit Vacates SEC Private Fund Adviser Rules." Jun. 12, 2024 — U.S. Court of Appeals for the Fifth Circuit unanimously vacated the SEC's 2023 Private Fund Adviser Rules, including the Adviser-Led Secondary Rule requiring a fairness or valuation opinion for GP-led secondary transactions by SEC-registered advisers, on Jun. 5, 2024. <a href="https://www.mofo.com/resources/insights/240612-fifth-circuit-vacates-sec-private-fund-adviser-rules" target="_blank" rel="noopener">mofo.com</a></p>
+        <p>• Willkie Farr &amp; Gallagher. "Potential Areas of SEC Examination Risk for GP-Led Secondaries." Mar. 2025 — discusses how the vacated rule's substance continues to shape SEC examination priorities and industry best practice despite lacking binding legal force. <a href="https://www.willkie.com/publications/2025/03/conflicts-of-interest-in-an-evolving-landscape" target="_blank" rel="noopener">willkie.com</a></p>
+        <p>• Holland &amp; Knight (HLC). "ADIC v. EMG &amp; new ILPA guidelines: What are the implications when structuring a continuation fund?" 2026 — discusses litigation alleging a GP provided different valuation inputs to its LPAC and fairness-opinion advisor than those informing the continuation-vehicle's actual transaction pricing. <a href="https://www.hlc.com/en/publications/adic-v-emg-new-ilpa-guidelines-what-implications-when-structuring-a-continuation-fund" target="_blank" rel="noopener">hlc.com</a></p>
+      </div>
+      <p style={{fontSize:12.5,color:"#777",marginTop:8}}>Note on estimates: this article's own ESTIMATEs are the 2024 total secondary market size (~$162B) and 2024 LP-led volume (~$87B), both derived by disclosed arithmetic from Jefferies' stated 2025 total ($240B), its stated 48% YoY growth rate, and its stated 2024 GP-led figure ($75B); the modeled compounding index in Chart 3, derived from Upwelling Capital Group's stated ~8%-per-vintage-year finding; and the numeric-estimation question "q2-num1," whose target (~15% of all global sponsors) is this article's own Fermi decomposition, disclosed as such, not an independently reported statistic.</p>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+  </script>
+</body>
+</html>
