@@ -1,5 +1,19 @@
 # Artifact Generator
 
+## Reuse vs. Rewrite vs. `pm-interview-coach`
+
+Resolving the spec's open item on artifact-generator reuse: the CDN/script-
+loading section (Direct-File-Open Script Rule below) is reused verbatim from
+`pm-interview-coach`'s `artifact-generator.md` — same package versions, same
+`file://`-safe inlining rules, same gotchas (Recharts URL, prop-types load
+order). Everything else — the state model and component tree — is a full
+rewrite, not an adaptation, because this artifact has no client-side grading:
+there is no `module` tab switcher, no per-stage `{ inputValue, submitted,
+revealed }` state, no `clarifyLog`, no learner-entered `rubricScores`, and no
+Cowork semantic-grading bridge. Progression here is driven entirely by chat
+editing plain constants (`CURRENT_STAGE_INDEX`, `EXHIBITS`, `SCORECARD`)
+between turns, not by the candidate clicking reveal buttons.
+
 ## Output Rule
 
 Build one single self-contained HTML file per session. Never output the

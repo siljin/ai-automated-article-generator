@@ -7,6 +7,17 @@ current phase, topics already used, and graduation status are all derived
 from this table, the same way `pm-interview-coach`'s rotation is derived
 from its own ledger (see that skill's `concept-rotation.md`).
 
+Resolving the spec's open item on ledger-schema consistency: this format
+deliberately mirrors `pm-interview-coach`'s `progress-ledger.md` pattern —
+append-only, one row per session, no separate state file, all rotation/phase
+state derived by reading the table rather than tracked out-of-band. The
+columns differ because the domains differ: `pm-interview-coach` tracks
+concept rotation (Concept | Category | Company | Industry | Difficulty), this
+skill tracks the 4-dimension rubric plus phase gating instead (Structuring |
+Technical Judgment | Reasoning Under Pressure | Communication | Avg |
+Graduated?). Same append-only, derived-state pattern; different columns for a
+different rubric and a phase-gated (not purely rotating) curriculum.
+
 Format: `Date | Phase | Case Topic | Structuring | Technical Judgment | Reasoning Under Pressure | Communication | Avg | Graduated? | Notes`
 
 - **Avg** = average of the four score columns for that row, to 2 decimals.
