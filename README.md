@@ -8,7 +8,7 @@ Automation for two recurring content habits: daily research articles and daily c
 articles/                  Generated interactive research articles
   economic-research/       ER-## series — economics & markets deep dives
   product-ai/              PR-## series — AI product strategy deep dives
-  ai-tpm-bootcamp/          BC-## series — MBB-style AI-PM/TPM case bootcamp (chat-driven, no lesson preamble)
+  ai-tpm-bootcamp/         BC-## series — MBB-style AI-PM/TPM case bootcamp (chat-driven, no lesson preamble)
 
 daily-case-practice/       MBB-style case interview practice content
   CLAUDE.md                Context and workflow for this module
@@ -41,5 +41,5 @@ skills/                    Every skill definition lives here, one folder per ski
 - `skills/economic-research` drives everything under `articles/economic-research/`.
 - `skills/product-ai` drives everything under `articles/product-ai/`.
 - `skills/daily-case-practice` drives everything under `daily-case-practice/cases/` (this skill is also installed separately via Settings > Capabilities — this folder is the versioned source of truth; if they drift, treat this folder as authoritative and repackage/reinstall).
-- Each skill reads its own tracker/ledger before generating new content and appends to it afterward — that state lives next to the skill that owns it, never shared or loose at `skills/` root.
 - `skills/ai-tpm-bootcamp` drives everything under `articles/ai-tpm-bootcamp/` — unlike the other skills, this one is chat-driven: the HTML artifact is a passive case file, and the live case play happens in conversation.
+- Each skill reads its own tracker/ledger before generating new content and appends to it afterward — that state lives next to the skill that owns it, never shared or loose at `skills/` root.

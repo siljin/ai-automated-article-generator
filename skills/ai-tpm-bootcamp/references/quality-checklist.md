@@ -7,7 +7,7 @@ Run this checklist before delivering any session's artifact.
 - [ ] The stage sequence matches `case-engine.md` exactly for the case type (7 stages standard, 10 for Capstone).
 - [ ] Every stage that closed did so via either a valid advance condition or a forcing device — never left ambiguously open.
 - [ ] No closed stage was reopened; state only moved forward.
-- [ ] The Recommendation stage ended the case (or, for Capstone, the second Recommendation did, after both Diagnose/Decision/Curveball loops).
+- [ ] The Recommendation stage ended the case (for Capstone, this comes after both Diagnose/Decision/Curveball loops — Capstone has a single Recommendation stage, not two).
 - [ ] Turn caps used match the case's phase (see `case-engine.md` → Phase-Specific Tuning), not a different phase's caps.
 - [ ] If a forcing device fired, the in-fiction line matches the stage's cataloged device (or a clear variant of it), not a generic "time's up."
 

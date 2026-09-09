@@ -59,9 +59,10 @@ appears) — it is never a literal repeat of the same case.
 ## Manual Override
 
 The candidate can say something equivalent to "skip ahead anyway" at any
-point to move to the next phase regardless of gating state. Log the override
-explicitly in `progress-ledger.md` (a note in the row, not a separate
-column) so future sessions know graduation was manual, not earned.
+point to move to the next phase regardless of gating state. Record the
+override by writing `Yes (override)` in the ledger row's `Graduated?` column
+in `progress-ledger.md`, plus a brief explanatory note in `Notes`, so future
+sessions know graduation was manual, not earned.
 
 ## What Gets Written Into the Artifact
 

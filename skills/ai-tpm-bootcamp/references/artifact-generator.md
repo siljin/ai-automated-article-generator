@@ -72,12 +72,12 @@ constants at the top of `app.js` that the components render from directly
 - `CASE`: `{ title, phase, caseTopic, situation, givens: string[] }`
 - `STAGES`: ordered array of stage-name strings. Standard case: the 7 names from `case-engine.md`. Capstone case: the 10-name variant (`Diagnose 1`, `Decision 1`, `Curveball 1`, `Diagnose 2`, `Decision 2`, `Curveball 2` in place of the single `Diagnose`/`Decision`/`Curveball`).
 - `CURRENT_STAGE_INDEX`: integer, 0-based index into `STAGES`. This is the one value edited most often — once per stage transition.
-- `EXHIBITS`: array of `{ id, title, type: 'table' | 'chart', chartKind?: 'bar' | 'line', columns: string[], data: object[] }`. `columns[0]` is the category/x-axis key for charts; every exhibit renders its table regardless of `type` — a chart is a supplement to the table, never a replacement (every value must be readable as text, per spec §3's "every value printed exactly, never read off a chart alone").
+- `EXHIBITS`: array of `{ id, title, type: 'table' | 'chart' | 'text', chartKind?: 'bar' | 'line', columns: string[], data: object[] }` for `'table'`/`'chart'` exhibits, or `{ id, title, type: 'text', content: string }` for a `'text'` exhibit — a multi-line preformatted block (e.g. an ASCII architecture diagram or a log excerpt) rendered as a `<pre>` block instead of `columns`/`data`. `columns[0]` is the category/x-axis key for charts; every `'table'`/`'chart'` exhibit renders its table regardless of `type` — a chart is a supplement to the table, never a replacement (every value must be readable as text, per spec §3's "every value printed exactly, never read off a chart alone"). This "renders its table" rule doesn't apply to `'text'` exhibits — there's no tabular data to hide behind anything, so a log/diagram exhibit has nothing else to reconcile against. For `type: 'chart'` exhibits, every column after the first (the category/x-axis column) must be numeric — a non-numeric column selected as a series renders blank/NaN with no error, so don't mark an exhibit as `type: 'chart'` if any of its later columns are non-numeric.
 - `SCORECARD`: `null` until the Debrief stage is reached, then `{ dimensions: { [dimensionName]: { score: 1|2|3|4, note: string } }, avg: number, graduationStatus: string, weakestDimension: string, nextRecommendedFocus: string }`. Dimension keys are exactly the four names from `rubric-and-scoring.md`.
 
 ## Component Tree
 
-- `App` — renders `Header` (title, phase/topic line, `StageTracker`), then `CaseBrief`, then `Exhibits`, then `Scorecard`.
+- `App` — renders a header block (title, phase/topic line, `StageTracker`) inline, then `CaseBrief`, then `Exhibits`, then `Scorecard`.
 - `StageTracker` — one pill per `STAGES` entry; class `stage-done` (index < `CURRENT_STAGE_INDEX`), `stage-active` (index === `CURRENT_STAGE_INDEX`), or `stage-pending` (index > `CURRENT_STAGE_INDEX`).
 - `CaseBrief` — renders `CASE.situation` and `CASE.givens`.
 - `Exhibits` — maps `EXHIBITS`; renders `ExhibitChart` before `ExhibitTable` when `type === 'chart'`, otherwise just `ExhibitTable`. Renders nothing (returns `null`) if `EXHIBITS` is empty.
@@ -100,6 +100,11 @@ needs two small, targeted edits (one in `app.js`, the identical one in
 
 1. Change `CURRENT_STAGE_INDEX` to the new stage's index.
 2. If the stage introduced a new exhibit (e.g. a data table revealed mid-case), append one object to the `EXHIBITS` array.
+
+After each pair of matching edits, do a quick check that the inlined script
+body in `index.html` still matches `app.js` (e.g. extract the inlined
+script's text and diff it against `app.js`) — cheap insurance against the
+two copies silently drifting apart mid-session.
 
 Use a targeted string-replace edit for both, not a full-file rewrite —
 `index.html` is large enough that a heredoc-based full rewrite risks

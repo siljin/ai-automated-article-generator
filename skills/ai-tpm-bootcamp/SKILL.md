@@ -58,7 +58,7 @@ Read these files in order before running a session:
 4. Run the case live in chat: present Situation, then stay in character through Clarify → Diagnose → Decision → Curveball (twice, for Capstone), enforcing the turn caps and forcing devices from `case-engine.md`. Update `CURRENT_STAGE_INDEX` in the artifact at each transition.
 5. Recommendation stage: the candidate commits to a call (or memo, for Capstone); chat drops character.
 6. Score the case against `rubric-and-scoring.md`; write the scorecard and justifications into the artifact's `SCORECARD` constant; render the final Debrief state.
-7. Log the session in `progress-ledger.md`: date, phase, case topic, the four rubric scores, average, graduation status.
+7. Log the session in `progress-ledger.md`: date, phase, case topic, the four rubric scores, average, graduation status, and the artifact's `SCORECARD.nextRecommendedFocus` text in the Notes column.
 8. Reply in 1-2 sentences: phase, case topic, scores, and graduation status. Don't re-explain the mechanics every time.
 
 ## Non-Negotiables

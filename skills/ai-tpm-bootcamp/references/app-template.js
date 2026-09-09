@@ -2,6 +2,8 @@ const {
   ResponsiveContainer, BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend
 } = Recharts;
 
+const SERIES_COLORS = ["#3b73e0", "#2f9e52", "#d97706", "#b42318"];
+
 // ---- CASE:meta (fill per session) ----
 const CASE = {
   title: "CASE_TITLE_PLACEHOLDER",
@@ -45,15 +47,16 @@ function StageTracker() {
 }
 
 function CaseBrief() {
+  const givens = CASE.givens || [];
   return (
     <section className="card">
       <h2>Situation</h2>
       <p>{CASE.situation}</p>
-      {CASE.givens.length > 0 && (
+      {givens.length > 0 && (
         <div>
           <h3>Case Givens</h3>
           <ul>
-            {CASE.givens.map((g, i) => <li key={i}>{g}</li>)}
+            {givens.map((g, i) => <li key={i}>{g}</li>)}
           </ul>
         </div>
       )}
@@ -92,7 +95,10 @@ function ExhibitChart({ exhibit }) {
           <YAxis />
           <Tooltip />
           <Legend />
-          {yKeys.map(k => <SeriesComp key={k} dataKey={k} />)}
+          {yKeys.map((k, i) => {
+            const color = SERIES_COLORS[i % SERIES_COLORS.length];
+            return <SeriesComp key={k} dataKey={k} fill={color} stroke={color} />;
+          })}
         </ChartComp>
       </ResponsiveContainer>
     </div>
@@ -108,7 +114,7 @@ function Exhibits() {
         <div key={ex.id} className="exhibit">
           <h3>{ex.title}</h3>
           {ex.type === "chart" && <ExhibitChart exhibit={ex} />}
-          <ExhibitTable exhibit={ex} />
+          {ex.type === "text" ? <pre className="exhibit-log">{ex.content}</pre> : <ExhibitTable exhibit={ex} />}
         </div>
       ))}
     </section>
@@ -129,7 +135,7 @@ function Scorecard() {
           ))}
         </tbody>
       </table>
-      <p><strong>Average:</strong> {SCORECARD.avg.toFixed(2)}</p>
+      <p><strong>Average:</strong> {Number(SCORECARD.avg).toFixed(2)}</p>
       <p><strong>Graduation status:</strong> {SCORECARD.graduationStatus}</p>
       <p><strong>Weakest dimension:</strong> {SCORECARD.weakestDimension}</p>
       <p><strong>Next recommended focus:</strong> {SCORECARD.nextRecommendedFocus}</p>
