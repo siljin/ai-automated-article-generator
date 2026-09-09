@@ -2,14 +2,22 @@
   "articles": [
     {
       "slug": "ai-product-lifecycle-spine",
-      "title": "Phase 0 — AI Product Lifecycle Spine: How Shopify Built Sidekick Across All Seven Phases",
+      "title": "Phase 0 \u2014 AI Product Lifecycle Spine: How Shopify Built Sidekick Across All Seven Phases",
       "type": "AI Product Lifecycle Spine (Phase 0)",
-      "lifecyclePhases": ["Feasibility", "Design", "Build", "Evaluate", "Deploy", "Scale", "Govern"],
+      "lifecyclePhases": [
+        "Feasibility",
+        "Design",
+        "Build",
+        "Evaluate",
+        "Deploy",
+        "Scale",
+        "Govern"
+      ],
       "governingPrinciple": "Decisions made in Feasibility determine what is possible at Scale, and the feedback loop from Govern back to Design can take years; the most expensive AI product mistakes are made early and discovered late.",
       "sectionPrinciples": [
-        "Early ML infrastructure investment (shared embedding pipelines, modular platforms) becomes a force multiplier for every downstream AI feature — the team that builds shared primitives ships faster than the one that rebuilds them per feature.",
-        "Evaluation infrastructure is not optional overhead — it is the mechanism that determines whether you can trust an AI system enough to ship it; a judge correlating 0.61 with humans is useful, one at 0.02 is noise.",
-        "When your reward signal has a gap, your model will exploit it — every RL-trained production system must treat the reward function as an adversarial surface to harden."
+        "Early ML infrastructure investment (shared embedding pipelines, modular platforms) becomes a force multiplier for every downstream AI feature \u2014 the team that builds shared primitives ships faster than the one that rebuilds them per feature.",
+        "Evaluation infrastructure is not optional overhead \u2014 it is the mechanism that determines whether you can trust an AI system enough to ship it; a judge correlating 0.61 with humans is useful, one at 0.02 is noise.",
+        "When your reward signal has a gap, your model will exploit it \u2014 every RL-trained production system must treat the reward function as an adversarial surface to harden."
       ],
       "completedAt": "2026-06-23"
     },
@@ -17,12 +25,14 @@
       "slug": "when-not-to-use-ai",
       "title": "When Not to Use AI: Google's Feasibility Gates, and the Failure That Skipped Them",
       "type": "AI Feasibility & Technical Scoping (Type 1)",
-      "lifecyclePhases": ["Feasibility"],
-      "governingPrinciple": "The right feasibility question is never 'can we use AI for this?' but 'what would have to be true about our data, our error costs, and the stability of the world for AI to beat a simple heuristic?' — feasibility is a data-readiness and error-cost audit, not a verdict on capability. Google made 'Don't be afraid to launch without machine learning' the first rule of its own ML playbook, and still shipped Google Flu Trends, which overestimated flu for 100 of 108 weeks because the data-stability gate was never checked.",
+      "lifecyclePhases": [
+        "Feasibility"
+      ],
+      "governingPrinciple": "The right feasibility question is never 'can we use AI for this?' but 'what would have to be true about our data, our error costs, and the stability of the world for AI to beat a simple heuristic?' \u2014 feasibility is a data-readiness and error-cost audit, not a verdict on capability. Google made 'Don't be afraid to launch without machine learning' the first rule of its own ML playbook, and still shipped Google Flu Trends, which overestimated flu for 100 of 108 weeks because the data-stability gate was never checked.",
       "sectionPrinciples": [
-        "Feasibility is not 'can AI do this?' but 'does AI beat a transparent heuristic once the cost of a wrong answer is priced in?' — start with the simplest thing that could work and make AI earn the incremental value.",
-        "An AI feature is only as feasible as its data is representative, fresh, and stable — data readiness is both a precondition and a continuous property, and degradation is usually silent.",
-        "Specify a v1 AI feature as a reward function and an error-cost operating point (precision vs recall) with monitored thresholds — not as a deterministic feature spec."
+        "Feasibility is not 'can AI do this?' but 'does AI beat a transparent heuristic once the cost of a wrong answer is priced in?' \u2014 start with the simplest thing that could work and make AI earn the incremental value.",
+        "An AI feature is only as feasible as its data is representative, fresh, and stable \u2014 data readiness is both a precondition and a continuous property, and degradation is usually silent.",
+        "Specify a v1 AI feature as a reward function and an error-cost operating point (precision vs recall) with monitored thresholds \u2014 not as a deterministic feature spec."
       ],
       "completedAt": "2026-06-23"
     },
@@ -30,12 +40,14 @@
       "slug": "stripe-data-readiness-before-model-selection",
       "title": "Data Readiness Before Model Selection: How Stripe Earned the Right to Build a Payments Foundation Model",
       "type": "AI Feasibility & Technical Scoping (Type 1)",
-      "lifecyclePhases": ["Feasibility"],
-      "governingPrinciple": "Model selection is the last decision in an AI feature, not the first: feasibility is gated by whether the product's own data-generating process yields fresh, representative ground-truth labels as a byproduct, and whether the error is tunable to each user's economics. Stripe could build a payments foundation model (card-testing detection 59% to 97% overnight) only because a decade in the payment flow had already made its data ready — dispute and card-network labels arrive for free, 90% of cards are seen across merchants, and the problem was always framed as a precision/recall operating point, not a yes/no verdict.",
+      "lifecyclePhases": [
+        "Feasibility"
+      ],
+      "governingPrinciple": "Model selection is the last decision in an AI feature, not the first: feasibility is gated by whether the product's own data-generating process yields fresh, representative ground-truth labels as a byproduct, and whether the error is tunable to each user's economics. Stripe could build a payments foundation model (card-testing detection 59% to 97% overnight) only because a decade in the payment flow had already made its data ready \u2014 dispute and card-network labels arrive for free, 90% of cards are seen across merchants, and the problem was always framed as a precision/recall operating point, not a yes/no verdict.",
       "sectionPrinciples": [
-        "The binding feasibility constraint for an AI feature is the data-generating process, not the model: AI is feasible where the product itself produces fresh, representative ground-truth labels as a byproduct — and that position, not the architecture, is the moat a competitor cannot copy.",
-        "Data readiness is continuous, not a launch-day checkbox — labels drift, distributions shift per segment, and the act of acting on the model can censor the very labels you need to keep measuring it; budget for freshness and counterfactual evaluation at scoping time.",
-        "Scope a v1 AI feature as a reward function and a precision/recall operating point chosen by each user's error economics — and treat model selection (heuristic to ensemble to foundation model) as the last step, unlocked by data readiness, not the first."
+        "The binding feasibility constraint for an AI feature is the data-generating process, not the model: AI is feasible where the product itself produces fresh, representative ground-truth labels as a byproduct \u2014 and that position, not the architecture, is the moat a competitor cannot copy.",
+        "Data readiness is continuous, not a launch-day checkbox \u2014 labels drift, distributions shift per segment, and the act of acting on the model can censor the very labels you need to keep measuring it; budget for freshness and counterfactual evaluation at scoping time.",
+        "Scope a v1 AI feature as a reward function and a precision/recall operating point chosen by each user's error economics \u2014 and treat model selection (heuristic to ensemble to foundation model) as the last step, unlocked by data readiness, not the first."
       ],
       "completedAt": "2026-06-24"
     },
@@ -43,17 +55,31 @@
       "slug": "PR-05-airbnb-model-vs-heuristic",
       "title": "When a Problem Warrants a Model, Not a Heuristic: Airbnb's Climb from Rules to Reinforcement Learning",
       "type": "AI Feasibility & Technical Scoping (Type 1)",
-      "lifecyclePhases": ["Feasibility"],
-      "governingPrinciple": "Sophistication is not feasibility: the right question before building a model is not 'can a model do this?' but 'does the data let a model generalize and differentiate in ways a heuristic cannot — and does that advantage survive contact with the business metric, not just the offline score?' Airbnb's location-retrieval climb proves it via the rung that failed: a statistics method that fit past bookings better than any rule (+1.05% offline recall) produced no statistically significant change in uncancelled bookers, while the ML model moved bookers +1.8% and the full journey reached +2.66% cumulatively.",
+      "lifecyclePhases": [
+        "Feasibility"
+      ],
+      "governingPrinciple": "Sophistication is not feasibility: the right question before building a model is not 'can a model do this?' but 'does the data let a model generalize and differentiate in ways a heuristic cannot \u2014 and does that advantage survive contact with the business metric, not just the offline score?' Airbnb's location-retrieval climb proves it via the rung that failed: a statistics method that fit past bookings better than any rule (+1.05% offline recall) produced no statistically significant change in uncancelled bookers, while the ML model moved bookers +1.8% and the full journey reached +2.66% cumulatively.",
       "sectionPrinciples": [
-        "A model is warranted only where the problem has context a rule cannot use AND the data to learn that context exists; otherwise the transparent heuristic is the correct, cheaper answer — and an offline-metric win is only a hypothesis until a business-metric A/B confirms it.",
+        "A model is warranted only where the problem has context a rule cannot use AND the data to learn that context exists; otherwise the transparent heuristic is the correct, cheaper answer \u2014 and an offline-metric win is only a hypothesis until a business-metric A/B confirms it.",
         "Specify a v1 AI feature as a reward plus an explicit cost term (an operating point, e.g. recall AND box-size), and confirm the product itself generates fresh, honestly-attributed labels for that reward as a byproduct of normal use.",
-        "A deployed model censors its own future training data, so scope exploration and counterfactual data collection into v1 — retraining on self-selected data cannot escape a blind spot (Airbnb: fresh vs 8-month-stale retraining showed no difference; exploration moved bookers +0.51%)."
+        "A deployed model censors its own future training data, so scope exploration and counterfactual data collection into v1 \u2014 retraining on self-selected data cannot escape a blind spot (Airbnb: fresh vs 8-month-stale retraining showed no difference; exploration moved bookers +0.51%)."
       ],
       "warmUpQuestions": [
-        {"prompt": "A team wants to auto-triage support tickets and is choosing between a keyword rule set and a fine-tuned classifier. Before comparing model accuracy, what is the first question they should answer, and why?", "sourceArticle": "When Not to Use AI: Google's Feasibility Gates", "principle": "Feasibility is whether a model beats a transparent heuristic once error cost is priced in; make the model earn incremental value."},
-        {"prompt": "A logistics startup wants a delivery-ETA feature. What property of its own data-generating process most determines feasibility, and what durable advantage could it create?", "sourceArticle": "Data Readiness Before Model Selection: Stripe", "principle": "AI is feasible where the product produces fresh, representative ground-truth labels as a byproduct; that data position is the moat."},
-        {"prompt": "A new AI feature's offline evaluation looks excellent. Which lifecycle risk does that NOT rule out, and which earlier-phase decision most constrains what you can safely do at scale?", "sourceArticle": "Phase 0 — AI Product Lifecycle Spine", "principle": "Feasibility-phase decisions on data readiness and evaluation set the ceiling on what is trustworthy at scale; a strong offline score does not guarantee online value."}
+        {
+          "prompt": "A team wants to auto-triage support tickets and is choosing between a keyword rule set and a fine-tuned classifier. Before comparing model accuracy, what is the first question they should answer, and why?",
+          "sourceArticle": "When Not to Use AI: Google's Feasibility Gates",
+          "principle": "Feasibility is whether a model beats a transparent heuristic once error cost is priced in; make the model earn incremental value."
+        },
+        {
+          "prompt": "A logistics startup wants a delivery-ETA feature. What property of its own data-generating process most determines feasibility, and what durable advantage could it create?",
+          "sourceArticle": "Data Readiness Before Model Selection: Stripe",
+          "principle": "AI is feasible where the product produces fresh, representative ground-truth labels as a byproduct; that data position is the moat."
+        },
+        {
+          "prompt": "A new AI feature's offline evaluation looks excellent. Which lifecycle risk does that NOT rule out, and which earlier-phase decision most constrains what you can safely do at scale?",
+          "sourceArticle": "Phase 0 \u2014 AI Product Lifecycle Spine",
+          "principle": "Feasibility-phase decisions on data readiness and evaluation set the ceiling on what is trustworthy at scale; a strong offline score does not guarantee online value."
+        }
       ],
       "completedAt": "2026-07-06"
     },
@@ -61,17 +87,32 @@
       "slug": "PR-06-cursor-architecture-teardown",
       "title": "How Cursor Actually Works: The Architecture Is the Product",
       "type": "AI Product Teardown (Type 2)",
-      "lifecyclePhases": ["Build", "Scale"],
-      "governingPrinciple": "In an AI product, the architecture is the product: the constraints a user never sees — a sub-second latency budget, a promise never to store code, the price of one embedding — decide which features can ship. Cursor looks like a code editor with smart autocomplete but is a latency-partitioned, multi-model retrieval system, and nearly every visible product choice traces to an unseen architectural constraint.",
+      "lifecyclePhases": [
+        "Build",
+        "Scale"
+      ],
+      "governingPrinciple": "In an AI product, the architecture is the product: the constraints a user never sees \u2014 a sub-second latency budget, a promise never to store code, the price of one embedding \u2014 decide which features can ship. Cursor looks like a code editor with smart autocomplete but is a latency-partitioned, multi-model retrieval system, and nearly every visible product choice traces to an unseen architectural constraint.",
       "sectionPrinciples": [
-        "Partition an AI product by latency budget first, then choose models and retrieval per lane — the deadline, not the model's intelligence, decides how much context and machinery each feature can afford (Cursor: <1s Tab lane on an in-house model vs a seconds-OK agent lane with semantic search + frontier-model routing).",
-        "Turn your hardest constraint into the promise: when a non-negotiable (privacy, latency, cost) forces specific machinery, make that machinery the differentiator you sell — and verify the assumption it rests on (Cursor's 'no code at rest' forced the Merkle-tree design and became the enterprise wedge; it rests on embeddings being irreversible, which is only hedged).",
-        "At scale, cut redundant work before shopping for a cheaper model: cache what rarely changes and reuse what is near-identical across users — elimination breaks the coupling between cost and data size that a faster model cannot (Cursor: content-keyed embedding cache + 92%-similar teammate-index reuse cut p99 time-to-first-query from 4.03h to 21s)."
+        "Partition an AI product by latency budget first, then choose models and retrieval per lane \u2014 the deadline, not the model's intelligence, decides how much context and machinery each feature can afford (Cursor: <1s Tab lane on an in-house model vs a seconds-OK agent lane with semantic search + frontier-model routing).",
+        "Turn your hardest constraint into the promise: when a non-negotiable (privacy, latency, cost) forces specific machinery, make that machinery the differentiator you sell \u2014 and verify the assumption it rests on (Cursor's 'no code at rest' forced the Merkle-tree design and became the enterprise wedge; it rests on embeddings being irreversible, which is only hedged).",
+        "At scale, cut redundant work before shopping for a cheaper model: cache what rarely changes and reuse what is near-identical across users \u2014 elimination breaks the coupling between cost and data size that a faster model cannot (Cursor: content-keyed embedding cache + 92%-similar teammate-index reuse cut p99 time-to-first-query from 4.03h to 21s)."
       ],
       "warmUpQuestions": [
-        {"prompt": "A note-taking app wants both an inline 'finish my sentence' suggestion and a 'summarize everything I wrote this month' command. How should the team split the architecture, and what decides that split?", "sourceArticle": "How Cursor Actually Works: The Architecture Is the Product", "principle": "Partition by latency budget first: a sub-second inline lane (small context, fast cheap model) vs a slower retrieval-heavy lane (search over history, frontier model)."},
-        {"prompt": "A startup pitches 'we never store your data, only embeddings.' What single assumption must you verify before that becomes a compliance claim, and why?", "sourceArticle": "How Cursor Actually Works: The Architecture Is the Product", "principle": "A privacy-as-promise architecture is only as strong as the irreversibility of what it stores; verify embeddings/transforms cannot reconstruct the protected data before marketing the promise."},
-        {"prompt": "A service is slow to onboard new enterprise customers with huge datasets. Before buying faster hardware, what cheaper structural move should the team consider first, and what pattern makes it work?", "sourceArticle": "How Cursor Actually Works: The Architecture Is the Product", "principle": "Eliminate duplicated work (cache + cross-user reuse of near-identical data) before buying speed — elimination breaks the link between cost and data size that faster hardware cannot."}
+        {
+          "prompt": "A note-taking app wants both an inline 'finish my sentence' suggestion and a 'summarize everything I wrote this month' command. How should the team split the architecture, and what decides that split?",
+          "sourceArticle": "How Cursor Actually Works: The Architecture Is the Product",
+          "principle": "Partition by latency budget first: a sub-second inline lane (small context, fast cheap model) vs a slower retrieval-heavy lane (search over history, frontier model)."
+        },
+        {
+          "prompt": "A startup pitches 'we never store your data, only embeddings.' What single assumption must you verify before that becomes a compliance claim, and why?",
+          "sourceArticle": "How Cursor Actually Works: The Architecture Is the Product",
+          "principle": "A privacy-as-promise architecture is only as strong as the irreversibility of what it stores; verify embeddings/transforms cannot reconstruct the protected data before marketing the promise."
+        },
+        {
+          "prompt": "A service is slow to onboard new enterprise customers with huge datasets. Before buying faster hardware, what cheaper structural move should the team consider first, and what pattern makes it work?",
+          "sourceArticle": "How Cursor Actually Works: The Architecture Is the Product",
+          "principle": "Eliminate duplicated work (cache + cross-user reuse of near-identical data) before buying speed \u2014 elimination breaks the link between cost and data size that faster hardware cannot."
+        }
       ],
       "completedAt": "2026-07-13"
     },
@@ -79,17 +120,33 @@
       "slug": "PR-07-github-copilot-architecture-teardown",
       "title": "How GitHub Copilot Actually Works: Context Assembly, the Filter Gate, and a Reward Function Rebuilt Twice",
       "type": "AI Product Teardown (Type 2)",
-      "lifecyclePhases": ["Build", "Evaluate", "Scale"],
-      "governingPrinciple": "In an AI coding assistant, the product is not the gray suggested text a developer sees — it is the invisible system that decides what context a model gets to look at, and the equally invisible metric that decides whether that system keeps its job. GitHub Copilot looks like autocomplete. Underneath, every visible quality gain came from a context-assembly pipeline most users never learn exists, and GitHub had to publicly admit it optimized that pipeline against the wrong number, not once, but in two different eras of the product.",
+      "lifecyclePhases": [
+        "Build",
+        "Evaluate",
+        "Scale"
+      ],
+      "governingPrinciple": "In an AI coding assistant, the product is not the gray suggested text a developer sees \u2014 it is the invisible system that decides what context a model gets to look at, and the equally invisible metric that decides whether that system keeps its job. GitHub Copilot looks like autocomplete. Underneath, every visible quality gain came from a context-assembly pipeline most users never learn exists, and GitHub had to publicly admit it optimized that pipeline against the wrong number, not once, but in two different eras of the product.",
       "sectionPrinciples": [
-        "A model's context window is a scarce, fixed resource; the algorithms that decide what fills it — not the model's raw intelligence — are what a team should invest in first when the window is too small for the problem.",
-        "A silent, upstream decision to not call the model at all is as much a product decision as any visible UI choice — and the reward signal you train that decision (or the visible model) against will show up as the everyday texture of the product, for better or worse.",
-        "Track quality and serving efficiency as separate, independently gated metrics, never as one blended score — and remember that a large efficiency gain (throughput, latency) and a large quality gain announced together usually share an upstream cause, rather than one causing the other."
+        "A model's context window is a scarce, fixed resource; the algorithms that decide what fills it \u2014 not the model's raw intelligence \u2014 are what a team should invest in first when the window is too small for the problem.",
+        "A silent, upstream decision to not call the model at all is as much a product decision as any visible UI choice \u2014 and the reward signal you train that decision (or the visible model) against will show up as the everyday texture of the product, for better or worse.",
+        "Track quality and serving efficiency as separate, independently gated metrics, never as one blended score \u2014 and remember that a large efficiency gain (throughput, latency) and a large quality gain announced together usually share an upstream cause, rather than one causing the other."
       ],
       "warmUpQuestions": [
-        {"prompt": "An AI-assisted writing tool wants both an instant 'finish my sentence' feature and a slower 'summarize my whole draft' feature. Before picking one model for both, what should the team check first, and why?", "sourceArticle": "How GitHub Copilot Actually Works (Type 2 — AI Product Teardown)", "principle": "A model's context window is a scarce, fixed resource; invest first in the algorithms that decide what fills it, not just in a bigger model."},
-        {"prompt": "A support-chat AI silently declines to suggest a reply when its confidence is low. The team is proud of this restraint. What upstream question should they be asking about that silent decision?", "sourceArticle": "How GitHub Copilot Actually Works (Type 2 — AI Product Teardown)", "principle": "A silent suppression is a real product decision, and it inherits whatever proxy metric the system was tuned against — audit that metric, not just the visible UI."},
-        {"prompt": "A team just shipped a model update that improved both serving speed and output quality in the same release. Before crediting the speed gain for the quality gain, what should they check?", "sourceArticle": "How GitHub Copilot Actually Works (Type 2 — AI Product Teardown)", "principle": "Track quality and serving-efficiency metrics separately; two metrics that jump together after one release usually share an upstream cause rather than one causing the other."}
+        {
+          "prompt": "An AI-assisted writing tool wants both an instant 'finish my sentence' feature and a slower 'summarize my whole draft' feature. Before picking one model for both, what should the team check first, and why?",
+          "sourceArticle": "How GitHub Copilot Actually Works (Type 2 \u2014 AI Product Teardown)",
+          "principle": "A model's context window is a scarce, fixed resource; invest first in the algorithms that decide what fills it, not just in a bigger model."
+        },
+        {
+          "prompt": "A support-chat AI silently declines to suggest a reply when its confidence is low. The team is proud of this restraint. What upstream question should they be asking about that silent decision?",
+          "sourceArticle": "How GitHub Copilot Actually Works (Type 2 \u2014 AI Product Teardown)",
+          "principle": "A silent suppression is a real product decision, and it inherits whatever proxy metric the system was tuned against \u2014 audit that metric, not just the visible UI."
+        },
+        {
+          "prompt": "A team just shipped a model update that improved both serving speed and output quality in the same release. Before crediting the speed gain for the quality gain, what should they check?",
+          "sourceArticle": "How GitHub Copilot Actually Works (Type 2 \u2014 AI Product Teardown)",
+          "principle": "Track quality and serving-efficiency metrics separately; two metrics that jump together after one release usually share an upstream cause rather than one causing the other."
+        }
       ],
       "completedAt": "2026-07-18"
     },
@@ -97,17 +154,32 @@
       "slug": "PR-08-perplexity-answer-engine",
       "title": "Perplexity's Answer Engine: Why Retrieval Is the Product, Not the Model",
       "type": "AI Product Teardown (Type 2)",
-      "lifecyclePhases": ["Build", "Scale"],
+      "lifecyclePhases": [
+        "Build",
+        "Scale"
+      ],
       "governingPrinciple": "In an AI answer engine, the retrieval system is the product. The language model on top is a thin, swappable layer; what a user actually experiences as quality, speed, and trustworthy answers is decided almost entirely by the search infrastructure built long before a single token gets generated.",
       "sectionPrinciples": [
-        "Judge and invest in an AI answer product by its retrieval-and-ranking pipeline first — the stage boundaries, what gets rationed to cheap early stages versus expensive late ones — because that architecture, not the model wrapped around it, decides most of what users will call 'quality.'",
-        "A user-facing trust signal that started as an internal architecture byproduct (a citation, a 'tested' badge, a confidence score) needs its own independent accuracy measurement — the fact that the underlying system produces the signal at all does not mean the signal is reliable enough to carry the trust claim built on top of it.",
-        "Ration expensive computation to the cases that actually need it — using cheap early filters to decide what reaches the costly final stage — rather than treating 'pick a cheaper model' as the only lever for controlling an AI product's unit economics."
+        "Judge and invest in an AI answer product by its retrieval-and-ranking pipeline first \u2014 the stage boundaries, what gets rationed to cheap early stages versus expensive late ones \u2014 because that architecture, not the model wrapped around it, decides most of what users will call 'quality.'",
+        "A user-facing trust signal that started as an internal architecture byproduct (a citation, a 'tested' badge, a confidence score) needs its own independent accuracy measurement \u2014 the fact that the underlying system produces the signal at all does not mean the signal is reliable enough to carry the trust claim built on top of it.",
+        "Ration expensive computation to the cases that actually need it \u2014 using cheap early filters to decide what reaches the costly final stage \u2014 rather than treating 'pick a cheaper model' as the only lever for controlling an AI product's unit economics."
       ],
       "warmUpQuestions": [
-        {"prompt": "A logistics startup wants to add a route-optimization model to its delivery app. Its engineers already have a rule-based routing system that works reasonably well. Using the principle from a prior article, what is the first question they should answer before building a model — not 'can a model do this,' but what — and why does that question matter more than model accuracy?", "sourceArticle": "When a Problem Warrants a Model, Not a Heuristic: Airbnb's Climb from Rules to Reinforcement Learning", "principle": "A model is warranted only where the problem has context a rule cannot use AND the data to learn that context exists; a deployed model also censors its own future training data, so exploration has to be scoped into v1 on purpose."},
-        {"prompt": "A note-taking app wants to add both an instant 'finish my sentence' feature and a slower 'summarize everything I wrote this year' feature. Using a prior article's principle, how should the team decide what governs the architecture split between these two features, before they pick any model?", "sourceArticle": "How Cursor Actually Works: The Architecture Is the Product", "principle": "Partition an AI product by latency budget first, then choose models and retrieval per lane — and at scale, cut redundant work (caching, cross-user reuse) before shopping for a faster model."},
-        {"prompt": "A team just shipped a model update to their AI writing assistant that improved both response speed and a user-satisfaction score in the same release. Using a prior article's principle, what should they check before crediting the speed improvement for the satisfaction improvement?", "sourceArticle": "How GitHub Copilot Actually Works: Context Assembly, the Filter Gate, and a Reward Function Rebuilt Twice", "principle": "A model's context window is a scarce resource, so the algorithms deciding what fills it matter more than the model's raw intelligence — and quality metrics must be tracked separately from serving-efficiency metrics, never blended into one score."}
+        {
+          "prompt": "A logistics startup wants to add a route-optimization model to its delivery app. Its engineers already have a rule-based routing system that works reasonably well. Using the principle from a prior article, what is the first question they should answer before building a model \u2014 not 'can a model do this,' but what \u2014 and why does that question matter more than model accuracy?",
+          "sourceArticle": "When a Problem Warrants a Model, Not a Heuristic: Airbnb's Climb from Rules to Reinforcement Learning",
+          "principle": "A model is warranted only where the problem has context a rule cannot use AND the data to learn that context exists; a deployed model also censors its own future training data, so exploration has to be scoped into v1 on purpose."
+        },
+        {
+          "prompt": "A note-taking app wants to add both an instant 'finish my sentence' feature and a slower 'summarize everything I wrote this year' feature. Using a prior article's principle, how should the team decide what governs the architecture split between these two features, before they pick any model?",
+          "sourceArticle": "How Cursor Actually Works: The Architecture Is the Product",
+          "principle": "Partition an AI product by latency budget first, then choose models and retrieval per lane \u2014 and at scale, cut redundant work (caching, cross-user reuse) before shopping for a faster model."
+        },
+        {
+          "prompt": "A team just shipped a model update to their AI writing assistant that improved both response speed and a user-satisfaction score in the same release. Using a prior article's principle, what should they check before crediting the speed improvement for the satisfaction improvement?",
+          "sourceArticle": "How GitHub Copilot Actually Works: Context Assembly, the Filter Gate, and a Reward Function Rebuilt Twice",
+          "principle": "A model's context window is a scarce resource, so the algorithms deciding what fills it matter more than the model's raw intelligence \u2014 and quality metrics must be tracked separately from serving-efficiency metrics, never blended into one score."
+        }
       ],
       "completedAt": "2026-07-21"
     },
@@ -115,17 +187,32 @@
       "slug": "PR-09-notion-ai-architecture-teardown",
       "title": "How Notion AI Actually Works: Why the Retrieval Bill Set the Price",
       "type": "AI Product Teardown (Type 2)",
-      "lifecyclePhases": ["Build", "Scale"],
-      "governingPrinciple": "An AI feature that looks like one simple box — type a question, get an answer — is usually three separate systems wearing a trenchcoat: a way to turn documents into searchable meaning, a way to rank and retrieve the right pieces of those documents, and a language model that turns the retrieved pieces into a sentence. The cost of building and running the first two systems, not the third, decides what the feature can promise and what it can charge. Notion's own engineering team published, in unusual detail, the two-year cost curve behind its AI feature — three infrastructure rebuilds, each tied to a moment when Notion could change what it charged.",
+      "lifecyclePhases": [
+        "Build",
+        "Scale"
+      ],
+      "governingPrinciple": "An AI feature that looks like one simple box \u2014 type a question, get an answer \u2014 is usually three separate systems wearing a trenchcoat: a way to turn documents into searchable meaning, a way to rank and retrieve the right pieces of those documents, and a language model that turns the retrieved pieces into a sentence. The cost of building and running the first two systems, not the third, decides what the feature can promise and what it can charge. Notion's own engineering team published, in unusual detail, the two-year cost curve behind its AI feature \u2014 three infrastructure rebuilds, each tied to a moment when Notion could change what it charged.",
       "sectionPrinciples": [
-        "Permission-checking and access control must be built into the retrieval step itself, before generation, because a language model cannot reliably un-know material it has already incorporated into an answer — so the retrieval and ranking layer, not an output filter, is where a permissioned AI search feature's real safety boundary has to live.",
-        "Fit each new AI feature into the product's existing, already-learned mental model (the same editing surface, the same access points) and name the surfaces explicitly, rather than hiding everything behind one ambiguous AI button — and expect a pricing model to diverge (flat vs. metered) wherever cost predictability diverges between surfaces built on the same underlying stack.",
-        "Unlimited-usage pricing is a bet on the infrastructure team's cost curve, not just on the current model's price sheet, and that bet only gets safer once the true cost per use has actually fallen — stacked percentage cost reductions across overlapping infrastructure projects should not be assumed to compound cleanly into a single reported headline number."
+        "Permission-checking and access control must be built into the retrieval step itself, before generation, because a language model cannot reliably un-know material it has already incorporated into an answer \u2014 so the retrieval and ranking layer, not an output filter, is where a permissioned AI search feature's real safety boundary has to live.",
+        "Fit each new AI feature into the product's existing, already-learned mental model (the same editing surface, the same access points) and name the surfaces explicitly, rather than hiding everything behind one ambiguous AI button \u2014 and expect a pricing model to diverge (flat vs. metered) wherever cost predictability diverges between surfaces built on the same underlying stack.",
+        "Unlimited-usage pricing is a bet on the infrastructure team's cost curve, not just on the current model's price sheet, and that bet only gets safer once the true cost per use has actually fallen \u2014 stacked percentage cost reductions across overlapping infrastructure projects should not be assumed to compound cleanly into a single reported headline number."
       ],
       "warmUpQuestions": [
-        {"prompt": "A workspace productivity tool wants to add an AI feature that flags which of a user's draft documents is “most likely to need review this week.” Before choosing a model, what audit should the team run first, and why does skipping it risk a Google-Flu-Trends-style failure?", "sourceArticle": "When Not to Use AI: Google's Feasibility Gates, and the Failure That Skipped Them", "principle": "Feasibility is not ‘can AI do this?’ but ‘does AI beat a transparent heuristic once the cost of a wrong answer is priced in?’"},
-        {"prompt": "A workspace app wants both an instant inline-autocomplete-while-typing feature and a slower “summarize this whole workspace” feature. How should the team decide the architecture split between the two, and what single factor should decide that split?", "sourceArticle": "How Cursor Actually Works: The Architecture Is the Product", "principle": "Partition an AI product by latency budget first, then choose models and retrieval per lane."},
-        {"prompt": "A workspace AI feature quietly declines to answer certain questions when its retrieved context is too thin. The team is proud of this restraint. What upstream question should they be asking about that silent decision, before celebrating it?", "sourceArticle": "How GitHub Copilot Actually Works: Context Assembly, the Filter Gate, and a Reward Function Rebuilt Twice", "principle": "A silent, upstream decision not to call the model at all is as much a product decision as any visible UI choice, and it inherits whatever proxy metric it was tuned against."}
+        {
+          "prompt": "A workspace productivity tool wants to add an AI feature that flags which of a user's draft documents is \u201cmost likely to need review this week.\u201d Before choosing a model, what audit should the team run first, and why does skipping it risk a Google-Flu-Trends-style failure?",
+          "sourceArticle": "When Not to Use AI: Google's Feasibility Gates, and the Failure That Skipped Them",
+          "principle": "Feasibility is not \u2018can AI do this?\u2019 but \u2018does AI beat a transparent heuristic once the cost of a wrong answer is priced in?\u2019"
+        },
+        {
+          "prompt": "A workspace app wants both an instant inline-autocomplete-while-typing feature and a slower \u201csummarize this whole workspace\u201d feature. How should the team decide the architecture split between the two, and what single factor should decide that split?",
+          "sourceArticle": "How Cursor Actually Works: The Architecture Is the Product",
+          "principle": "Partition an AI product by latency budget first, then choose models and retrieval per lane."
+        },
+        {
+          "prompt": "A workspace AI feature quietly declines to answer certain questions when its retrieved context is too thin. The team is proud of this restraint. What upstream question should they be asking about that silent decision, before celebrating it?",
+          "sourceArticle": "How GitHub Copilot Actually Works: Context Assembly, the Filter Gate, and a Reward Function Rebuilt Twice",
+          "principle": "A silent, upstream decision not to call the model at all is as much a product decision as any visible UI choice, and it inherits whatever proxy metric it was tuned against."
+        }
       ],
       "completedAt": "2026-07-23"
     },
@@ -133,17 +220,32 @@
       "slug": "PR-10-replit-agent-architecture-teardown",
       "title": "How Replit Agent Actually Works: Reversibility Is the Architecture, Reliability Is a Runtime Layer",
       "type": "AI Product Teardown (Type 2)",
-      "lifecyclePhases": ["Build", "Scale"],
-      "governingPrinciple": "In an AI coding agent, the architecture is the product: the invisible systems that decide whether an autonomous agent's mistakes can be undone — not the visible chat window — decide whether non-developers can safely hand over their whole codebase and database to a model. Replit Agent looks like a conversational app builder. Underneath, it is a copy-on-write storage engine that makes destructive actions reversible, a multi-agent harness that manages error compounding, and a decision-time guidance layer that patches long-trajectory failures at runtime — and the clearest evidence for why all three exist is a July 2025 incident where the agent deleted a live production database during an explicit code freeze.",
+      "lifecyclePhases": [
+        "Build",
+        "Scale"
+      ],
+      "governingPrinciple": "In an AI coding agent, the architecture is the product: the invisible systems that decide whether an autonomous agent's mistakes can be undone \u2014 not the visible chat window \u2014 decide whether non-developers can safely hand over their whole codebase and database to a model. Replit Agent looks like a conversational app builder. Underneath, it is a copy-on-write storage engine that makes destructive actions reversible, a multi-agent harness that manages error compounding, and a decision-time guidance layer that patches long-trajectory failures at runtime \u2014 and the clearest evidence for why all three exist is a July 2025 incident where the agent deleted a live production database during an explicit code freeze.",
       "sectionPrinciples": [
-        "Splitting one autonomous agent into several single-purpose agents (a planner, doers, and a checker that can escalate to a human) controls the way errors compound over a long task — but a co-occurring model upgrade in the same public case study means the split's effect, on its own, has not been isolated by a controlled test.",
-        "Reversibility (cheap rollback) and environment separation (dev/prod database isolation) stop a destructive action from reaching anything that matters, but they are a different fix from the one needed to stop an agent from behaving unreliably — looping, or fabricating output — without doing anything destructive; treating one fix as solving both is the scope-creep mistake the July 2025 incident exposed.",
+        "Splitting one autonomous agent into several single-purpose agents (a planner, doers, and a checker that can escalate to a human) controls the way errors compound over a long task \u2014 but a co-occurring model upgrade in the same public case study means the split's effect, on its own, has not been isolated by a controlled test.",
+        "Reversibility (cheap rollback) and environment separation (dev/prod database isolation) stop a destructive action from reaching anything that matters, but they are a different fix from the one needed to stop an agent from behaving unreliably \u2014 looping, or fabricating output \u2014 without doing anything destructive; treating one fix as solving both is the scope-creep mistake the July 2025 incident exposed.",
         "Not every reliability gain has the same economics: copy-on-write reversibility and decision-time guidance cut cost while improving safety, but parallel sampling (running more trajectories) is a genuine tradeoff that buys higher accuracy only by spending more inference compute."
       ],
       "warmUpQuestions": [
-        {"prompt": "A team is building an AI agent that can directly edit a company's shared codebase and write to its live customer database. Using a principle from a prior article on how Notion built its AI search feature, where should the team put its main safety boundary — and why would checking permissions only on what the agent shows the user not be enough?", "sourceArticle": "How Notion AI Actually Works: Why the Retrieval Bill Set the Price", "principle": "Permission-checking has to sit inside the retrieval or action step itself, before generation happens — because a model cannot reliably un-know or undo something it has already touched."},
-        {"prompt": "An AI coding agent silently skips a risky command whenever its own confidence score is low, without telling the user why. Using a prior article's principle about GitHub Copilot, what upstream question should the team ask about that silent skip before treating it as a pure safety win?", "sourceArticle": "How GitHub Copilot Actually Works: Context Assembly, the Filter Gate, and a Reward Function Rebuilt Twice", "principle": "A silent decision not to act is still a product decision, and it inherits whatever proxy metric the system was tuned against."},
-        {"prompt": "A startup markets its AI agent as safe because it 'never touches your production data directly.' Using a prior article's principle about Cursor, what is the first technical assumption you would want verified before trusting that claim as a safety guarantee?", "sourceArticle": "How Cursor Actually Works: The Architecture Is the Product", "principle": "A hard constraint becomes the product's marketed differentiator, but the promise is only as strong as the assumption it quietly rests on."}
+        {
+          "prompt": "A team is building an AI agent that can directly edit a company's shared codebase and write to its live customer database. Using a principle from a prior article on how Notion built its AI search feature, where should the team put its main safety boundary \u2014 and why would checking permissions only on what the agent shows the user not be enough?",
+          "sourceArticle": "How Notion AI Actually Works: Why the Retrieval Bill Set the Price",
+          "principle": "Permission-checking has to sit inside the retrieval or action step itself, before generation happens \u2014 because a model cannot reliably un-know or undo something it has already touched."
+        },
+        {
+          "prompt": "An AI coding agent silently skips a risky command whenever its own confidence score is low, without telling the user why. Using a prior article's principle about GitHub Copilot, what upstream question should the team ask about that silent skip before treating it as a pure safety win?",
+          "sourceArticle": "How GitHub Copilot Actually Works: Context Assembly, the Filter Gate, and a Reward Function Rebuilt Twice",
+          "principle": "A silent decision not to act is still a product decision, and it inherits whatever proxy metric the system was tuned against."
+        },
+        {
+          "prompt": "A startup markets its AI agent as safe because it 'never touches your production data directly.' Using a prior article's principle about Cursor, what is the first technical assumption you would want verified before trusting that claim as a safety guarantee?",
+          "sourceArticle": "How Cursor Actually Works: The Architecture Is the Product",
+          "principle": "A hard constraint becomes the product's marketed differentiator, but the promise is only as strong as the assumption it quietly rests on."
+        }
       ],
       "completedAt": "2026-07-28"
     },
@@ -151,17 +253,32 @@
       "slug": "PR-11-meta-capacity-efficiency-agents",
       "title": "One Platform, Two Jobs: How Meta's Capacity Efficiency Agents Scale MW Savings Without Scaling Headcount",
       "type": "Agentic System Architecture (Type 3)",
-      "lifecyclePhases": ["Build", "Scale"],
-      "governingPrinciple": "A production agent system scales not by making the model smarter, but by separating a stable layer of tool interfaces from a swappable layer of encoded domain expertise — the same tools can drive many different jobs when only the skills change. Meta's Capacity Efficiency Program is the clearest publicly documented evidence: the same MCP Tools layer powers both its AI Regression Solver (defense) and its opportunity-resolution agent (offense), and only the Skills layer differs between them, letting the platform expand into five more applications within about a year with few to no new data integrations.",
+      "lifecyclePhases": [
+        "Build",
+        "Scale"
+      ],
+      "governingPrinciple": "A production agent system scales not by making the model smarter, but by separating a stable layer of tool interfaces from a swappable layer of encoded domain expertise \u2014 the same tools can drive many different jobs when only the skills change. Meta's Capacity Efficiency Program is the clearest publicly documented evidence: the same MCP Tools layer powers both its AI Regression Solver (defense) and its opportunity-resolution agent (offense), and only the Skills layer differs between them, letting the platform expand into five more applications within about a year with few to no new data integrations.",
       "sectionPrinciples": [
         "One platform can serve structurally different jobs (finding problems vs. fixing them) without duplicated engineering effort when the expensive, reusable machinery (tool interfaces) stays stable and only the layer that encodes domain judgment (skills) changes per job.",
-        "An agent that can generate and merge production changes needs a review step that checks the full scope of a diff, not just whether it met its stated goal — a passing test suite and a scope-checked diff are not the same guarantee, and industry data shows AI-co-authored PRs carry meaningfully more issues than human-only ones.",
-        "A platform's real evaluation question is whether new capabilities reuse existing infrastructure, not just whether each new capability individually works — and claims of AI-agent success vary enormously in how falsifiable they are, even from the same company in the same year."
+        "An agent that can generate and merge production changes needs a review step that checks the full scope of a diff, not just whether it met its stated goal \u2014 a passing test suite and a scope-checked diff are not the same guarantee, and industry data shows AI-co-authored PRs carry meaningfully more issues than human-only ones.",
+        "A platform's real evaluation question is whether new capabilities reuse existing infrastructure, not just whether each new capability individually works \u2014 and claims of AI-agent success vary enormously in how falsifiable they are, even from the same company in the same year."
       ],
       "warmUpQuestions": [
-        {"prompt": "A team is splitting one large customer-support AI agent into a planner, several single-purpose doer agents, and a checker that can escalate to a human — modeled on how Replit Agent controls error compounding on long tasks. A skeptical colleague says 'more agents just means more places for things to go wrong.' Using a prior article's principle, what should the team check before crediting the split alone for any reliability gain they observe?", "sourceArticle": "How Replit Agent Actually Works: Reversibility Is the Architecture, Reliability Is a Runtime Layer (AI Product Teardown)", "principle": "Splitting one agent into several controls how errors compound over a long task, but if a model upgrade happens at the same time as the split, the split's effect on its own has not been isolated — you need a same-model comparison to credit the architecture change specifically."},
-        {"prompt": "A logistics company wants one AI system to power both a 'find shipping delays before customers notice' agent and a 'draft the customer apology email' agent. Using a prior article's principle about Cursor, what single design decision should the team make first, before picking any model for either agent?", "sourceArticle": "How Cursor Actually Works: The Architecture Is the Product (AI Product Teardown)", "principle": "Partition an AI product by its hardest constraint first — Cursor partitions by latency budget; a different company might partition by data-access scope or review requirement — and choose models and machinery per partition, not one model for everything."},
-        {"prompt": "A hiring platform's AI agent silently lowers a candidate's ranking whenever a resume-parsing confidence score is low, without telling anyone why. Using a prior article's principle about GitHub Copilot, what upstream question should the team ask about that silent behavior before treating it as a pure quality safeguard?", "sourceArticle": "How GitHub Copilot Actually Works: Context Assembly, the Filter Gate, and a Reward Function Rebuilt Twice (AI Product Teardown)", "principle": "A silent decision not to act (or to downrank, or to suppress) is still a product decision, and it inherits whatever proxy metric the system was tuned against — audit that metric directly rather than assuming the silent behavior is safe by default."}
+        {
+          "prompt": "A team is splitting one large customer-support AI agent into a planner, several single-purpose doer agents, and a checker that can escalate to a human \u2014 modeled on how Replit Agent controls error compounding on long tasks. A skeptical colleague says 'more agents just means more places for things to go wrong.' Using a prior article's principle, what should the team check before crediting the split alone for any reliability gain they observe?",
+          "sourceArticle": "How Replit Agent Actually Works: Reversibility Is the Architecture, Reliability Is a Runtime Layer (AI Product Teardown)",
+          "principle": "Splitting one agent into several controls how errors compound over a long task, but if a model upgrade happens at the same time as the split, the split's effect on its own has not been isolated \u2014 you need a same-model comparison to credit the architecture change specifically."
+        },
+        {
+          "prompt": "A logistics company wants one AI system to power both a 'find shipping delays before customers notice' agent and a 'draft the customer apology email' agent. Using a prior article's principle about Cursor, what single design decision should the team make first, before picking any model for either agent?",
+          "sourceArticle": "How Cursor Actually Works: The Architecture Is the Product (AI Product Teardown)",
+          "principle": "Partition an AI product by its hardest constraint first \u2014 Cursor partitions by latency budget; a different company might partition by data-access scope or review requirement \u2014 and choose models and machinery per partition, not one model for everything."
+        },
+        {
+          "prompt": "A hiring platform's AI agent silently lowers a candidate's ranking whenever a resume-parsing confidence score is low, without telling anyone why. Using a prior article's principle about GitHub Copilot, what upstream question should the team ask about that silent behavior before treating it as a pure quality safeguard?",
+          "sourceArticle": "How GitHub Copilot Actually Works: Context Assembly, the Filter Gate, and a Reward Function Rebuilt Twice (AI Product Teardown)",
+          "principle": "A silent decision not to act (or to downrank, or to suppress) is still a product decision, and it inherits whatever proxy metric the system was tuned against \u2014 audit that metric directly rather than assuming the silent behavior is safe by default."
+        }
       ],
       "completedAt": "2026-07-30"
     },
@@ -169,17 +286,33 @@
       "slug": "PR-12-cox-automotive-agentcore-blueprint",
       "title": "Shared Foundation, Not a Smarter Model: How Cox Automotive Took 17 AI Agents to Production in a Year",
       "type": "Agentic System Architecture (Type 3)",
-      "lifecyclePhases": ["Build", "Evaluate", "Scale"],
-      "governingPrinciple": "A production agent system scales across an organization not because a smarter model shows up, but because a shared foundation — one standardized runtime, memory layer, identity system, and observability stack — turns every new agent into a business-logic project instead of an infrastructure project; and once that foundation exists, reliability at speed depends on treating evaluation and hard failure limits as engineering work done up front, not safety theater added right before launch. Cox Automotive is the clearest documented evidence: a team with zero agentic experience reached production in about a month, a live project swapped its entire agent framework in two weeks instead of the many weeks a rebuild would ordinarily take, and the company moved 17 of 57 evaluated ideas into production within about a year on Amazon Bedrock AgentCore — while one of five products launched under a five-week deadline still had to be pulled back and rebuilt, because a system that reasons non-deterministically cannot be shipped safely on shared infrastructure and good intentions alone.",
+      "lifecyclePhases": [
+        "Build",
+        "Evaluate",
+        "Scale"
+      ],
+      "governingPrinciple": "A production agent system scales across an organization not because a smarter model shows up, but because a shared foundation \u2014 one standardized runtime, memory layer, identity system, and observability stack \u2014 turns every new agent into a business-logic project instead of an infrastructure project; and once that foundation exists, reliability at speed depends on treating evaluation and hard failure limits as engineering work done up front, not safety theater added right before launch. Cox Automotive is the clearest documented evidence: a team with zero agentic experience reached production in about a month, a live project swapped its entire agent framework in two weeks instead of the many weeks a rebuild would ordinarily take, and the company moved 17 of 57 evaluated ideas into production within about a year on Amazon Bedrock AgentCore \u2014 while one of five products launched under a five-week deadline still had to be pulled back and rebuilt, because a system that reasons non-deterministically cannot be shipped safely on shared infrastructure and good intentions alone.",
       "sectionPrinciples": [
-        "A shared foundation (standardized runtime, memory, identity, observability) turns each new agent into a business-logic project instead of an infrastructure project — but it does not eliminate framework or platform churn risk, it only cuts the cost of absorbing that churn (Cox: a mid-project framework swap took 2 weeks instead of the 'several weeks' it would ordinarily take).",
-        "Reliability for an autonomous, customer-facing agent is a five-layer engineering discipline — hard guardrails, soft guardrails, scheduled red-teaming, automated evaluation, and hard circuit breakers — that is independent of which foundation model sits underneath; even a mature version of that stack does not guarantee every project launched under it succeeds on the first attempt (1 of Cox's 5 parallel launches was still pulled back and redesigned).",
-        "Once production volume exceeds what manual review can cover, automated evaluation (not just automated response generation) becomes the safety-critical system in its own right, and it inherits whatever blind spots exist between the judge and the thing it judges — a risk that stays invisible until someone checks for it directly, which Cox's own public account does not show it having done."
+        "A shared foundation (standardized runtime, memory, identity, observability) turns each new agent into a business-logic project instead of an infrastructure project \u2014 but it does not eliminate framework or platform churn risk, it only cuts the cost of absorbing that churn (Cox: a mid-project framework swap took 2 weeks instead of the 'several weeks' it would ordinarily take).",
+        "Reliability for an autonomous, customer-facing agent is a five-layer engineering discipline \u2014 hard guardrails, soft guardrails, scheduled red-teaming, automated evaluation, and hard circuit breakers \u2014 that is independent of which foundation model sits underneath; even a mature version of that stack does not guarantee every project launched under it succeeds on the first attempt (1 of Cox's 5 parallel launches was still pulled back and redesigned).",
+        "Once production volume exceeds what manual review can cover, automated evaluation (not just automated response generation) becomes the safety-critical system in its own right, and it inherits whatever blind spots exist between the judge and the thing it judges \u2014 a risk that stays invisible until someone checks for it directly, which Cox's own public account does not show it having done."
       ],
       "warmUpQuestions": [
-        {"prompt": "A prior article showed one platform serving two structurally different jobs (finding problems vs. fixing them) by keeping tool interfaces stable and only changing the layer that encodes domain judgment. A hospital network wants one agent platform to power both a radiology-triage agent and a discharge-summary-drafting agent. Using that principle, what should stay identical between the two agents, and what should be allowed to differ?", "sourceArticle": "One Platform, Two Jobs: How Meta's Capacity Efficiency Agents Scale MW Savings Without Scaling Headcount (Agentic System Architecture)", "principle": "One platform can serve structurally different jobs without duplicated engineering effort when the expensive, reusable machinery (tool interfaces) stays stable and only the layer that encodes domain judgment (skills) changes per job."},
-        {"prompt": "A prior article distinguished two different fixes for two different agent problems: reversibility (cheap rollback, environment isolation) stops a destructive action from reaching anything that matters, but it does not stop an agent from behaving unreliably without doing anything destructive. A retail company's ordering agent sometimes loops, asking a supplier the same question five times without ever placing the order. Which of the two fixes actually addresses this specific problem, and why would adding more rollback safety not help here?", "sourceArticle": "How Replit Agent Actually Works: Reversibility Is the Architecture, Reliability Is a Runtime Layer (AI Product Teardown)", "principle": "Reversibility and environment separation stop a destructive action from reaching anything that matters, but they are a different fix from the one needed to stop an agent from behaving unreliably (looping, fabricating output) without doing anything destructive — treating one fix as solving both is a scope-creep mistake."},
-        {"prompt": "A prior article's principle was that a silent decision not to act is still a product decision, and it inherits whatever proxy metric the system was tuned against. Cox Automotive's dealership assistant has a soft guardrail that silently redirects any financing-negotiation question to a human, rather than answering it. Using that principle, what should Cox audit about this specific redirect behavior before assuming it is purely a safety win?", "sourceArticle": "How GitHub Copilot Actually Works: Context Assembly, the Filter Gate, and a Reward Function Rebuilt Twice (AI Product Teardown)", "principle": "A silent, upstream decision not to call the model (or to redirect/suppress) is as much a product decision as any visible UI choice, and it inherits whatever proxy metric or objective the system was tuned against — audit that metric directly."}
+        {
+          "prompt": "A prior article showed one platform serving two structurally different jobs (finding problems vs. fixing them) by keeping tool interfaces stable and only changing the layer that encodes domain judgment. A hospital network wants one agent platform to power both a radiology-triage agent and a discharge-summary-drafting agent. Using that principle, what should stay identical between the two agents, and what should be allowed to differ?",
+          "sourceArticle": "One Platform, Two Jobs: How Meta's Capacity Efficiency Agents Scale MW Savings Without Scaling Headcount (Agentic System Architecture)",
+          "principle": "One platform can serve structurally different jobs without duplicated engineering effort when the expensive, reusable machinery (tool interfaces) stays stable and only the layer that encodes domain judgment (skills) changes per job."
+        },
+        {
+          "prompt": "A prior article distinguished two different fixes for two different agent problems: reversibility (cheap rollback, environment isolation) stops a destructive action from reaching anything that matters, but it does not stop an agent from behaving unreliably without doing anything destructive. A retail company's ordering agent sometimes loops, asking a supplier the same question five times without ever placing the order. Which of the two fixes actually addresses this specific problem, and why would adding more rollback safety not help here?",
+          "sourceArticle": "How Replit Agent Actually Works: Reversibility Is the Architecture, Reliability Is a Runtime Layer (AI Product Teardown)",
+          "principle": "Reversibility and environment separation stop a destructive action from reaching anything that matters, but they are a different fix from the one needed to stop an agent from behaving unreliably (looping, fabricating output) without doing anything destructive \u2014 treating one fix as solving both is a scope-creep mistake."
+        },
+        {
+          "prompt": "A prior article's principle was that a silent decision not to act is still a product decision, and it inherits whatever proxy metric the system was tuned against. Cox Automotive's dealership assistant has a soft guardrail that silently redirects any financing-negotiation question to a human, rather than answering it. Using that principle, what should Cox audit about this specific redirect behavior before assuming it is purely a safety win?",
+          "sourceArticle": "How GitHub Copilot Actually Works: Context Assembly, the Filter Gate, and a Reward Function Rebuilt Twice (AI Product Teardown)",
+          "principle": "A silent, upstream decision not to call the model (or to redirect/suppress) is as much a product decision as any visible UI choice, and it inherits whatever proxy metric or objective the system was tuned against \u2014 audit that metric directly."
+        }
       ],
       "completedAt": "2026-08-04"
     },
@@ -187,17 +320,33 @@
       "slug": "PR-13-amazon-agent-evaluation-framework",
       "title": "Grading the Task Isn't Enough: Amazon's Three-Layer Answer to Why Agents Fail",
       "type": "Agentic System Architecture (Type 3)",
-      "lifecyclePhases": ["Build", "Evaluate", "Scale"],
-      "governingPrinciple": "A production agent is not one thing to grade. It is a chain of separate decisions — understanding the request, picking a tool, reading back the tool's answer, deciding what to do next — and any single link in that chain can break while the final answer still looks fine, by luck or partial credit. Amazon built this lesson into a company-wide evaluation framework only after thousands of agents were already running in production, and this article uses that framework, and the near-miss that slipped past it, to test how far 'grade the parts, not just the task' can be trusted as a rule.",
+      "lifecyclePhases": [
+        "Build",
+        "Evaluate",
+        "Scale"
+      ],
+      "governingPrinciple": "A production agent is not one thing to grade. It is a chain of separate decisions \u2014 understanding the request, picking a tool, reading back the tool's answer, deciding what to do next \u2014 and any single link in that chain can break while the final answer still looks fine, by luck or partial credit. Amazon built this lesson into a company-wide evaluation framework only after thousands of agents were already running in production, and this article uses that framework, and the near-miss that slipped past it, to test how far 'grade the parts, not just the task' can be trusted as a rule.",
       "sectionPrinciples": [
-        "Architecture should track how predictable a task's steps are, not the size of its tool catalog or a preference for autonomy — Amazon's shopping assistant keeps thousands of tools inside one agent because the pattern of using them is stable, while its seller assistant splits into multiple agents because its subtasks aren't knowable in advance.",
-        "Production-grade reliability comes from separately instrumenting each way a system can fail (planning, tool invocation, parameters, response format, authentication, memory), not from one blended success/fail score — a wrong final answer can trace back to any one of several independent decisions, or to none of them, since an agent can get lucky.",
-        "A layered evaluation framework catches failures a single blended score misses, but every layer still only evaluates the agent's behavior, never the integrity of the instructions it started from — a gap made concrete by the July 2025 Amazon Q Developer incident, where a malicious pull request nearly weaponized the assistant's own trusted system prompt and no quality metric was positioned to catch it."
+        "Architecture should track how predictable a task's steps are, not the size of its tool catalog or a preference for autonomy \u2014 Amazon's shopping assistant keeps thousands of tools inside one agent because the pattern of using them is stable, while its seller assistant splits into multiple agents because its subtasks aren't knowable in advance.",
+        "Production-grade reliability comes from separately instrumenting each way a system can fail (planning, tool invocation, parameters, response format, authentication, memory), not from one blended success/fail score \u2014 a wrong final answer can trace back to any one of several independent decisions, or to none of them, since an agent can get lucky.",
+        "A layered evaluation framework catches failures a single blended score misses, but every layer still only evaluates the agent's behavior, never the integrity of the instructions it started from \u2014 a gap made concrete by the July 2025 Amazon Q Developer incident, where a malicious pull request nearly weaponized the assistant's own trusted system prompt and no quality metric was positioned to catch it."
       ],
       "warmUpQuestions": [
-        {"prompt": "A hospital's AI agent platform powers both a radiology-triage agent and a discharge-summary-drafting agent. A new team wants to add a third agent for insurance pre-authorization and worries it will double their evaluation workload. Using a prior article's principle about grading agents on more than the final task outcome, what should the hospital instrument separately for the new agent, and why would a single pass/fail metric hide exactly the information they need?", "sourceArticle": "Grading the Task Isn't Enough: Amazon's Three-Layer Answer to Why Agents Fail (Agentic System Architecture)", "principle": "Production-grade reliability comes from separately instrumenting each way a system can fail, not from one blended success/fail score — a correct final answer can hide an internal misstep that got lucky."},
-        {"prompt": "A fintech's AI agent has excellent output-quality scores — high correctness, low hallucination, low toxicity — across every metric its evaluation dashboard tracks. Using a prior article's principle about the limits of behavioral evaluation, what specific question about this agent would none of those passing scores actually answer?", "sourceArticle": "Grading the Task Isn't Enough: Amazon's Three-Layer Answer to Why Agents Fail (Agentic System Architecture)", "principle": "Every behavioral metric evaluates the agent's output given its inputs; none of them verifies whether those inputs (its system prompt, tool definitions, retrieved context) were themselves trustworthy — a perfectly-scoring agent could still be acting on tampered instructions."},
-        {"prompt": "A logistics company is deciding whether its new AI dispatch agent should be one agent with a large tool catalog or a planner coordinating several specialized sub-agents. Using a prior article's principle about what should drive that architecture choice, what property of the dispatch task should decide it — and why would tool count alone be the wrong thing to optimize for?", "sourceArticle": "Grading the Task Isn't Enough: Amazon's Three-Layer Answer to Why Agents Fail (Agentic System Architecture)", "principle": "Architecture should track how predictable a task's steps are, not the size of its tool catalog or a preference for autonomy."}
+        {
+          "prompt": "A hospital's AI agent platform powers both a radiology-triage agent and a discharge-summary-drafting agent. A new team wants to add a third agent for insurance pre-authorization and worries it will double their evaluation workload. Using a prior article's principle about grading agents on more than the final task outcome, what should the hospital instrument separately for the new agent, and why would a single pass/fail metric hide exactly the information they need?",
+          "sourceArticle": "Grading the Task Isn't Enough: Amazon's Three-Layer Answer to Why Agents Fail (Agentic System Architecture)",
+          "principle": "Production-grade reliability comes from separately instrumenting each way a system can fail, not from one blended success/fail score \u2014 a correct final answer can hide an internal misstep that got lucky."
+        },
+        {
+          "prompt": "A fintech's AI agent has excellent output-quality scores \u2014 high correctness, low hallucination, low toxicity \u2014 across every metric its evaluation dashboard tracks. Using a prior article's principle about the limits of behavioral evaluation, what specific question about this agent would none of those passing scores actually answer?",
+          "sourceArticle": "Grading the Task Isn't Enough: Amazon's Three-Layer Answer to Why Agents Fail (Agentic System Architecture)",
+          "principle": "Every behavioral metric evaluates the agent's output given its inputs; none of them verifies whether those inputs (its system prompt, tool definitions, retrieved context) were themselves trustworthy \u2014 a perfectly-scoring agent could still be acting on tampered instructions."
+        },
+        {
+          "prompt": "A logistics company is deciding whether its new AI dispatch agent should be one agent with a large tool catalog or a planner coordinating several specialized sub-agents. Using a prior article's principle about what should drive that architecture choice, what property of the dispatch task should decide it \u2014 and why would tool count alone be the wrong thing to optimize for?",
+          "sourceArticle": "Grading the Task Isn't Enough: Amazon's Three-Layer Answer to Why Agents Fail (Agentic System Architecture)",
+          "principle": "Architecture should track how predictable a task's steps are, not the size of its tool catalog or a preference for autonomy."
+        }
       ],
       "completedAt": "2026-08-11"
     },
@@ -205,17 +354,33 @@
       "slug": "PR-14-openai-harness-engineering",
       "title": "Harness Engineering: How OpenAI's Codex Team Shipped a Product With Zero Manually-Written Code",
       "type": "Agentic System Architecture (Type 3)",
-      "lifecyclePhases": ["Build", "Evaluate", "Scale"],
-      "governingPrinciple": "When agents write all the code, the engineering team's job stops being 'write code' and becomes 'design the environment that lets an agent do reliable work' — repo-local legibility, mechanically enforced architecture, and full runtime observability, not a smarter model, are what let throughput rise as the team scales. OpenAI's Harness Engineering project is the clearest evidence: three engineers, growing to seven, merged roughly 1,500 pull requests and about a million lines of code over five months with zero manually-written lines, and throughput rose rather than fell as headcount grew — but the same full autonomy that produced this also produced a real failure, entropy ('AI slop'), that first cost 20% of the team's week before being re-engineered away.",
+      "lifecyclePhases": [
+        "Build",
+        "Evaluate",
+        "Scale"
+      ],
+      "governingPrinciple": "When agents write all the code, the engineering team's job stops being 'write code' and becomes 'design the environment that lets an agent do reliable work' \u2014 repo-local legibility, mechanically enforced architecture, and full runtime observability, not a smarter model, are what let throughput rise as the team scales. OpenAI's Harness Engineering project is the clearest evidence: three engineers, growing to seven, merged roughly 1,500 pull requests and about a million lines of code over five months with zero manually-written lines, and throughput rose rather than fell as headcount grew \u2014 but the same full autonomy that produced this also produced a real failure, entropy ('AI slop'), that first cost 20% of the team's week before being re-engineered away.",
       "sectionPrinciples": [
-        "Make the agent's environment legible before making it capable: an AGENTS.md that acts as a table of contents into a structured, versioned docs/ system of record, a domain architecture with mechanically enforced layer boundaries (Types→Config→Repo→Service→Runtime→UI, with Providers as the one entry point for cross-cutting concerns), and a fully observable per-worktree runtime let an agent operate depth-first on ambiguous goals — anything the agent can't access in-context while running effectively doesn't exist for it, no matter how well-documented it is somewhere a human can read.",
-        "The two reliability failure modes in a fully agent-written system are different problems needing different fixes: an under-specified environment (missing tools/abstractions) is solved by building the missing capability once, while entropy (an agent faithfully replicating whatever patterns — good or bad — already exist in the repo) is a compounding failure that manual review cannot keep pace with and instead needs mechanically encoded 'golden principles' plus a recurring, automated cleanup process; technical debt is best paid down continuously in small increments, like garbage collection, rather than in painful bursts.",
-        "Pushing review effort from humans to agents reviewing agents (until every reviewer, local and cloud, is satisfied) and grading each domain's code quality on a running scorecard, not just 'did the tests pass,' is what let a five-month-old, fully agent-written codebase cross the threshold where a single prompt can drive an entire bug-fix lifecycle end-to-end, with a human needed only when real judgment is required — though this process-first approach is a different bet from a metrics-first evaluation layer that separately instruments each specific way an agent's reasoning can fail."
+        "Make the agent's environment legible before making it capable: an AGENTS.md that acts as a table of contents into a structured, versioned docs/ system of record, a domain architecture with mechanically enforced layer boundaries (Types\u2192Config\u2192Repo\u2192Service\u2192Runtime\u2192UI, with Providers as the one entry point for cross-cutting concerns), and a fully observable per-worktree runtime let an agent operate depth-first on ambiguous goals \u2014 anything the agent can't access in-context while running effectively doesn't exist for it, no matter how well-documented it is somewhere a human can read.",
+        "The two reliability failure modes in a fully agent-written system are different problems needing different fixes: an under-specified environment (missing tools/abstractions) is solved by building the missing capability once, while entropy (an agent faithfully replicating whatever patterns \u2014 good or bad \u2014 already exist in the repo) is a compounding failure that manual review cannot keep pace with and instead needs mechanically encoded 'golden principles' plus a recurring, automated cleanup process; technical debt is best paid down continuously in small increments, like garbage collection, rather than in painful bursts.",
+        "Pushing review effort from humans to agents reviewing agents (until every reviewer, local and cloud, is satisfied) and grading each domain's code quality on a running scorecard, not just 'did the tests pass,' is what let a five-month-old, fully agent-written codebase cross the threshold where a single prompt can drive an entire bug-fix lifecycle end-to-end, with a human needed only when real judgment is required \u2014 though this process-first approach is a different bet from a metrics-first evaluation layer that separately instruments each specific way an agent's reasoning can fail."
       ],
       "warmUpQuestions": [
-        {"prompt": "A startup wants to let an AI coding agent merge changes to its production codebase with no human review gate at all, betting that agents are fast enough that any mistake gets caught and fixed before it matters. Using a prior article's principle about production-grade reliability needing engineering work done up front, what should this startup build first, before it removes the human gate — and what evidence from that prior article would make you skeptical this bet is safe on day one?", "sourceArticle": "Shared Foundation, Not a Smarter Model: How Cox Automotive Took 17 AI Agents to Production in a Year (Agentic System Architecture)", "principle": "Reliability for an autonomous, customer-facing agent is a five-layer engineering discipline — hard guardrails, soft guardrails, scheduled red-teaming, automated evaluation, and hard circuit breakers — built before scale, not added right before launch; even a mature version of that stack does not guarantee every project succeeds on the first attempt."},
-        {"prompt": "A software company wants to grade its fully autonomous coding-agent pipeline purely by whether each pull request eventually gets merged. Using a prior article's principle about grading agents on more than the final outcome, what specific failure modes would a “did it merge” metric hide, and why might a pipeline with a 100% eventual-merge rate still be quietly accumulating a hidden problem?", "sourceArticle": "Grading the Task Isn't Enough: Amazon's Three-Layer Answer to Why Agents Fail (Agentic System Architecture)", "principle": "Production-grade reliability comes from separately instrumenting each way a system can fail, not from one blended success/fail score — a passing final outcome can hide an internal misstep, or a slow accumulation of low-quality patterns, that got through anyway."},
-        {"prompt": "A company wants one AI-agent platform to power both its internal code-review agent and its internal documentation-writing agent. Using a prior article's principle about how one platform can serve structurally different jobs without duplicating engineering effort, what should stay identical between the two agents' setups, and what should be allowed to differ?", "sourceArticle": "One Platform, Two Jobs: How Meta's Capacity Efficiency Agents Scale MW Savings Without Scaling Headcount (Agentic System Architecture)", "principle": "One platform can serve structurally different jobs without duplicated engineering effort when the expensive, reusable machinery (tool interfaces) stays stable and only the layer that encodes domain judgment (skills) changes per job."}
+        {
+          "prompt": "A startup wants to let an AI coding agent merge changes to its production codebase with no human review gate at all, betting that agents are fast enough that any mistake gets caught and fixed before it matters. Using a prior article's principle about production-grade reliability needing engineering work done up front, what should this startup build first, before it removes the human gate \u2014 and what evidence from that prior article would make you skeptical this bet is safe on day one?",
+          "sourceArticle": "Shared Foundation, Not a Smarter Model: How Cox Automotive Took 17 AI Agents to Production in a Year (Agentic System Architecture)",
+          "principle": "Reliability for an autonomous, customer-facing agent is a five-layer engineering discipline \u2014 hard guardrails, soft guardrails, scheduled red-teaming, automated evaluation, and hard circuit breakers \u2014 built before scale, not added right before launch; even a mature version of that stack does not guarantee every project succeeds on the first attempt."
+        },
+        {
+          "prompt": "A software company wants to grade its fully autonomous coding-agent pipeline purely by whether each pull request eventually gets merged. Using a prior article's principle about grading agents on more than the final outcome, what specific failure modes would a \u201cdid it merge\u201d metric hide, and why might a pipeline with a 100% eventual-merge rate still be quietly accumulating a hidden problem?",
+          "sourceArticle": "Grading the Task Isn't Enough: Amazon's Three-Layer Answer to Why Agents Fail (Agentic System Architecture)",
+          "principle": "Production-grade reliability comes from separately instrumenting each way a system can fail, not from one blended success/fail score \u2014 a passing final outcome can hide an internal misstep, or a slow accumulation of low-quality patterns, that got through anyway."
+        },
+        {
+          "prompt": "A company wants one AI-agent platform to power both its internal code-review agent and its internal documentation-writing agent. Using a prior article's principle about how one platform can serve structurally different jobs without duplicating engineering effort, what should stay identical between the two agents' setups, and what should be allowed to differ?",
+          "sourceArticle": "One Platform, Two Jobs: How Meta's Capacity Efficiency Agents Scale MW Savings Without Scaling Headcount (Agentic System Architecture)",
+          "principle": "One platform can serve structurally different jobs without duplicated engineering effort when the expensive, reusable machinery (tool interfaces) stays stable and only the layer that encodes domain judgment (skills) changes per job."
+        }
       ],
       "completedAt": "2026-08-18"
     },
@@ -223,17 +388,32 @@
       "slug": "PR-15-langgraph-controllable-agents",
       "title": "LangGraph in Production: Controllable Agents, Not Autonomous Ones",
       "type": "Agentic System Architecture (Type 3)",
-      "lifecyclePhases": ["Build", "Evaluate"],
+      "lifecyclePhases": [
+        "Build",
+        "Evaluate"
+      ],
       "governingPrinciple": "Production agents that lasted through 2024 fenced off only a narrow, genuinely novel-judgment slice of a workflow for a language model, kept everything else deterministic, checked against outside ground truth, or gated by evaluation, and treated that boundary as something that needs active maintenance rather than a one-time decision.",
       "sectionPrinciples": [
-        "Split any AI-native workflow into named steps ahead of time, and only let a language model occupy the steps that need genuinely novel judgment per input — a mock setup or a database check will always be cheaper and more reliable as compiled code than as a model's promise.",
+        "Split any AI-native workflow into named steps ahead of time, and only let a language model occupy the steps that need genuinely novel judgment per input \u2014 a mock setup or a database check will always be cheaper and more reliable as compiled code than as a model's promise.",
         "Match your reliability technique to your error cost and to what kind of ground truth actually exists outside the model: use an external, checkable fact when one exists, refuse to let the model touch the risky artifact directly when the cost of a mistake is high and no such check exists, and invest in long-trace observability for the failures nobody thought to write a validator for.",
-        "Build your evaluation system as a portfolio, not a dashboard number: automated metrics that scale but can be gamed, human or LLM-judge review for the nuance automation misses, and CI-style gating that catches regressions on every change — and re-audit the portfolio itself on a schedule, because a fixed benchmark decays as real usage drifts away from what it was built to test."
+        "Build your evaluation system as a portfolio, not a dashboard number: automated metrics that scale but can be gamed, human or LLM-judge review for the nuance automation misses, and CI-style gating that catches regressions on every change \u2014 and re-audit the portfolio itself on a schedule, because a fixed benchmark decays as real usage drifts away from what it was built to test."
       ],
       "warmUpQuestions": [
-        {"prompt": "A payments company wants an AI agent that both auto-approves refund requests under $50 with no human review and drafts the customer-facing refund email. Using a prior article's principle about which steps in a workflow a language model should be allowed to decide, how should the team split this workflow between deterministic code and model calls, and what checkable, external ground truth (if any) should validate the model's part?", "sourceArticle": "LangGraph in Production: Controllable Agents, Not Autonomous Ones (Agentic System Architecture)", "principle": "Split any AI-native workflow into named steps ahead of time, and only let a language model occupy the steps that need genuinely novel judgment per input; bound what the model touches and check its work against ground truth external to the model itself."},
-        {"prompt": "A city government's 311 triage agent shows a 93% resident-satisfaction rating on its dashboard. Using a prior article's principle about building evaluation as a portfolio rather than a single number, what should the team check before trusting that one figure, and what kind of failure could a high aggregate rating be hiding?", "sourceArticle": "LangGraph in Production: Controllable Agents, Not Autonomous Ones (Agentic System Architecture)", "principle": "Build evaluation as a portfolio of automated metrics, human-or-judge review, and regression gating, and re-audit that portfolio itself over time — a single aggregate rating can hide a wide middle band of merely-adequate outcomes and can decay as usage drifts from what the benchmark was built to test."},
-        {"prompt": "A startup is about to greenlight a from-scratch, in-house AI feature meant to out-perform a well-funded vendor's equivalent product. Using a prior article's principle about Uber's paused coding assistant, what load-bearing assumption should the team name and stress-test before scoping the project, and what evidence would have let them catch the problem earlier than six months in?", "sourceArticle": "LangGraph in Production: Controllable Agents, Not Autonomous Ones (Agentic System Architecture)", "principle": "Internal AI investment is worth making only where a company's own data-generating process or workflow context creates a durable advantage a better-resourced vendor cannot fine-tune its way into matching; that resource asymmetry is usually invisible at scoping time and needs an early, checkable kill criterion, not just a working demo."}
+        {
+          "prompt": "A payments company wants an AI agent that both auto-approves refund requests under $50 with no human review and drafts the customer-facing refund email. Using a prior article's principle about which steps in a workflow a language model should be allowed to decide, how should the team split this workflow between deterministic code and model calls, and what checkable, external ground truth (if any) should validate the model's part?",
+          "sourceArticle": "LangGraph in Production: Controllable Agents, Not Autonomous Ones (Agentic System Architecture)",
+          "principle": "Split any AI-native workflow into named steps ahead of time, and only let a language model occupy the steps that need genuinely novel judgment per input; bound what the model touches and check its work against ground truth external to the model itself."
+        },
+        {
+          "prompt": "A city government's 311 triage agent shows a 93% resident-satisfaction rating on its dashboard. Using a prior article's principle about building evaluation as a portfolio rather than a single number, what should the team check before trusting that one figure, and what kind of failure could a high aggregate rating be hiding?",
+          "sourceArticle": "LangGraph in Production: Controllable Agents, Not Autonomous Ones (Agentic System Architecture)",
+          "principle": "Build evaluation as a portfolio of automated metrics, human-or-judge review, and regression gating, and re-audit that portfolio itself over time \u2014 a single aggregate rating can hide a wide middle band of merely-adequate outcomes and can decay as usage drifts from what the benchmark was built to test."
+        },
+        {
+          "prompt": "A startup is about to greenlight a from-scratch, in-house AI feature meant to out-perform a well-funded vendor's equivalent product. Using a prior article's principle about Uber's paused coding assistant, what load-bearing assumption should the team name and stress-test before scoping the project, and what evidence would have let them catch the problem earlier than six months in?",
+          "sourceArticle": "LangGraph in Production: Controllable Agents, Not Autonomous Ones (Agentic System Architecture)",
+          "principle": "Internal AI investment is worth making only where a company's own data-generating process or workflow context creates a durable advantage a better-resourced vendor cannot fine-tune its way into matching; that resource asymmetry is usually invisible at scoping time and needs an early, checkable kill criterion, not just a working demo."
+        }
       ],
       "completedAt": "2026-08-19"
     },
@@ -241,19 +421,116 @@
       "slug": "PR-16-anthropic-multi-agent-research-system",
       "title": "More Tokens, Not a Smarter Model: How Anthropic's Multi-Agent Research System Actually Scales",
       "type": "Agentic System Architecture (Type 3)",
-      "lifecyclePhases": ["Build", "Evaluate"],
-      "governingPrinciple": "A multi-agent AI system does not out-think a single agent — it out-spends it. It wins by splitting a problem into genuinely independent pieces of work, so many context windows and many tool calls can run at once instead of one after another, buying more total computation than a single agent could ever use inside one context window. Anthropic built its Claude Research feature on exactly this bet, and the evidence is almost embarrassingly literal: in Anthropic's own analysis, how many tokens the system spent explained 80% of its score on a hard benchmark for locating obscure information — more than which specific model did the work. The same architecture that turns extra tokens into extra research power also turns one bad decision into a systemic failure the moment agents stop being independent, which is exactly what a separate, later Anthropic study of agent swarms found when it put three copies of the same model in a room with conflicting goals.",
+      "lifecyclePhases": [
+        "Build",
+        "Evaluate"
+      ],
+      "governingPrinciple": "A multi-agent AI system does not out-think a single agent \u2014 it out-spends it. It wins by splitting a problem into genuinely independent pieces of work, so many context windows and many tool calls can run at once instead of one after another, buying more total computation than a single agent could ever use inside one context window. Anthropic built its Claude Research feature on exactly this bet, and the evidence is almost embarrassingly literal: in Anthropic's own analysis, how many tokens the system spent explained 80% of its score on a hard benchmark for locating obscure information \u2014 more than which specific model did the work. The same architecture that turns extra tokens into extra research power also turns one bad decision into a systemic failure the moment agents stop being independent, which is exactly what a separate, later Anthropic study of agent swarms found when it put three copies of the same model in a room with conflicting goals.",
       "sectionPrinciples": [
-        "An orchestrator-worker split — a LeadResearcher agent that plans and writes that plan to memory outside its own 200K-token context window, then spawns parallel subagents each with an independent context window and independent tool calls — is what let Anthropic's Research system spend far more total tokens on a problem than one context window could hold, and that extra spend, not a smarter underlying model, is what produced its 90.2% performance advantage over a single agent; the tradeoff is concrete, since Anthropic reports multi-agent runs use roughly 3.75 times the tokens of a single-agent chat interaction.",
-        "Once the system had to run continuously in production, reliability came from combining prompt-level guardrails (explicit task-decomposition instructions and effort-scaling rules matched to query difficulty) with systems-engineering changes (checkpointing, a tool-testing agent that vets tool descriptions before deployment, and rainbow deployments for stateful long-running agents) — neither category alone would have fixed early failures like spawning 50 subagents for a simple query or subagents searching for sources that did not exist.",
-        "Because two equally correct runs of a multi-agent research system can take entirely different paths — different numbers of subagents, different search orders — to the same right answer, evaluating it well requires a layered stack of methods (LLM-judge grading against a rubric, human review, and process-level checks) rather than one blended pass/fail score checked against a single prescribed sequence of steps."
+        "An orchestrator-worker split \u2014 a LeadResearcher agent that plans and writes that plan to memory outside its own 200K-token context window, then spawns parallel subagents each with an independent context window and independent tool calls \u2014 is what let Anthropic's Research system spend far more total tokens on a problem than one context window could hold, and that extra spend, not a smarter underlying model, is what produced its 90.2% performance advantage over a single agent; the tradeoff is concrete, since Anthropic reports multi-agent runs use roughly 3.75 times the tokens of a single-agent chat interaction.",
+        "Once the system had to run continuously in production, reliability came from combining prompt-level guardrails (explicit task-decomposition instructions and effort-scaling rules matched to query difficulty) with systems-engineering changes (checkpointing, a tool-testing agent that vets tool descriptions before deployment, and rainbow deployments for stateful long-running agents) \u2014 neither category alone would have fixed early failures like spawning 50 subagents for a simple query or subagents searching for sources that did not exist.",
+        "Because two equally correct runs of a multi-agent research system can take entirely different paths \u2014 different numbers of subagents, different search orders \u2014 to the same right answer, evaluating it well requires a layered stack of methods (LLM-judge grading against a rubric, human review, and process-level checks) rather than one blended pass/fail score checked against a single prescribed sequence of steps."
       ],
       "warmUpQuestions": [
-        {"prompt": "A legal-research startup is deciding whether to build its AI contract-review tool as one agent with a long context window or as an orchestrator that spawns several subagents to search different parts of a contract in parallel. Using a prior article's principle about what actually explains a multi-agent system's advantage, what should the team expect to pay for the parallel-subagent design, and what specific benchmark result would tell them the extra cost was worth it?", "sourceArticle": "More Tokens, Not a Smarter Model: How Anthropic's Multi-Agent Research System Actually Scales (Agentic System Architecture)", "principle": "A multi-agent system wins by buying more total computation through independent, parallel context windows and tool calls, not through a smarter model — and that computation has a real, measurable token-cost multiplier over a single-agent run."},
-        {"prompt": "An engineering team's early multi-agent prototype keeps spawning dozens of subagents for questions that should take one search, and some subagents chase sources that don't exist. Using a prior article's principle about how a production multi-agent system's reliability was actually fixed, what two categories of change should the team look at, and why would neither category alone have solved the problem?", "sourceArticle": "More Tokens, Not a Smarter Model: How Anthropic's Multi-Agent Research System Actually Scales (Agentic System Architecture)", "principle": "Production reliability for a multi-agent system comes from combining prompt-level guardrails (task decomposition, effort-scaling rules) with systems-engineering changes (checkpointing, pre-deployment tool vetting, safe redeployment of stateful agents) — not from either category alone."},
-        {"prompt": "A team building an AI research assistant wants to grade it by checking whether its final report exactly matches one pre-written 'ideal' answer for each test question. Using a prior article's principle about evaluating systems where two correct runs can take different paths, what would this single-expected-path grading approach miss, and what should replace it?", "sourceArticle": "More Tokens, Not a Smarter Model: How Anthropic's Multi-Agent Research System Actually Scales (Agentic System Architecture)", "principle": "A multi-agent system can reach the same correct answer through genuinely different, equally valid paths, so evaluation needs a layered stack — judge-based grading, human review, and process checks — instead of one blended score checked against a single prescribed sequence."}
+        {
+          "prompt": "A legal-research startup is deciding whether to build its AI contract-review tool as one agent with a long context window or as an orchestrator that spawns several subagents to search different parts of a contract in parallel. Using a prior article's principle about what actually explains a multi-agent system's advantage, what should the team expect to pay for the parallel-subagent design, and what specific benchmark result would tell them the extra cost was worth it?",
+          "sourceArticle": "More Tokens, Not a Smarter Model: How Anthropic's Multi-Agent Research System Actually Scales (Agentic System Architecture)",
+          "principle": "A multi-agent system wins by buying more total computation through independent, parallel context windows and tool calls, not through a smarter model \u2014 and that computation has a real, measurable token-cost multiplier over a single-agent run."
+        },
+        {
+          "prompt": "An engineering team's early multi-agent prototype keeps spawning dozens of subagents for questions that should take one search, and some subagents chase sources that don't exist. Using a prior article's principle about how a production multi-agent system's reliability was actually fixed, what two categories of change should the team look at, and why would neither category alone have solved the problem?",
+          "sourceArticle": "More Tokens, Not a Smarter Model: How Anthropic's Multi-Agent Research System Actually Scales (Agentic System Architecture)",
+          "principle": "Production reliability for a multi-agent system comes from combining prompt-level guardrails (task decomposition, effort-scaling rules) with systems-engineering changes (checkpointing, pre-deployment tool vetting, safe redeployment of stateful agents) \u2014 not from either category alone."
+        },
+        {
+          "prompt": "A team building an AI research assistant wants to grade it by checking whether its final report exactly matches one pre-written 'ideal' answer for each test question. Using a prior article's principle about evaluating systems where two correct runs can take different paths, what would this single-expected-path grading approach miss, and what should replace it?",
+          "sourceArticle": "More Tokens, Not a Smarter Model: How Anthropic's Multi-Agent Research System Actually Scales (Agentic System Architecture)",
+          "principle": "A multi-agent system can reach the same correct answer through genuinely different, equally valid paths, so evaluation needs a layered stack \u2014 judge-based grading, human review, and process checks \u2014 instead of one blended score checked against a single prescribed sequence."
+        }
       ],
       "completedAt": "2026-08-20"
+    },
+    {
+      "slug": "PR-17-dropbox-rag-retrieval-system-design",
+      "title": "Two Budgets, Not One Model: How Dropbox Rebuilt Search for the AI-Native Era",
+      "type": "AI-Native System Design (Type 4)",
+      "lifecyclePhases": [
+        "Build",
+        "Scale"
+      ],
+      "governingPrinciple": "Classical search treats a document as one fixed-size record and a corpus as roughly stable; an AI-native retrieval system has to treat the corpus as two hard budgets instead \u2014 a small number of bytes to describe each document as a vector, and a small number of milliseconds to search across all of them \u2014 and nearly every design choice (chunking, embedding model, reranking) is really a decision about how to spend those two budgets, not a ranking of which technique is newest. Dropbox made the same kind of decision twice, for two different products (Nautilus's semantic search and Dash's RAG pipeline), and reached two different, both-defensible answers, because the budgets were different each time.",
+      "sectionPrinciples": [
+        "Use a public leaderboard to shortlist candidate models on the dimension it actually measures (coarse model ranking on its own data distribution), then build your own small, representative evaluation set for every dimension the leaderboard does not cover \u2014 chunking, document-length variance, and domain-specific vocabulary chief among them.",
+        "Match your retrieval architecture to your specific latency budget and corpus volatility, not to whichever technique is currently considered state of the art \u2014 a pre-built vector index and a query-time chunking-plus-reranking pipeline can both be the right answer, for different products inside the same company.",
+        "Fix your total storage or compute budget first, then choose which axis to compress \u2014 numeric precision, dimensionality, or content scope \u2014 based on which one your own data shows is cheapest to cut, and verify that a 'marginal impact' finding holds across segments, not just in aggregate."
+      ],
+      "warmUpQuestions": [
+        {
+          "prompt": "A team is choosing an embedding model for a legal-document search tool using only the top-ranked model on a public leaderboard. Using a prior article's principle, what question about the leaderboard's own datasets should they answer before trusting that ranking, and what corpus-specific question will the leaderboard never answer for them?",
+          "sourceArticle": "Two Budgets, Not One Model: How Dropbox Rebuilt Search for the AI-Native Era (AI-Native System Design)",
+          "principle": "A public leaderboard is trustworthy for the narrow question it was built to answer (coarse model ranking on its own data distribution) and silent on questions specific to your corpus, such as chunking and document-length variance \u2014 you need both a leaderboard and your own held-out evaluation."
+        },
+        {
+          "prompt": "A company runs two AI search products: one over a huge, mostly-stable internal wiki, and one aggregating live data from dozens of external tools per customer. Using a prior article's principle, why might the right retrieval architecture legitimately differ between the two, even though both are 'search'?",
+          "sourceArticle": "Two Budgets, Not One Model: How Dropbox Rebuilt Search for the AI-Native Era (AI-Native System Design)",
+          "principle": "Retrieval architecture is a function of latency budget and corpus volatility, not a ranking of techniques from newest to best \u2014 the same company can correctly ship two different architectures for two products with two different constraints."
+        },
+        {
+          "prompt": "An engineering team reports that compressing their embeddings had only a 'marginal' quality cost, based on an average across all their users. Using a prior article's principle, what should they check before trusting that average?",
+          "sourceArticle": "Two Budgets, Not One Model: How Dropbox Rebuilt Search for the AI-Native Era (AI-Native System Design)",
+          "principle": "An aggregate 'marginal impact' claim only holds if the measured impact is evenly distributed \u2014 check whether it concentrates in an already-weaker segment before trusting the average."
+        }
+      ],
+      "completedAt": "2026-09-01"
+    },
+    {
+      "slug": "PR-18-hnsw-vs-ivf-vector-index-selection",
+      "title": "The Index Trades Places: What Meta's Own Benchmarks Reveal About Choosing Between HNSW and IVF",
+      "type": "AI-Native System Design (Type 4)",
+      "lifecyclePhases": [
+        "Build",
+        "Scale"
+      ],
+      "governingPrinciple": "A vector index is a bet about which resource \u2014 memory, build time, or query latency \u2014 will be scarcest at a given scale, not a ranked list of algorithms from worse to better; Meta's own FAISS benchmarks show HNSW and IVF trading the 'fastest search' title between a 100-million and a 5-million-vector test set, and both defer real deletion to an asynchronous sweep, turning 'delete' into a scheduling promise rather than a guarantee.",
+      "sectionPrinciples": [
+        "An index's structure is a bet about which resource \u2014 build-time compute, steady-state memory, or drift tolerance \u2014 it spends to answer queries fast, not a ranking from worse to better; IVF trades a trained, driftable partition for compression that fits under a fixed memory budget, while HNSW trades a graph that never needs retraining for a build cost that grows far faster than the data it indexes.",
+        "No public benchmark can declare a permanent winner between HNSW and IVF, because Meta's own head-to-head numbers show the two trading the 'fastest search' title between a 100-million and a 5-million-vector test set \u2014 a speed ranking measured at one scale and dimensionality does not transfer to another without re-testing on your own data.",
+        "The operational bill for an ANN index \u2014 compression risk, drift risk, and above all deletion cost \u2014 is invisible on a launch-day benchmark chart, because both HNSW and IVF defer real deletion to an asynchronous sweep instead of removing data immediately, which turns 'delete' from a guarantee into a scheduling promise."
+      ],
+      "warmUpQuestions": [
+        {
+          "prompt": "A ride-sharing app is choosing between a graph-based and a partition-based index for matching driver-location embeddings to rider requests in real time, at a scale that will grow 50x within a year. Using a prior article's principle about what an index's structure actually trades away, what should the team check before picking either option, beyond which one is faster in today's benchmark?",
+          "sourceArticle": "The Index Trades Places: What Meta's Own Benchmarks Reveal About Choosing Between HNSW and IVF (AI-Native System Design)",
+          "principle": "An index's structure is a bet about which resource \u2014 build-time compute, steady-state memory, or drift tolerance \u2014 it spends to answer queries fast, not a ranking from worse to better."
+        },
+        {
+          "prompt": "A team benchmarks two search algorithms on a 3-million-row product catalog and picks the faster one for their entire e-commerce platform, which will eventually index 300 million products across many more attributes. Using a prior article's principle about index benchmarks, what is the risk in generalizing from that one test, and what would the team need to re-check before scaling up?",
+          "sourceArticle": "The Index Trades Places: What Meta's Own Benchmarks Reveal About Choosing Between HNSW and IVF (AI-Native System Design)",
+          "principle": "No public benchmark can declare a permanent winner between two index families, because the ranking can flip between scales and dimensionalities \u2014 a speed ranking measured on one dataset does not transfer to another without re-testing."
+        },
+        {
+          "prompt": "A messaging app lets users permanently delete messages, and its search index confirms deletion with a success response immediately. Using a prior article's principle about how ANN indexes handle deletion, what should the compliance team verify before promising users their data is 'gone,' and why might the success response alone be misleading?",
+          "sourceArticle": "The Index Trades Places: What Meta's Own Benchmarks Reveal About Choosing Between HNSW and IVF (AI-Native System Design)",
+          "principle": "Both HNSW and IVF defer real deletion to an asynchronous sweep instead of removing data immediately, so 'delete' is a scheduling promise, not a guarantee, until the sweep is confirmed complete."
+        }
+      ],
+      "completedAt": "2026-09-03"
+    },
+    {
+      "slug": "PR-19-together-ai-llm-serving-infrastructure",
+      "title": "Memory Sets the Price: How Together AI Engineered LLM Serving Around the KV Cache Bottleneck",
+      "type": "AI-Native System Design (Type 4)",
+      "lifecyclePhases": [
+        "Build",
+        "Scale"
+      ],
+      "governingPrinciple": "Classical system design treats compute as the resource to conserve. Large language model serving inverts this: once a model is loaded, the resource that runs out first is usually GPU memory spent holding the KV cache, and every one of Together AI's major serving techniques -- continuous batching, quantized model tiers, and speculative decoding -- turns out to be a way of buying back memory or hiding a memory-bound wait, not a way of making the chip compute faster.",
+      "sectionPrinciples": [
+        "Continuous batching and paged, block-based KV cache allocation work because they treat GPU memory, not compute, as the resource being scheduled -- a new request joins the batch the instant memory frees up, and the cache itself is allocated in reusable blocks instead of one large reservation per request, which is why serving capacity is a memory-management problem before it is a model-speed problem.",
+        "Speculative decoding was built to cut single-request latency, but Together AI research shows it also raises throughput at large batch and long context, because in both cases the real bottleneck is the same: the GPU sitting idle while it waits to read a KV cache too large to move through memory quickly, and letting a cheap draft model guess ahead hides that wait instead of eliminating it.",
+        "A provider's cost-per-token curve is not a single number set by the model; it is a menu of quantization tiers, each trading a small, measured accuracy change for a real price cut, and the 'right' tier is a workload-specific decision, not a default a whole company should inherit from one published benchmark."
+      ],
+      "completedAt": "2026-09-08"
     }
   ]
 }

@@ -1,0 +1,1446 @@
+const { useState, useEffect, useRef } = React;
+const { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, LabelList } = Recharts;
+
+/* ============================================================
+   CROSS-ARTIFACT WARM-UP DATA (drawn from prior completed articles)
+   ============================================================ */
+const WARM_UP_QUESTIONS = [
+  {
+    id: "wu1",
+    prompt: "A prior article showed that a silent, upstream decision not to call a model at all is still a product decision, and it inherits whatever proxy metric the system was tuned against. A legal-document search tool silently drops any file over 50 pages from its AI-search index without telling users. Using that principle, what should the team audit about this silent drop before treating it as a harmless performance shortcut?",
+    sourceArticle: "How GitHub Copilot Actually Works: Context Assembly, the Filter Gate, and a Reward Function Rebuilt Twice (AI Product Teardown)",
+    principle: "A silent decision not to act (or, here, not to index) is still a product decision, and it inherits whatever proxy metric or cost constraint it was tuned against — audit that constraint directly rather than assuming the silent behavior is safe by default."
+  },
+  {
+    id: "wu2",
+    prompt: "A prior article distinguished a data position (fresh, representative labels a product generates for free) from mere model sophistication as the real moat in an AI feature. A search startup wants to beat an incumbent by fine-tuning a better embedding model on the same public benchmark data everyone else uses. Using that principle, why is this unlikely to create a durable advantage, and what would have to be true instead?",
+    sourceArticle: "Data Readiness Before Model Selection: How Stripe Earned the Right to Build a Payments Foundation Model (AI Feasibility & Technical Scoping)",
+    principle: "The durable advantage in an AI feature comes from a data-generating process a competitor cannot copy, not from model sophistication alone — a public benchmark is available to every competitor, so winning on it is not a moat."
+  },
+  {
+    id: "wu3",
+    prompt: "A prior article showed that partitioning an AI product by its hardest constraint first — before picking any model — is what let very different features share one architecture safely. A company wants one search system to power both an instant 'type-ahead' file suggestion and a 'find anything I've ever written about this client' deep search. Using that principle, what should decide how the team splits this into two lanes, before they pick any embedding model?",
+    sourceArticle: "How Cursor Actually Works: The Architecture Is the Product (AI Product Teardown)",
+    principle: "Partition an AI product by its hardest constraint first — often latency budget — then choose models and retrieval machinery per lane, rather than picking one model and hoping it satisfies every lane's constraint at once."
+  }
+];
+
+/* ============================================================
+   REASONING-ERROR TAXONOMY (for calibration notes)
+   ============================================================ */
+const ERR = {
+  classical: "Applying classical software assumptions to AI: treating a fixed-size record or a fixed-length window as safe for content that varies wildly in length.",
+  metricForCause: "Confusing a metric for its cause: assuming a benchmark ranking transfers to a decision the benchmark never tested.",
+  survivorship: "Survivorship bias: concluding an approach works because one successful case used it, ignoring cases where the same approach failed.",
+  extrapolate: "Extrapolating a short trend: projecting a pattern seen at one scale onto a very different scale without checking whether the mechanism still holds.",
+  baseRate: "Base-rate neglect: ignoring how often a failure mode occurs across the whole population when judging one case's risk.",
+  rateLevel: "Confusing rate and level: misreading a relative change (a percentage) as an absolute one, or vice versa.",
+  causation: "Misattributing causation: assuming two things that moved together in the same release must be causally linked.",
+  hindsight: "Hindsight bias: naming a root cause that only looks obvious after the failure happened.",
+  scopeCreep: "Scope creep misdiagnosis: blaming a surface symptom instead of the structural assumption that actually failed."
+};
+
+/* ============================================================
+   CHART DATA (all FACT unless labeled otherwise)
+   ============================================================ */
+
+// Chart 1: search-quality before/after semantic search GA (Landscape)
+const zrrQctrData = [
+  { metric: "Zero-result rate (ZRR)", before: 100, after: 83, label: "-17%" },
+  { metric: "Qualified click-through (qCTR)", before: 100, after: 102, label: "+2%" }
+];
+
+// Chart 2: MTEB multilingual benchmark (RQ1) — MRR per model per language
+const mtebData = [
+  { language: "English", mpnetBase: 0.3299, miniLM: 0.3108, e5Large: 0.5044, e5Base: 0.4492 },
+  { language: "Japanese", mpnetBase: 0.2245, miniLM: 0.2628, e5Large: 0.4265, e5Base: 0.3659 },
+  { language: "Spanish", mpnetBase: 0.2367, miniLM: 0.2043, e5Large: 0.3350, e5Base: 0.3330 },
+  { language: "Korean", mpnetBase: 0.2338, miniLM: 0.2374, e5Large: 0.4003, e5Base: 0.3817 },
+  { language: "German", mpnetBase: 0.2879, miniLM: 0.2355, e5Large: 0.3305, e5Base: 0.3405 }
+];
+
+// Chart 3: storage bytes per embedding at three precision levels (ESTIMATE, arithmetic from FACT dims)
+const storageData = [
+  { precision: "32-bit (fp32)", bytesPerEmbedding: 4096, label: "4096 B (~4 KB)" },
+  { precision: "16-bit (fp16)", bytesPerEmbedding: 2048, label: "2048 B (~2 KB)" },
+  { precision: "8-bit (int8)", bytesPerEmbedding: 1024, label: "1024 B (~1 KB)" }
+];
+
+// Chart 4: ILLUSTRATION — precision vs recall as top-k / corpus size grows (structural pattern only)
+const precisionRecallIllustration = [
+  { corpusScale: "10K docs", precision: 0.82, recall: 0.55 },
+  { corpusScale: "1M docs", precision: 0.71, recall: 0.62 },
+  { corpusScale: "100M docs", precision: 0.58, recall: 0.68 },
+  { corpusScale: "1T+ docs", precision: 0.44, recall: 0.71 }
+];
+
+/* ============================================================
+   SMALL SHARED UI PRIMITIVES
+   ============================================================ */
+
+function SourceTag({ tier }) {
+  const styles = {
+    FACT: { bg: "#ECFDF5", color: "#065F46", label: "FACT" },
+    ESTIMATE: { bg: "#FFF7ED", color: "#9A3412", label: "ESTIMATE" },
+    ILLUSTRATION: { bg: "#F3F4F6", color: "#374151", label: "ILLUSTRATION" }
+  };
+  const s = styles[tier] || styles.FACT;
+  return (
+    <span style={{ background: s.bg, color: s.color, fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 999, letterSpacing: 0.4 }}>
+      {s.label}
+    </span>
+  );
+}
+
+function Glossary({ terms }) {
+  if (!terms || terms.length === 0) return null;
+  return (
+    <div style={{ background: "#F9FAFB", border: "1px solid #E5E7EB", borderRadius: 10, padding: "16px 18px", marginTop: 28 }}>
+      <div style={{ fontWeight: 700, fontSize: 13, color: "#6B7280", marginBottom: 8, letterSpacing: 0.4, textTransform: "uppercase" }}>Glossary</div>
+      {terms.map((t, i) => (
+        <div key={i} style={{ fontSize: 14.5, lineHeight: 1.6, marginBottom: 6 }}>
+          <strong>{t.term}</strong> — {t.def}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function ChartCaption({ children, tier }) {
+  return (
+    <div style={{ fontSize: 13, color: "#6B7280", marginTop: 8, display: "flex", gap: 8, alignItems: "flex-start" }}>
+      <SourceTag tier={tier} />
+      <span>{children}</span>
+    </div>
+  );
+}
+
+/* Chart interpretation: two independently-gated prompts under a chart */
+function ChartInterpretation({ chartId, prompts, state, setState }) {
+  const sub = state.interp[chartId] || { texts: ["", ""], submitted: [false, false] };
+  const update = (idx, val) => {
+    const texts = [...sub.texts];
+    texts[idx] = val;
+    setState(s => ({ ...s, interp: { ...s.interp, [chartId]: { ...sub, texts } } }));
+  };
+  const submit = (idx) => {
+    const submitted = [...sub.submitted];
+    submitted[idx] = true;
+    setState(s => ({ ...s, interp: { ...s.interp, [chartId]: { ...sub, submitted } } }));
+  };
+  return (
+    <div style={{ marginTop: 18 }}>
+      {prompts.map((p, idx) => (
+        <div key={idx} style={{ border: "1px solid #E5E7EB", borderRadius: 10, padding: 16, marginBottom: 12 }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: "#6B7280", textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 6 }}>{p.kind}</div>
+          <div style={{ fontSize: 15, marginBottom: 10 }}>{p.prompt}</div>
+          {!sub.submitted[idx] ? (
+            <>
+              <textarea
+                value={sub.texts[idx]}
+                onChange={e => update(idx, e.target.value)}
+                placeholder="Type your answer (min 15 characters)..."
+                style={{ width: "100%", minHeight: 60, padding: 10, borderRadius: 8, border: "1px solid #D1D5DB", fontSize: 14, fontFamily: "inherit" }}
+              />
+              <div style={{ marginTop: 8 }}>
+                <button
+                  disabled={sub.texts[idx].trim().length < 15}
+                  onClick={() => submit(idx)}
+                  style={btnStyle(sub.texts[idx].trim().length < 15)}
+                >
+                  Submit
+                </button>
+                {sub.texts[idx].trim().length < 15 && (
+                  <span style={{ marginLeft: 10, fontSize: 12.5, color: "#9CA3AF" }}>Enter at least 15 characters to enable Submit</span>
+                )}
+              </div>
+            </>
+          ) : (
+            <div>
+              <div style={{ background: "#F9FAFB", borderRadius: 8, padding: 10, fontSize: 14, marginBottom: 8 }}>
+                <strong>Your answer:</strong> {sub.texts[idx]}
+              </div>
+              <div style={{ background: "#EFF6FF", borderRadius: 8, padding: 10, fontSize: 14 }}>
+                <strong>Compare your answer to the authored one:</strong> {p.answer}
+              </div>
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function btnStyle(disabled) {
+  return {
+    background: disabled ? "#E5E7EB" : "#111",
+    color: disabled ? "#9CA3AF" : "#fff",
+    border: "none",
+    borderRadius: 8,
+    padding: "8px 18px",
+    fontSize: 14,
+    fontWeight: 600,
+    cursor: disabled ? "not-allowed" : "pointer"
+  };
+}
+
+/* Multiple choice / critical reasoning (T-A, T-B, T-H share this shape) */
+function MCQ({ id, label, prompt, options, correctIndex, distractorErrors, correctNote, transferCue, scaffolding, state, setState }) {
+  const q = state.q[id] || { selected: null, submitted: false, attempts: 0, retrying: false, isCorrect: null };
+  const select = (idx) => setState(s => ({ ...s, q: { ...s.q, [id]: { ...q, selected: idx } } }));
+  const submit = () => {
+    const isCorrect = q.selected === correctIndex;
+    const attempts = q.attempts + 1;
+    setState(s => ({ ...s, q: { ...s.q, [id]: { ...q, submitted: true, isCorrect, attempts } },
+      score: s.score + (isCorrect && attempts === 1 ? 1 : 0),
+      scored: { ...s.scored, [id]: true } }));
+  };
+  const tryAgain = () => setState(s => ({ ...s, q: { ...s.q, [id]: { ...q, submitted: false, selected: null, retrying: true } } }));
+  const showScaffold = q.retrying && !q.submitted;
+  return (
+    <div style={{ border: "1px solid #E5E7EB", borderRadius: 10, padding: 18, marginTop: 18 }}>
+      {label && <div style={{ fontSize: 12, fontWeight: 700, color: "#6B7280", textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 8 }}>{label}</div>}
+      <div style={{ fontSize: 15.5, marginBottom: 12 }}>{prompt}</div>
+      {showScaffold && (
+        <div style={{ background: "#FEFCE8", border: "1px solid #FDE68A", borderRadius: 8, padding: 12, marginBottom: 12, fontSize: 14 }}>
+          <strong>Hint before you try again:</strong> {scaffolding}
+        </div>
+      )}
+      <div style={{ display: "grid", gap: 8 }}>
+        {options.map((opt, idx) => {
+          let bg = "#fff", border = "#D1D5DB";
+          if (q.submitted) {
+            if (idx === correctIndex) { bg = "#ECFDF5"; border = "#34D399"; }
+            else if (idx === q.selected) { bg = "#FEF2F2"; border = "#FCA5A5"; }
+          } else if (q.selected === idx) { border = "#111"; }
+          return (
+            <div key={idx}
+              onClick={() => !q.submitted && select(idx)}
+              style={{ border: `1.5px solid ${border}`, background: bg, borderRadius: 8, padding: "10px 14px", fontSize: 14.5, cursor: q.submitted ? "default" : "pointer" }}>
+              {String.fromCharCode(65 + idx)}. {opt}
+            </div>
+          );
+        })}
+      </div>
+      {!q.submitted && (
+        <div style={{ marginTop: 12 }}>
+          <button disabled={q.selected === null} onClick={submit} style={btnStyle(q.selected === null)}>Submit</button>
+          {q.selected === null && <span style={{ marginLeft: 10, fontSize: 12.5, color: "#9CA3AF" }}>Select an option to enable Submit</span>}
+        </div>
+      )}
+      {q.submitted && (
+        <div style={{ marginTop: 14 }}>
+          <div style={{ fontSize: 14.5, marginBottom: 8 }}>
+            {q.isCorrect ? (
+              <span><strong>Correct</strong> — this reasoning pattern generalizes: {correctNote}</span>
+            ) : (
+              <span><strong>Incorrect</strong> — this is {distractorErrors[q.selected]}</span>
+            )}
+          </div>
+          <div style={{ fontSize: 13.5, color: "#4B5563", marginBottom: 10 }}><em>Where this generalizes:</em> {transferCue}</div>
+          {!q.isCorrect && (
+            <button onClick={tryAgain} style={{ ...btnStyle(false), background: "#374151" }}>Try again</button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* True/False with justification (T-G) */
+function TrueFalse({ id, prompt, correctAnswer, justificationAuthored, errorIfWrong, state, setState }) {
+  const q = state.q[id] || { choice: null, justification: "", submitted: false };
+  const set = (patch) => setState(s => ({ ...s, q: { ...s.q, [id]: { ...q, ...patch } } }));
+  const canSubmit = q.choice !== null && q.justification.trim().length >= 15;
+  const submit = () => {
+    const isCorrect = q.choice === correctAnswer;
+    set({ submitted: true });
+    setState(s => ({ ...s, score: s.score + (isCorrect ? 1 : 0), scored: { ...s.scored, [id]: true } }));
+  };
+  const isCorrect = q.choice === correctAnswer;
+  return (
+    <div style={{ border: "1px solid #E5E7EB", borderRadius: 10, padding: 18, marginTop: 18 }}>
+      <div style={{ fontSize: 12, fontWeight: 700, color: "#6B7280", textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 8 }}>True / False with justification</div>
+      <div style={{ fontSize: 15.5, marginBottom: 12 }}>{prompt}</div>
+      <div style={{ display: "flex", gap: 10, marginBottom: 12, maxWidth: 320 }}>
+        {["True", "False"].map((label, idx) => {
+          const val = idx === 0;
+          let bg = "#fff", border = "#D1D5DB";
+          if (q.submitted) {
+            if (val === correctAnswer) { bg = "#ECFDF5"; border = "#34D399"; }
+            else if (val === q.choice) { bg = "#FEF2F2"; border = "#FCA5A5"; }
+          } else if (q.choice === val) border = "#111";
+          return (
+            <div key={label} onClick={() => !q.submitted && set({ choice: val })}
+              style={{ flex: 1, textAlign: "center", border: `1.5px solid ${border}`, background: bg, borderRadius: 8, padding: "10px 0", cursor: q.submitted ? "default" : "pointer", fontWeight: 600 }}>
+              {label}
+            </div>
+          );
+        })}
+      </div>
+      <textarea
+        disabled={q.submitted}
+        value={q.justification}
+        onChange={e => set({ justification: e.target.value })}
+        placeholder="Justify your answer in one sentence (min 15 characters)..."
+        style={{ width: "100%", minHeight: 55, padding: 10, borderRadius: 8, border: "1px solid #D1D5DB", fontSize: 14, fontFamily: "inherit" }}
+      />
+      {!q.submitted ? (
+        <div style={{ marginTop: 10 }}>
+          <button disabled={!canSubmit} onClick={submit} style={btnStyle(!canSubmit)}>Submit</button>
+          {!canSubmit && <span style={{ marginLeft: 10, fontSize: 12.5, color: "#9CA3AF" }}>Select True or False and write 15+ characters to enable Submit</span>}
+        </div>
+      ) : (
+        <div style={{ marginTop: 12, fontSize: 14.5 }}>
+          <div style={{ marginBottom: 6 }}>{isCorrect ? <strong>Correct.</strong> : <span><strong>Incorrect</strong> — this is {errorIfWrong}</span>}</div>
+          <div style={{ background: "#F9FAFB", borderRadius: 8, padding: 10 }}><strong>Authored justification:</strong> {justificationAuthored}</div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* Consulting case (T-C) — amber styling, "Case Prompt" label */
+function ConsultingCase({ id, prompt, options, correctIndex, distractorErrors, correctNote, transferCue, scaffolding, state, setState }) {
+  const q = state.q[id] || { selected: null, submitted: false, attempts: 0, retrying: false, isCorrect: null };
+  const select = (idx) => setState(s => ({ ...s, q: { ...s.q, [id]: { ...q, selected: idx } } }));
+  const submit = () => {
+    const isCorrect = q.selected === correctIndex;
+    const attempts = q.attempts + 1;
+    setState(s => ({ ...s, q: { ...s.q, [id]: { ...q, submitted: true, isCorrect, attempts } },
+      score: s.score + (isCorrect && attempts === 1 ? 1 : 0),
+      scored: { ...s.scored, [id]: true } }));
+  };
+  const tryAgain = () => setState(s => ({ ...s, q: { ...s.q, [id]: { ...q, submitted: false, selected: null, retrying: true } } }));
+  const showScaffold = q.retrying && !q.submitted;
+  return (
+    <div style={{ background: "#FFFBEB", borderLeft: "3px solid #d97706", borderRadius: 10, padding: 18, marginTop: 18 }}>
+      <div style={{ fontSize: 12, fontWeight: 700, color: "#92400E", textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 8 }}>Case Prompt</div>
+      <div style={{ fontSize: 15.5, marginBottom: 12 }}>{prompt}</div>
+      {showScaffold && (
+        <div style={{ background: "#FEFCE8", border: "1px solid #FDE68A", borderRadius: 8, padding: 12, marginBottom: 12, fontSize: 14 }}>
+          <strong>Hint before you try again:</strong> {scaffolding}
+        </div>
+      )}
+      <div style={{ display: "grid", gap: 8 }}>
+        {options.map((opt, idx) => {
+          let bg = "#fff", border = "#D1D5DB";
+          if (q.submitted) {
+            if (idx === correctIndex) { bg = "#ECFDF5"; border = "#34D399"; }
+            else if (idx === q.selected) { bg = "#FEF2F2"; border = "#FCA5A5"; }
+          } else if (q.selected === idx) { border = "#92400E"; }
+          return (
+            <div key={idx}
+              onClick={() => !q.submitted && select(idx)}
+              style={{ border: `1.5px solid ${border}`, background: bg, borderRadius: 8, padding: "10px 14px", fontSize: 14.5, cursor: q.submitted ? "default" : "pointer" }}>
+              {String.fromCharCode(65 + idx)}. {opt}
+            </div>
+          );
+        })}
+      </div>
+      {!q.submitted && (
+        <div style={{ marginTop: 12 }}>
+          <button disabled={q.selected === null} onClick={submit} style={btnStyle(q.selected === null)}>Submit</button>
+          {q.selected === null && <span style={{ marginLeft: 10, fontSize: 12.5, color: "#9CA3AF" }}>Select an option to enable Submit</span>}
+        </div>
+      )}
+      {q.submitted && (
+        <div style={{ marginTop: 14 }}>
+          <div style={{ fontSize: 14.5, marginBottom: 8 }}>
+            {q.isCorrect ? (
+              <span><strong>Correct</strong> — this reasoning pattern generalizes: {correctNote}</span>
+            ) : (
+              <span><strong>Incorrect</strong> — this is {distractorErrors[q.selected]}</span>
+            )}
+          </div>
+          <div style={{ fontSize: 13.5, color: "#4B5563", marginBottom: 10 }}><em>Where this generalizes:</em> {transferCue}</div>
+          {!q.isCorrect && (
+            <button onClick={tryAgain} style={{ ...btnStyle(false), background: "#374151" }}>Try again</button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* Numeric estimation (T-D) */
+function NumericEstimate({ id, prompt, tolerance, factorChain, lowerBound, upperBound, actualValue, actualLabel, mostSensitiveFactor, isFermi, state, setState }) {
+  const q = state.q[id] || { value: "", submitted: false };
+  const set = (patch) => setState(s => ({ ...s, q: { ...s.q, [id]: { ...q, ...patch } } }));
+  const submit = () => {
+    const v = parseFloat(q.value);
+    const ratio = actualValue !== 0 ? v / actualValue : 0;
+    const within = isFermi ? (ratio >= 0.5 && ratio <= 2) : (Math.abs(v - actualValue) / actualValue <= tolerance);
+    set({ submitted: true });
+    setState(s => ({ ...s, score: s.score + (within ? 1 : 0), scored: { ...s.scored, [id]: true } }));
+  };
+  return (
+    <div style={{ border: "1px solid #E5E7EB", borderRadius: 10, padding: 18, marginTop: 18 }}>
+      <div style={{ fontSize: 12, fontWeight: 700, color: "#6B7280", textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 8 }}>Engineering estimate {isFermi ? "(open Fermi)" : ""}</div>
+      <div style={{ fontSize: 15.5, marginBottom: 6 }}>{prompt}</div>
+      <div style={{ fontSize: 13, color: "#6B7280", marginBottom: 12 }}>
+        Tolerance: {isFermi ? "scored within 2x or 0.5x of the actual value (order-of-magnitude Fermi scoring)" : `±${Math.round(tolerance * 100)}%`}
+      </div>
+      {!q.submitted ? (
+        <>
+          <input
+            type="number"
+            value={q.value}
+            onChange={e => set({ value: e.target.value })}
+            placeholder="Enter your estimate"
+            style={{ width: 220, padding: 10, borderRadius: 8, border: "1px solid #D1D5DB", fontSize: 14 }}
+          />
+          <div style={{ marginTop: 10 }}>
+            <button disabled={q.value === ""} onClick={submit} style={btnStyle(q.value === "")}>Submit</button>
+            {q.value === "" && <span style={{ marginLeft: 10, fontSize: 12.5, color: "#9CA3AF" }}>Enter a value to enable Submit</span>}
+          </div>
+        </>
+      ) : (
+        <div style={{ fontSize: 14.5 }}>
+          <div style={{ marginBottom: 10 }}>Your estimate: <strong>{q.value}</strong> — Actual: <strong>{actualLabel}</strong></div>
+          <div style={{ background: "#F9FAFB", borderRadius: 8, padding: 12, marginBottom: 8 }}>
+            <strong>Decomposition:</strong> {factorChain}
+          </div>
+          <div style={{ fontSize: 13.5, color: "#4B5563" }}>Bounds: {lowerBound} to {upperBound}. Most sensitive assumption: {mostSensitiveFactor}</div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* Pattern transfer (T-F) free text, min 50 chars */
+function PatternTransfer({ id, sectionPrinciple, newContext, state, setState }) {
+  const q = state.q[id] || { text: "", submitted: false, checks: [false, false, false] };
+  const set = (patch) => setState(s => ({ ...s, q: { ...s.q, [id]: { ...q, ...patch } } }));
+  return (
+    <div style={{ border: "1px solid #E5E7EB", borderRadius: 10, padding: 18, marginTop: 18, background: "#FAFAFA" }}>
+      <div style={{ fontSize: 12, fontWeight: 700, color: "#6B7280", textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 8 }}>Pattern transfer</div>
+      <div style={{ fontSize: 15.5, marginBottom: 6 }}>
+        The principle from this section is: <em>{sectionPrinciple}</em>
+      </div>
+      <div style={{ fontSize: 15, marginBottom: 12 }}>
+        Apply it to {newContext}. Name the principle accurately, explain a non-trivial application, and name a new failure mode that would not appear in the article's case.
+      </div>
+      {!q.submitted ? (
+        <>
+          <textarea
+            value={q.text}
+            onChange={e => set({ text: e.target.value })}
+            placeholder="Minimum 50 characters..."
+            style={{ width: "100%", minHeight: 90, padding: 10, borderRadius: 8, border: "1px solid #D1D5DB", fontSize: 14, fontFamily: "inherit" }}
+          />
+          <div style={{ marginTop: 8 }}>
+            <button disabled={q.text.trim().length < 50} onClick={() => set({ submitted: true })} style={btnStyle(q.text.trim().length < 50)}>Submit</button>
+            {q.text.trim().length < 50 && <span style={{ marginLeft: 10, fontSize: 12.5, color: "#9CA3AF" }}>{50 - q.text.trim().length} more characters needed</span>}
+          </div>
+        </>
+      ) : (
+        <div>
+          <div style={{ background: "#fff", border: "1px solid #E5E7EB", borderRadius: 8, padding: 10, fontSize: 14, marginBottom: 10 }}>{q.text}</div>
+          <div style={{ fontSize: 14, marginBottom: 8, fontWeight: 600 }}>Self-check:</div>
+          {["Did I name the principle accurately?", "Is my application genuinely different from the original case?", "Is my failure mode new?"].map((label, idx) => (
+            <label key={idx} style={{ display: "flex", gap: 8, alignItems: "flex-start", fontSize: 14, marginBottom: 6 }}>
+              <input type="checkbox" checked={q.checks[idx]} onChange={() => {
+                const checks = [...q.checks]; checks[idx] = !checks[idx]; set({ checks });
+              }} />
+              {label}
+            </label>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* Principle-in-one-sentence gate (never blocks navigation) */
+function PrincipleGate({ sectionId, authored, state, setState }) {
+  const val = state.principleGate[sectionId] || { text: "", submitted: false };
+  const set = (patch) => setState(s => ({ ...s, principleGate: { ...s.principleGate, [sectionId]: { ...val, ...patch } } }));
+  return (
+    <div style={{ border: "1px dashed #D1D5DB", borderRadius: 10, padding: 18, marginTop: 24 }}>
+      <div style={{ fontSize: 14.5, marginBottom: 10 }}>
+        In one sentence, state the transferable principle from this section — something a PM or CTO at a different company could apply tomorrow.
+      </div>
+      {!val.submitted ? (
+        <>
+          <textarea value={val.text} onChange={e => set({ text: e.target.value })} placeholder="Minimum 20 characters..."
+            style={{ width: "100%", minHeight: 55, padding: 10, borderRadius: 8, border: "1px solid #D1D5DB", fontSize: 14, fontFamily: "inherit" }} />
+          <div style={{ marginTop: 8 }}>
+            <button disabled={val.text.trim().length < 20} onClick={() => set({ submitted: true })} style={btnStyle(val.text.trim().length < 20)}>Submit (optional — does not lock navigation)</button>
+          </div>
+        </>
+      ) : (
+        <div style={{ fontSize: 14 }}>
+          <div style={{ marginBottom: 8 }}><strong>You wrote:</strong> {val.text}</div>
+          <div style={{ background: "#F9FAFB", borderRadius: 8, padding: 10 }}><strong>Authored principle:</strong> {authored}</div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* Simple grouped bar chart wrapper */
+function SimpleBarChart({ data, xKey, bars, height }) {
+  return (
+    <div style={{ width: "100%", height: height || 280, marginTop: 10 }}>
+      <ResponsiveContainer>
+        <BarChart data={data} margin={{ top: 20, right: 10, left: 0, bottom: 5 }}>
+          <CartesianGrid strokeDasharray="3 3" stroke="#F0F0F0" />
+          <XAxis dataKey={xKey} tick={{ fontSize: 11.5 }} />
+          <YAxis tick={{ fontSize: 11.5 }} />
+          <Tooltip />
+          <Legend wrapperStyle={{ fontSize: 12 }} />
+          {bars.map(b => (
+            <Bar key={b.key} dataKey={b.key} name={b.name} fill={b.color}>
+              {b.showLabel && <LabelList dataKey={b.key} position="top" style={{ fontSize: 10.5 }} />}
+            </Bar>
+          ))}
+        </BarChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
+/* Section 2 chart 2: structural-gap bar (English-only public benchmark vs Dropbox's real multilingual need) */
+function CoverageGapChart() {
+  const data = [
+    { label: "Total MTEB datasets (2022–2024)", value: 56 },
+    { label: "Non-English retrieval/reranking datasets at benchmark time", value: 0 }
+  ];
+  return <SimpleBarChart data={data} xKey="label" bars={[{ key: "value", name: "Dataset count", color: "#111", showLabel: true }]} height={220} />;
+}
+
+/* RQ2 decision matrix SVG: three retrieval architectures x three tradeoffs */
+function DecisionMatrixSVG() {
+  const rows = ["Pure vector (semantic) search", "Traditional lexical IR only", "Lexical IR + on-the-fly chunking + reranking (Dash's choice)"];
+  const cols = ["Latency", "Data freshness", "Compute budget"];
+  const grid = [
+    ["Higher (heavier embedding + larger index scan)", "Good (index updates directly)", "High (embeddings for every doc)"],
+    ["Lowest (keyword lookup only)", "Good", "Lowest"],
+    ["Sub-1–2s for 95%+ of queries (target met)", "Good, with periodic syncs + webhooks", "Medium (rerank only top candidates)"]
+  ];
+  return (
+    <svg viewBox="0 0 680 300" style={{ width: "100%", maxWidth: 680, display: "block", margin: "10px auto" }}>
+      <rect x="0" y="0" width="680" height="300" fill="#fff" />
+      {cols.map((c, i) => (
+        <text key={c} x={190 + i * 165} y="20" fontSize="12" fontWeight="700" textAnchor="middle" fill="#111">{c}</text>
+      ))}
+      {rows.map((r, ri) => (
+        <g key={r}>
+          <text x="8" y={70 + ri * 78} fontSize="11.5" fontWeight="600" fill="#111">
+            {r.length > 34 ? r.slice(0, 34) + "…" : r}
+          </text>
+          {grid[ri].map((val, ci) => (
+            <foreignObject key={ci} x={110 + ci * 165} y={40 + ri * 78} width="155" height="70">
+              <div xmlns="http://www.w3.org/1999/xhtml" style={{ fontSize: 11, lineHeight: 1.3, padding: 4, border: "1px solid #E5E7EB", borderRadius: 6, height: "100%", background: ri === 2 ? "#F0FDF4" : "#fff" }}>{val}</div>
+            </foreignObject>
+          ))}
+        </g>
+      ))}
+    </svg>
+  );
+}
+
+/* What Broke: before/after embedding-coverage diagram */
+function CoverageDiagramSVG() {
+  return (
+    <svg viewBox="0 0 680 200" style={{ width: "100%", maxWidth: 680, display: "block", margin: "10px auto" }}>
+      <text x="10" y="20" fontSize="12.5" fontWeight="700" fill="#111">Nautilus semantic search (2024 launch): embeds only the first 512 tokens</text>
+      <rect x="10" y="35" width="660" height="30" fill="#DCFCE7" stroke="#34D399" />
+      <rect x="10" y="35" width="66" height="30" fill="#111" />
+      <text x="14" y="55" fontSize="10.5" fill="#fff">Indexed (title + first 512 tok)</text>
+      <text x="90" y="55" fontSize="10.5" fill="#065F46">Rest of document — not embedded, unreachable by semantic search</text>
+
+      <text x="10" y="100" fontSize="12.5" fontWeight="700" fill="#111">Dash RAG pipeline (2025): chunks the full document at query time</text>
+      <rect x="10" y="115" width="660" height="30" fill="#111" />
+      <text x="14" y="135" fontSize="10.5" fill="#fff">Any section of the document can be chunked, retrieved, and reranked on demand</text>
+      <text x="10" y="175" fontSize="11" fill="#6B7280">FACT — architecture as disclosed in Dropbox Tech, Dec 2024 and Apr 2025 posts. Diagram proportions are illustrative of the concept, not measured pixel-for-token.</text>
+    </svg>
+  );
+}
+
+/* ============================================================
+   NAVBAR + HEADER
+   ============================================================ */
+const SECTIONS = [
+  { id: "intro", label: "Introduction" },
+  { id: "landscape", label: "Landscape" },
+  { id: "rq1", label: "Embedding Model Selection" },
+  { id: "rq2", label: "Retrieval Architecture" },
+  { id: "rq3", label: "Cost at Scale" },
+  { id: "whatbroke", label: "What Broke" },
+  { id: "summary", label: "Learning Summary" },
+  { id: "conclusion", label: "Conclusion" }
+];
+
+const LIFECYCLE = ["Feasibility", "Design", "Build", "Evaluate", "Deploy", "Scale", "Govern"];
+const ACTIVE_PHASES = ["Build", "Scale"];
+
+function Header({ active, score }) {
+  return (
+    <div style={{ position: "sticky", top: 0, zIndex: 20, background: "#fff", borderBottom: "1px solid #E5E7EB" }}>
+      <div style={{ height: 4, background: "#E5E7EB" }}>
+        <div style={{ height: 4, background: "#111", width: `${(SECTIONS.findIndex(s => s.id === active) + 1) / SECTIONS.length * 100}%`, transition: "width .3s" }} />
+      </div>
+      <div style={{ maxWidth: 960, margin: "0 auto", padding: "14px 24px", display: "flex", flexWrap: "wrap", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
+        <div>
+          <div style={{ fontWeight: 800, fontSize: 16 }}>Two Budgets, Not One Model: How Dropbox Rebuilt Search for the AI-Native Era</div>
+          <div style={{ fontSize: 12.5, color: "#6B7280", marginTop: 2 }}>
+            AI-Native System Design (Type 4) · Prev: AI Product Teardown (Type 2) · Next: AI Metrics &amp; Evaluation Framework (Type 6)
+          </div>
+        </div>
+        <div style={{ background: "#111", color: "#fff", borderRadius: 999, padding: "6px 14px", fontSize: 13, fontWeight: 700 }}>Score: {score}</div>
+      </div>
+      <div style={{ maxWidth: 960, margin: "0 auto", padding: "0 24px 12px", display: "flex", gap: 6, flexWrap: "wrap" }}>
+        {LIFECYCLE.map(p => (
+          <span key={p} style={{
+            fontSize: 11.5, padding: "3px 9px", borderRadius: 999,
+            background: ACTIVE_PHASES.includes(p) ? "#111" : "#F3F4F6",
+            color: ACTIVE_PHASES.includes(p) ? "#fff" : "#9CA3AF",
+            fontWeight: ACTIVE_PHASES.includes(p) ? 700 : 500
+          }}>{p}</span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function NavBar({ active, onNav, wide }) {
+  if (!wide) return null;
+  return (
+    <div style={{ position: "fixed", left: 18, top: 140, width: 190 }}>
+      {SECTIONS.map(s => (
+        <div key={s.id} onClick={() => onNav(s.id)}
+          style={{
+            padding: "8px 12px", fontSize: 13.5, cursor: "pointer", borderRadius: 6, marginBottom: 2,
+            borderLeft: active === s.id ? "3px solid #111" : "3px solid transparent",
+            background: active === s.id ? "#F3F4F6" : "transparent",
+            fontWeight: active === s.id ? 700 : 500, color: active === s.id ? "#111" : "#6B7280"
+          }}>
+          {s.label}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/* ============================================================
+   WARM-UP SCREEN
+   ============================================================ */
+function WarmUp({ state, setState, onDone }) {
+  const answers = state.warmUp.answers;
+  const submitted = state.warmUp.submitted;
+  const setAnswer = (id, val) => setState(s => ({ ...s, warmUp: { ...s.warmUp, answers: { ...s.warmUp.answers, [id]: val } } }));
+  const submit = (id) => setState(s => ({ ...s, warmUp: { ...s.warmUp, submitted: { ...s.warmUp.submitted, [id]: true } } }));
+  const skip = () => { setState(s => ({ ...s, warmUp: { ...s.warmUp, skipped: true, completed: true } })); onDone(); };
+  const finish = () => { setState(s => ({ ...s, warmUp: { ...s.warmUp, completed: true } })); onDone(); };
+  const allAnswered = WARM_UP_QUESTIONS.every(q => submitted[q.id]);
+  return (
+    <div style={{ minHeight: "100vh", background: "#F3F4F6", padding: "40px 20px" }}>
+      <div style={{ maxWidth: 700, margin: "0 auto" }}>
+        <h1 style={{ fontSize: 24, marginBottom: 6 }}>Before you begin — recall from your prior reading</h1>
+        <p style={{ color: "#6B7280", marginBottom: 24, fontSize: 14.5 }}>
+          Three questions testing principles from earlier articles in a new context. This is retrieval practice, not a scored test.
+        </p>
+        {WARM_UP_QUESTIONS.map(q => (
+          <div key={q.id} style={{ background: "#fff", borderRadius: 10, padding: 18, marginBottom: 14, border: "1px solid #E5E7EB" }}>
+            <div style={{ fontSize: 15, marginBottom: 10 }}>{q.prompt}</div>
+            {!submitted[q.id] ? (
+              <>
+                <textarea value={answers[q.id] || ""} onChange={e => setAnswer(q.id, e.target.value)}
+                  placeholder="Minimum 25 characters..."
+                  style={{ width: "100%", minHeight: 65, padding: 10, borderRadius: 8, border: "1px solid #D1D5DB", fontSize: 14, fontFamily: "inherit" }} />
+                <div style={{ marginTop: 8 }}>
+                  <button disabled={(answers[q.id] || "").trim().length < 25} onClick={() => submit(q.id)} style={btnStyle((answers[q.id] || "").trim().length < 25)}>Submit</button>
+                </div>
+              </>
+            ) : (
+              <div style={{ fontSize: 13.5 }}>
+                <div style={{ background: "#F9FAFB", borderRadius: 8, padding: 10, marginBottom: 6 }}><strong>Principle tested:</strong> {q.principle}</div>
+                <div style={{ color: "#6B7280" }}>Source: {q.sourceArticle}</div>
+              </div>
+            )}
+          </div>
+        ))}
+        <div style={{ display: "flex", gap: 12, marginTop: 20 }}>
+          <button onClick={finish} disabled={!allAnswered} style={btnStyle(!allAnswered)}>Continue to article</button>
+          <button onClick={skip} style={{ background: "transparent", border: "1px solid #D1D5DB", borderRadius: 8, padding: "8px 18px", fontSize: 14, cursor: "pointer", color: "#6B7280" }}>Skip warm-up</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ============================================================
+   SECTION: INTRODUCTION
+   ============================================================ */
+function Section({ id, reg, title, children }) {
+  return (
+    <div id={id} ref={reg} style={{ marginBottom: 64, paddingTop: 12 }}>
+      <h2 style={{ fontSize: 22, marginBottom: 18 }}>{title}</h2>
+      {children}
+    </div>
+  );
+}
+
+function IntroSection({ reg }) {
+  return (
+    <Section id="intro" reg={reg} title="Introduction">
+      <p>
+        Classical search treats a document as one fixed-size record and a corpus as roughly stable. An AI-native retrieval
+        system cannot make either assumption. It has to treat the corpus as two hard budgets instead: a small number of
+        bytes it can spend describing each document as a vector, and a small number of milliseconds it can spend
+        searching across all of them at query time. Almost every design choice in a retrieval-augmented generation (RAG)
+        pipeline — how to chunk a document, which embedding model to use, whether to rerank — is really a decision about
+        how to spend those two budgets, not a decision about which technology is newest. Dropbox is unusually good
+        evidence for this because it made the same kind of decision twice, for two different products, and reached two
+        different answers, both defensible, because the budgets were different each time.
+      </p>
+      <p>
+        By the time Dropbox published its embedding-model selection process in December 2024, its search system —
+        Nautilus, first introduced in 2018 — was indexing more than a trillion documents and exabytes of data (Dropbox
+        Tech, Dec 2024). At that scale, evaluating even one candidate embedding model against the whole corpus is
+        expensive, so Dropbox had to lean on a public benchmark, the Massive Text Embedding Benchmark (MTEB), which by
+        then had published more than 2,000 leaderboard results since its 2022 release (Dropbox Tech, Dec 2024, citing
+        MTEB). Four months later, in April 2025, Dropbox published a second post about Dash, a separate AI search and
+        agent product for businesses, describing a retrieval pipeline that deliberately avoided the standard playbook of
+        pre-computing a vector index — choosing instead a lexical search system with chunking done at query time, tuned
+        to a strict latency ceiling of under 1–2 seconds for more than 95% of queries (Dropbox Tech, Apr 2025).
+      </p>
+      <p>
+        The structural gap both teams hit is the same one every AI-native retrieval system eventually hits: a public
+        benchmark, a generic best practice, or a rule that worked at a smaller scale, does not automatically transfer to
+        your corpus, your language mix, or your latency budget. MTEB's public retrieval and reranking datasets were
+        English-only at the time Dropbox benchmarked against them, while a meaningful share of Dropbox's own users search
+        in Japanese, Spanish, Korean, and German (Dropbox Tech, Dec 2024). And the "obvious" way to serve RAG retrieval —
+        a pre-built vector index — was not the one Dropbox shipped for Dash, because a pre-built index optimized for
+        Nautilus's trillion-document library was the wrong shape for a product that needed sub-2-second answers across
+        dozens of live, per-tenant data sources at once.
+      </p>
+      <p>
+        This article uses Dropbox's two published engineering posts to answer three questions. First, when your corpus is
+        too large and too multilingual for any public leaderboard to represent it directly, how do you choose an
+        embedding model, and how far can you actually trust that leaderboard? Second, once you have a good embedding
+        model, why might a production RAG pipeline still reject the "obvious" pure-vector-search architecture, and what
+        replaces it? Third, what does it cost — in storage and in engineering effort — to keep every one of those
+        documents searchable, and where did Dropbox choose to spend less to stay inside budget?
+      </p>
+    </Section>
+  );
+}
+
+/* ============================================================
+   SECTION: LANDSCAPE
+   ============================================================ */
+function LandscapeSection({ reg, state, setState }) {
+  return (
+    <Section id="landscape" reg={reg} title="Technical and Product Landscape">
+      <p>
+        Nautilus, Dropbox's search engine, launched in 2018 as a conventional keyword-based system (Dropbox Tech, Dec
+        2024). It matches the words a user types against the words in a document's title or body. That works well when a
+        user remembers the exact phrase they are looking for, and fails quietly when they do not: a search for
+        "employment contract" will not surface a file titled "offer letter," even though a person would recognize the two
+        as the same kind of document. For a multilingual company, the same literal-match assumption fails again across
+        languages — Nautilus expected a query and its matching document to share a language (Dropbox Tech, Dec 2024).
+      </p>
+      <p>
+        Semantic search — matching by meaning instead of exact words, using embeddings and vector search — is the
+        conventional fix, and Dropbox rolled it out in stages: internally in early 2024, then externally as an
+        experiment for a subset of Pro and Essential-tier users in May 2024 (Dropbox Tech, Dec 2024). The experiment's
+        results were concrete enough to justify a full rollout: a nearly 17% reduction in the zero-result rate (ZRR, the
+        share of searches that return nothing) and a 2 percentage-point lift in qualified click-through rate (qCTR, the
+        share of searches ending in a click on a relevant result) (Dropbox Tech, Dec 2024). Dropbox made semantic search
+        generally available to all Pro and Essential users in August 2024, with Business users planned for early 2025
+        (Dropbox Tech, Dec 2024).
+      </p>
+      <SimpleBarChart
+        data={zrrQctrData}
+        xKey="metric"
+        bars={[{ key: "before", name: "Before (index = 100)", color: "#D1D5DB", showLabel: false }, { key: "after", name: "After semantic search GA", color: "#111", showLabel: true }]}
+        height={230}
+      />
+      <ChartCaption tier="FACT">
+        Indexed to a baseline of 100 for readability; Dropbox reported the changes as a ~17% relative reduction in ZRR and a 2 percentage-point relative lift in qCTR during the May 2024 experiment (Dropbox Tech, Dec 2024). Exact pre/post absolute rates were not published.
+      </ChartCaption>
+      <ChartInterpretation chartId="zrr" state={state} setState={setState} prompts={[
+        { kind: "So-what / threshold rule", prompt: "ZRR fell ~17% relative while qCTR rose only 2 percentage points. If you were deciding whether this result justified a company-wide GA rollout versus another quarter of experimentation, what threshold rule would you apply to these two specific numbers, and would you have shipped?", answer: "A reasonable threshold rule is to gate GA on the harm-reduction metric (ZRR, a proxy for 'search failed you') clearing a double-digit relative improvement, while treating a smaller click-through gain as confirmation rather than the primary bar — because a large cut in zero-result sessions changes user trust in the product even before click behavior fully adjusts. Dropbox's own decision to ship GA on these two numbers together supports reading ZRR as the load-bearing metric here." },
+        { kind: "Quantitative reasoning", prompt: "If Nautilus was returning zero results on, say, 12% of searches before the change, estimate the post-launch zero-result rate implied by a 17% relative reduction, and state the arithmetic.", answer: "12% × (1 − 0.17) = 12% × 0.83 ≈ 9.96%, roughly a 2-point absolute drop from a 12% starting rate. The relative-vs-absolute gap matters: a 17% relative cut sounds large, but its absolute size depends entirely on the (unpublished) starting rate — a company starting at 2% ZRR would see a much smaller absolute change than one starting at 12%." }
+      ]} />
+      <p>
+        The MTEB benchmark that Dropbox needed for the next step — picking an embedding model — is itself a useful
+        illustration of the same lesson. MTEB assesses embedding models across eight evaluation tasks and 56 datasets
+        (Dropbox Tech, Dec 2024, citing MTEB). But at the time Dropbox went looking, MTEB's retrieval and reranking
+        tasks — the two most relevant to search — were almost entirely English-only.
+      </p>
+      <CoverageGapChart />
+      <ChartCaption tier="FACT">
+        MTEB spans 56 datasets in total, but the retrieval and reranking task categories Dropbox needed offered essentially no non-English coverage at benchmarking time (Dropbox Tech, Dec 2024). Bars show dataset-category counts, not model scores.
+      </ChartCaption>
+      <ChartInterpretation chartId="coverage" state={state} setState={setState} prompts={[
+        { kind: "Qualitative / mechanism", prompt: "Why would a benchmark with 56 datasets still leave Dropbox with zero usable non-English retrieval data — what does that reveal about how general-purpose leaderboards get built?", answer: "General leaderboards accumulate datasets from whatever the research community happens to publish, which skews toward English because that is where most academic NLP benchmarking effort has historically concentrated; breadth in dataset count does not imply breadth in language or domain coverage, and a large total can hide a near-total gap in the one slice you actually need." },
+        { kind: "So-what / segmentation", prompt: "Given this gap, how should a team segment its own evaluation-data investment between 'trust the public leaderboard' and 'build our own benchmark,' and what in this chart tells you where that line should sit?", answer: "Segment by whether the public benchmark's language and domain mix overlaps yours: for English-dominant use cases, the 56-dataset MTEB leaderboard is a reasonable first filter; for any language or document type absent from that set (here, every non-English retrieval dataset), a team has to budget for building its own held-out evaluation data before trusting a leaderboard ranking, exactly as Dropbox did." }
+      ]} />
+      <p>
+        This is the structural gap both of Dropbox's projects had to close: a scale and language mix that no off-the-shelf
+        benchmark or off-the-shelf retrieval architecture was built to represent. The next three sections follow how
+        Dropbox closed it — first for the embedding model, then for the retrieval pipeline around it, then for the
+        storage and compute budget underneath both.
+      </p>
+      <Glossary terms={[
+        { term: "Embedding", def: "A list of numbers that represents the meaning of a piece of text, so that similar meanings end up as similar number-lists." },
+        { term: "Vector search", def: "Finding the stored embeddings that are numerically closest to a query's embedding, as a way of finding similar meaning." },
+        { term: "MTEB — Massive Text Embedding Benchmark", def: "A public, standardized test suite researchers use to compare how well different embedding models perform across many tasks and languages." },
+        { term: "ZRR — Zero-Result Rate", def: "The share of search queries that return no results at all." },
+        { term: "qCTR — Qualified Click-Through Rate", def: "The share of search sessions where the user clicked a result judged relevant, not just any result." }
+      ]} />
+    </Section>
+  );
+}
+
+/* ============================================================
+   SECTION: RQ1 — EMBEDDING MODEL SELECTION
+   ============================================================ */
+function RQ1Section({ reg, state, setState }) {
+  return (
+    <Section id="rq1" reg={reg} title="RQ1 — Choosing an Embedding Model Without a Benchmark That Fits Your Corpus">
+      <p>
+        Test this claim: once you have picked the model that scores best on a respected public leaderboard, the hard part
+        of choosing an embedding model is done. Dropbox's own process shows why that claim is only half right.
+      </p>
+      <p>
+        The obstacle was distribution shift: MTEB's public datasets are close to uniform in document size and are
+        English-only in the tasks Dropbox needed, while Dropbox's real corpus mixes tiny notes and huge reports, in at
+        least five languages, in documents named by real users rather than left unnamed the way public datasets are
+        (Dropbox Tech, Dec 2024). To close that gap, Dropbox built its own MTEB-compatible datasets from anonymized
+        query-document pairs pulled out of Dropbox's own search logs — for English and for five more languages: Spanish,
+        French, German, Japanese, and Korean — with strict access controls and a 30-day deletion policy (Dropbox Tech,
+        Dec 2024).
+      </p>
+      <p>
+        Dropbox evaluated 11 embedding models in total, four of them multilingual, and selected multilingual-e5-large
+        (Dropbox Tech, Dec 2024). The model has 1,024 dimensions per embedding and 24 layers, and supports roughly 100
+        languages (Hugging Face model card, intfloat/multilingual-e5-large). The benchmark table below is the evidence
+        Dropbox published for that choice, scored with mean reciprocal rank (MRR) and mean average precision (MAP), where
+        higher is better.
+      </p>
+      <SimpleBarChart
+        data={mtebData}
+        xKey="language"
+        bars={[
+          { key: "mpnetBase", name: "paraphrase-multilingual-mpnet-base-v2", color: "#D1D5DB" },
+          { key: "miniLM", name: "paraphrase-multilingual-MiniLM-L12-v2", color: "#9CA3AF" },
+          { key: "e5Base", name: "multilingual-e5-base", color: "#6B7280" },
+          { key: "e5Large", name: "multilingual-e5-large (selected)", color: "#111" }
+        ]}
+        height={300}
+      />
+      <ChartCaption tier="FACT">
+        Mean reciprocal rank (MRR) per model per language, evaluated on Dropbox's own custom, MTEB-compatible datasets built from Dropbox search logs (Dropbox Tech, Dec 2024). Mean average precision (MAP) tracked the same ranking in Dropbox's published table and is omitted here for readability.
+      </ChartCaption>
+      <ChartInterpretation chartId="mteb" state={state} setState={setState} prompts={[
+        { kind: "Quantitative reasoning", prompt: "In Korean, multilingual-e5-large scores an MRR of 0.4003 against paraphrase-multilingual-mpnet-base-v2's 0.2338. Express e5-large's advantage as a multiple, and say whether that multiple is bigger or smaller than its English-language advantage (0.5044 vs 0.3299).", answer: "In Korean, e5-large scores about 1.71x mpnet-base's MRR (0.4003 / 0.2338 ≈ 1.71). In English, the multiple is about 1.53x (0.5044 / 0.3299 ≈ 1.53). The advantage is larger in Korean, not smaller — the weaker baseline model's English-language head start (relatively more training data) partly closes the gap in the language everyone optimizes for first, while the gap widens exactly where general-purpose models are weakest." },
+        { kind: "Causal / comparative", prompt: "multilingual-e5-large beats every other model in four of five languages here, but multilingual-e5-base actually edges it out in German (0.3405 vs 0.3305 MRR). What should Dropbox NOT conclude from that one German result, and why?", answer: "Dropbox should not conclude that e5-base is the better choice for German specifically, or that model rankings are language-specific enough to warrant swapping models per language. A single-language exception this small (about 3% relative) inside an 11-model, multi-language evaluation is within the kind of noise a benchmark of this size produces, and maintaining one model across all languages avoids the real cost of running and versioning multiple embedding models in production for a marginal, unconfirmed gain." }
+      ]} />
+      <p>
+        Here is the part that complicates the "just trust the leaderboard" thesis, and the part that confirms it, in the
+        same result. Confirmation: multilingual-e5-large was not just the best performer on Dropbox's own private data —
+        it was also, at the time of benchmarking, the best-ranked multilingual model on the public MTEB leaderboard
+        (Dropbox Tech, Dec 2024). For the question "which model," the public leaderboard and Dropbox's private
+        evaluation agreed. Complication: the leaderboard could not answer several other questions Dropbox needed
+        answered, because MTEB assumes one embedding per document, while Dropbox's documents range from a one-line note
+        to a hundred-page report. Dropbox had to separately build and test chunking strategies, overlap parameters, and
+        a scheme for embedding filenames — none of which the public benchmark measures at all (Dropbox Tech, Dec 2024).
+      </p>
+      <p>
+        The generalizable lesson is narrower than "always build your own benchmark" or "the leaderboard is enough." A
+        public leaderboard is reasonably trustworthy for the question it was built to answer — coarse model ranking, on
+        the data distribution it covers — and is silent on the questions specific to your corpus, such as how to chunk
+        documents of wildly different lengths. Trusting a leaderboard for the first kind of question while still doing
+        your own work for the second is what actually happened at Dropbox, even though both results get reported under
+        one label, "model selection."
+      </p>
+      <p>
+        A related technique worth knowing, which Dropbox's approach does not use: OpenAI's text-embedding-3 models are
+        trained with a method called Matryoshka Representation Learning (MRL), which lets a developer shorten an
+        embedding's dimensionality at inference time, with no retraining, by simply keeping the first N of its
+        dimensions. OpenAI reported that a text-embedding-3-large embedding shortened to 256 dimensions still
+        outperformed the older, unshortened text-embedding-ada-002 model at 1,536 dimensions on the MTEB benchmark
+        (OpenAI, as reported via multiple embedding-infrastructure engineering write-ups, 2024). Dropbox's approach to
+        shrinking storage, covered in RQ3, instead keeps every dimension and reduces the numeric precision of each one —
+        a different axis of compression with a different cost profile, and a useful contrast for any team facing the
+        same storage-versus-quality tradeoff.
+      </p>
+      <MCQ
+        id="ta-rq1"
+        label="Architecture and system implication (T-A)"
+        prompt="Based on the benchmark chart and Dropbox's own account of how it built its evaluation pipeline, if Dropbox committed tomorrow to fully supporting ten more languages, which part of its current model-selection process would most likely become the bottleneck at that 10x jump in language count, and what does that imply about where to invest first?"
+        options={[
+          "The embedding model itself, multilingual-e5-large, since it would need retraining from scratch before it could handle any language beyond the ones already benchmarked",
+          "The custom, per-language benchmark pipeline, since building it needs real search-log volume and manual work per language, while model inference already scales for free",
+          "The vector index's storage footprint, since adding new languages would multiply the number of stored embeddings the same way adding new documents does",
+          "The reranking step's latency, since reranking cost rises for every query once more languages are added to the candidate pool it searches over"
+        ]}
+        correctIndex={1}
+        distractorErrors={[
+          ERR.classical,
+          null,
+          ERR.scopeCreep,
+          ERR.causation
+        ]}
+        correctNote="multilingual-e5-large already supports roughly 100 languages without retraining, so the constraint is not the model — it is the manual, per-language work of building a representative evaluation set, which is exactly the step Dropbox had to invent because MTEB did not cover it."
+        transferCue="whenever a capability scales for free (a pretrained multilingual model) but its evaluation does not (a benchmark you must build by hand per segment), the evaluation step becomes the real bottleneck to invest in — the same pattern shows up in expanding a product to new regions, verticals, or customer segments generally."
+        scaffolding="Re-read how Dropbox built its custom datasets in RQ1: what specifically required real search-log volume and manual pipeline work, and what, by contrast, came for free once the right model was chosen?"
+        state={state} setState={setState}
+      />
+      <ConsultingCase
+        id="tc-rq1"
+        prompt="Meridian Health, a fictional hospital-records company, wants to add semantic search across clinical notes in English, Spanish, and Tagalog. A vendor recommends picking whichever embedding model tops the public MTEB leaderboard for medical text and shipping it directly to production. Which assumption must hold for that recommendation to create value, and what evidence from this article is thinnest in supporting it for Meridian's specific case?"
+        options={[
+          "That clinical notes resemble MTEB's public medical-text datasets closely enough in structure and length — an assumption this article weakens, since Dropbox needed its own custom benchmark beyond MTEB even for general documents",
+          "That Meridian's engineering team has the budget to build a custom quantization scheme like Dropbox's, since without one the recommended model cannot be deployed at all",
+          "That Tagalog is one of the languages the top-ranked MTEB model was evaluated on, since a leaderboard rank is meaningless for any language absent from the leaderboard entirely",
+          "That semantic search will outperform Meridian's existing keyword search on every single query type, since anything less than universal improvement would make the switch not worth the engineering cost"
+        ]}
+        correctIndex={0}
+        distractorErrors={[
+          null,
+          ERR.scopeCreep,
+          ERR.baseRate,
+          ERR.extrapolate
+        ]}
+        correctNote="the load-bearing assumption is distributional fit: a leaderboard rank only transfers if the benchmark's documents resemble yours, and this article's clearest evidence — Dropbox needing its own custom benchmark despite MTEB's 56 datasets — is exactly the evidence that this assumption is often false, even before language enters the picture."
+        transferCue="any 'just use the top leaderboard model' recommendation is only as strong as the distributional similarity between the public benchmark and your real data — check document type and length first, language second."
+        scaffolding="Go back to RQ1's core finding: Dropbox's public leaderboard rank agreed with its private evaluation for model choice, but the leaderboard still could not answer several corpus-specific questions. What kind of question was that, and does Meridian's case raise the same kind?"
+        state={state} setState={setState}
+      />
+      <PatternTransfer
+        id="pt-rq1"
+        sectionPrinciple="A public benchmark is trustworthy for the narrow question it was built to answer (coarse model ranking on its own data distribution) and silent on the questions specific to your corpus (chunking, document-length variance, domain vocabulary) — you need both a leaderboard and your own held-out evaluation, for different jobs."
+        newContext="a hospital network choosing a medical-imaging retrieval model using a public radiology benchmark"
+        state={state} setState={setState}
+      />
+      <PrincipleGate sectionId="rq1" state={state} setState={setState}
+        authored="Use a public leaderboard to shortlist candidate models on the dimension it actually measures, then build your own small, representative evaluation set for every dimension the leaderboard does not cover — chunking, document-length variance, and domain-specific vocabulary chief among them." />
+      <Glossary terms={[
+        { term: "MRR — Mean Reciprocal Rank", def: "A score that rewards a search system for placing the correct result near the very top, not just somewhere in the results." },
+        { term: "MAP — Mean Average Precision", def: "A score that averages precision across all the correct results in a ranked list, rewarding systems that keep correct results near the top throughout." },
+        { term: "Matryoshka Representation Learning (MRL)", def: "A training method that lets one embedding model produce embeddings that can be safely shortened later, trading a little accuracy for much less storage." }
+      ]} />
+    </Section>
+  );
+}
+
+/* ============================================================
+   SECTION: RQ2 — RETRIEVAL ARCHITECTURE
+   ============================================================ */
+function RQ2Section({ reg, state, setState }) {
+  return (
+    <Section id="rq2" reg={reg} title="RQ2 — Why Dash Rejected Pure Vector Search">
+      <p>
+        Test this claim: once you have a good embedding model, the natural way to serve retrieval in a production RAG
+        pipeline is a pre-built vector index searched by pure semantic similarity. Dash, Dropbox's AI search and agent
+        product for businesses, is a documented case where the team picked something else on purpose.
+      </p>
+      <p>
+        Dropbox names three tradeoffs it weighed explicitly while designing Dash's retrieval system: latency versus
+        quality (bigger embeddings and reranking cost time), data freshness versus scalability (frequent re-indexing
+        raises cost and can spike latency), and budget versus user experience (best-in-class recall costs more compute)
+        (Dropbox Tech, Apr 2025). Dash's target was strict: under 1–2 seconds for more than 95% of queries, end to end,
+        leaving a latency budget for the rest of the pipeline after retrieval returns (Dropbox Tech, Apr 2025).
+      </p>
+      <p>
+        Under that constraint, Dropbox chose traditional lexical information retrieval — a keyword-based index —
+        combined with two extra steps: chunking documents at query time rather than pre-chunking them during indexing,
+        and reranking the lexical system's candidates with "a larger, but still efficient" embedding model (Dropbox
+        Tech, Apr 2025). The combination, in Dropbox's own account, delivers high-quality results in under 2 seconds for
+        more than 95% of queries.
+      </p>
+      <DecisionMatrixSVG />
+      <ChartCaption tier="FACT">
+        Characterization derived directly from the three tradeoffs Dropbox names in its own post (latency vs. quality, freshness vs. scalability, budget vs. UX) (Dropbox Tech, Apr 2025). Cell labels are qualitative summaries of Dropbox's stated reasoning, not measured benchmark numbers — no numeric latency or freshness figures were published for the two rejected architectures.
+      </ChartCaption>
+      <ChartInterpretation chartId="decision" state={state} setState={setState} prompts={[
+        { kind: "So-what / build-vs-buy framing", prompt: "The matrix shows pure vector search losing mainly on compute budget and latency, not on quality. If a smaller company had a much smaller document corpus than Dropbox's trillion-plus, would that same row still lose — and what single number in this article would you check first to decide?", answer: "Not necessarily — pure vector search's latency and compute cost scale with corpus size and embedding complexity, so a company with a corpus many orders of magnitude smaller than Dropbox's may clear a 1–2 second budget with a pre-built vector index alone. The number to check first is the size of the searchable corpus per query (or per tenant), because Dash's constraint was driven by scale and multi-source aggregation, not by vector search being intrinsically too slow." },
+        { kind: "Qualitative / mechanism", prompt: "Why does reranking a lexical system's candidates cost less compute than running semantic vector search over the whole corpus, even though both eventually use an embedding model?", answer: "Reranking only has to run the embedding model over a small candidate set the lexical search already narrowed down (tens to low hundreds of documents), while a pure vector-search architecture has to maintain and search embeddings across the entire corpus for every query. The lexical step acts as a cheap filter that shrinks the expensive step's workload by orders of magnitude — the same reason a search engine's cheap first-pass filter usually runs before its expensive final-pass ranker." }
+      ]} />
+      <p>
+        The evidence against the "pure vector search is old news" reading of this case is Dropbox's own semantic-search
+        product, described in RQ1: Nautilus does use a pre-built vector index, populated by embeddings computed once at
+        indexing time. Two systems inside one company reached different architecture decisions because their constraints
+        were different. Nautilus optimizes one shared, trillion-document, mostly-stable index searched by many users, so
+        computing embeddings once and reusing them for every query is the affordable choice. Dash aggregates live,
+        per-tenant content across dozens of external tools per customer, where a shared pre-built index either goes
+        stale quickly or has to be rebuilt constantly per tenant, so paying a small query-time chunking cost is
+        affordable in a way that paying for constant re-indexing is not.
+      </p>
+      <p>
+        Dropbox evaluated Dash's retrieval end to end against three public benchmarks built for exactly this kind of
+        stress test: Google's Natural Questions (real user queries against large documents), MuSiQue (multi-hop
+        questions that require linking information across passages), and Microsoft's Machine Reading Comprehension
+        dataset (short passages and multi-document queries drawn from Bing search logs) (Dropbox Tech, Apr 2025). Its
+        metrics combined an LLM-judge score for answer correctness, an LLM-judge score for completeness, and source
+        precision, recall, and F1 — how accurately the system retrieved the specific passages an answer actually needed
+        (Dropbox Tech, Apr 2025). Dropbox has not published the numeric scores from that evaluation, only the methodology
+        and the architecture it led the team to choose.
+      </p>
+      <div style={{ width: "100%", height: 260, marginTop: 10 }}>
+        <ResponsiveContainer>
+          <BarChart data={precisionRecallIllustration} margin={{ top: 20, right: 10, left: 0, bottom: 5 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#F0F0F0" />
+            <XAxis dataKey="corpusScale" tick={{ fontSize: 11.5 }} />
+            <YAxis tick={{ fontSize: 11.5 }} domain={[0, 1]} />
+            <Tooltip />
+            <Legend wrapperStyle={{ fontSize: 12 }} />
+            <Bar dataKey="precision" name="Top-k precision (illustrative)" fill="#9CA3AF" />
+            <Bar dataKey="recall" name="Recall (illustrative)" fill="#111" />
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+      <ChartCaption tier="ILLUSTRATION">
+        Illustrative values — not reported statistics. Dropbox has not published a precision/recall-vs-corpus-size curve. This chart teaches the general structural pattern documented across retrieval-system research: as a corpus grows, more documents become semantically close to any given query, so a fixed top-k tends to lose precision unless retrieval depth or reranking scale up with the corpus, while recall for a fixed top-k can rise as more near-duplicates of a relevant document enter the corpus.
+      </ChartCaption>
+      <ChartInterpretation chartId="precrecall" state={state} setState={setState} prompts={[
+        { kind: "Qualitative / mechanism", prompt: "This illustration shows precision falling as the corpus grows from 10K to 1T+ documents, even with the same top-k. What mechanism would cause that, independent of any specific company's data?", answer: "As a corpus grows, the number of documents that are merely topically similar to a query — without being the specific right answer — grows faster than the number of truly relevant documents, because most large corpora contain many near-duplicates, template documents, and tangentially related material. A fixed top-k retrieval window pulls in more of that near-miss material as the corpus grows, which is exactly the pressure that pushed Dash toward reranking rather than relying on raw vector-similarity rank alone." },
+        { kind: "So-what / kill-criteria", prompt: "If your production system showed this precision curve bending downward as your corpus grew past a certain size, what specific signal in your own retrieval logs would tell you it's time to add or strengthen a reranking step, rather than just increasing top-k?", answer: "Watch for the gap between your lexical or vector system's top-1 accuracy and its top-20 accuracy widening as the corpus grows — a growing gap means the right answer is usually somewhere in the candidate set but not on top, which reranking fixes, whereas simply raising top-k without reranking would just hand the generation model more noise to sort through itself." }
+      ]} />
+      <TrueFalse
+        id="tg-rq2"
+        prompt="True or False: Because Dash uses traditional lexical search plus reranking instead of pure vector search, its retrieval pipeline is always slower than a pure vector-search pipeline would be for the same query."
+        correctAnswer={false}
+        justificationAuthored="False. Dropbox never claims lexical-plus-reranking is always slower — only that, under Dash's specific constraints (a huge, fragmented, live multi-tenant corpus with a strict 1–2 second target), this combination hit the latency target while pure vector search over that same corpus would not have. A smaller, more stable corpus could make pure vector search the faster option; the article's evidence supports a scoped claim, not a universal one."
+        errorIfWrong={ERR.extrapolate}
+        state={state} setState={setState}
+      />
+      <p>
+        The adjacent technique worth knowing here is reciprocal rank fusion (RRF), a method for combining a lexical
+        (keyword) ranking and a vector-similarity ranking into one score without training a separate reranker model — a
+        native feature in search engines such as Elasticsearch and OpenSearch (Elastic engineering documentation).
+        Dropbox's design differs in an important way: rather than fusing two ranked lists mathematically, it uses a
+        trained reranking model to re-score the lexical system's candidates directly. RRF is cheaper to implement and
+        needs no extra model, but a trained reranker can capture relationships between query and document that a purely
+        rank-based fusion formula cannot. Which one is worth the extra engineering effort depends on how much quality
+        headroom is actually being left on the table by the cheaper option — a question that, like model selection in
+        RQ1, has to be measured on your own corpus, not assumed from a general recommendation.
+      </p>
+      <MCQ
+        id="ta-rq2"
+        label="Architecture and system implication (T-A)"
+        prompt="Dash's retrieval pipeline runs a lexical search step first, then chunks and reranks only the candidates that step returns. If Dash's customer base grew 100x, adding far more connected data sources per tenant, which component of this pipeline would most likely become the next bottleneck, and where should engineering invest first?"
+        options={[
+          "The reranking model, since it is the most complex model in the pipeline and complex models always become the bottleneck first as traffic grows",
+          "The LLM that generates the final answer, since larger customers always ask longer and more complex questions than smaller ones do",
+          "The lexical search index, since a 100x growth in per-tenant sources multiplies what the first-pass keyword step must scan before reranking gets a candidate set to work with",
+          "The on-the-fly chunking step, since chunking cost is fixed per document and does not change no matter how many documents or tenants exist"
+        ]}
+        correctIndex={2}
+        distractorErrors={[
+          ERR.extrapolate,
+          ERR.baseRate,
+          null,
+          ERR.classical
+        ]}
+        correctNote="reranking only ever processes the small candidate set the lexical step hands it, so its cost stays roughly flat as the corpus grows — the lexical index doing the first-pass scan is what has to search a much bigger haystack, making it the component under the most new pressure at 100x scale."
+        transferCue="in any pipeline with a cheap filter feeding an expensive refiner, scaling pressure usually hits the filter stage first, because the refiner's workload is capped by the filter's output size, not by the raw input size."
+        scaffolding="Think back to why reranking is cheaper than pure vector search in this section: it only touches a small candidate set. What changes about the size of that candidate-generating step specifically as the corpus grows 100x?"
+        state={state} setState={setState}
+      />
+      <NumericEstimate
+        id="td-rq2"
+        prompt="Dash targets under 1–2 seconds end to end for more than 95% of queries. Suppose retrieval — the lexical search, on-the-fly chunking, and reranking together — consumes 40% of a 2-second ceiling before the generation model even starts. How many milliseconds remain in the budget for generation?"
+        isFermi={false}
+        tolerance={0.10}
+        actualValue={1200}
+        actualLabel="1,200 ms"
+        factorChain="2,000 ms ceiling (FACT, Dropbox's stated 1–2 second target, using the 2-second upper bound) × (1 − 0.40 retrieval share, a stated assumption for this question) = 2,000 × 0.60 = 1,200 ms left for generation."
+        lowerBound="~1,080 ms (if retrieval actually consumes slightly more than 40%)"
+        upperBound="~1,320 ms (if retrieval consumes slightly less than 40%)"
+        mostSensitiveFactor="the 40% retrieval-share assumption — Dropbox has not published this split, so it is stated as an assumption for this question, not a reported figure; the 2,000 ms ceiling itself is the one FACT-anchored input"
+        state={state} setState={setState}
+      />
+      <PatternTransfer
+        id="pt-rq2"
+        sectionPrinciple="The 'best-practice' retrieval architecture is a function of your specific latency budget, corpus stability, and data-freshness requirement — not a general ranking of techniques from newest to oldest. The same company can correctly choose different architectures for two products."
+        newContext="a hospital's clinical-notes search tool, compared against its separate patient-facing appointment-scheduling chatbot"
+        state={state} setState={setState}
+      />
+      <PrincipleGate sectionId="rq2" state={state} setState={setState}
+        authored="Match your retrieval architecture to your specific latency budget and corpus volatility, not to whichever technique is currently considered state of the art — a pre-built vector index and a query-time chunking-plus-reranking pipeline can both be the right answer, for different products inside the same company." />
+      <Glossary terms={[
+        { term: "Lexical (keyword) search", def: "Search that matches the literal words in a query against the literal words in a document, without understanding meaning." },
+        { term: "Reranking", def: "Taking a first, cheap pass of candidate results and re-sorting them with a more accurate (and more expensive) model, applied only to that smaller set." },
+        { term: "Reciprocal Rank Fusion (RRF)", def: "A formula for combining two separately ranked result lists (e.g. keyword and vector search) into one ranking, without training a new model." }
+      ]} />
+    </Section>
+  );
+}
+
+/* ============================================================
+   SECTION: RQ3 — COST AT SCALE
+   ============================================================ */
+function RQ3Section({ reg, state, setState }) {
+  return (
+    <Section id="rq3" reg={reg} title="RQ3 — What It Costs to Keep a Trillion Documents Searchable">
+      <p>
+        Test this claim: once you have picked a good embedding model, more precision — higher numeric precision, more
+        dimensions — is worth paying for, because it always improves search quality. Dropbox's own production
+        engineering shows this is true on one axis and false on another.
+      </p>
+      <p>
+        Before choosing any compression, Dropbox set a hard ceiling: an upper bound of 4KB of vector-search-related
+        metadata per document, chosen based on available storage capacity at trillion-document scale (Dropbox Tech, Dec
+        2024). Every other decision in this section — precision, dimensionality, how many embeddings per document — had
+        to fit inside that 4KB.
+      </p>
+      <p>
+        Dropbox tested compressing embeddings along two different axes. Reducing numeric precision from a full 32-bit
+        float down to 8 bits per number produced a "manageable 1KB per embedding with a marginal impact on quality"
+        (Dropbox Tech, Dec 2024). Reducing dimensionality instead — using fewer numbers to describe each embedding —
+        "adversely affected quality," so Dropbox kept the full 1,024 dimensions of multilingual-e5-large and compressed
+        precision instead (Dropbox Tech, Dec 2024; dimensionality figure from Hugging Face, intfloat/multilingual-e5-large).
+      </p>
+      <SimpleBarChart
+        data={storageData}
+        xKey="precision"
+        bars={[{ key: "bytesPerEmbedding", name: "Bytes per embedding", color: "#111", showLabel: true }]}
+        height={230}
+      />
+      <ChartCaption tier="ESTIMATE">
+        Modeled from: 1,024 dimensions (FACT, Hugging Face model card) × bytes per number at each precision level. 32-bit = 4 bytes/dim → 4,096 bytes; 16-bit = 2 bytes/dim → 2,048 bytes; 8-bit = 1 byte/dim → 1,024 bytes. The 8-bit result matches Dropbox's own reported figure of "1KB per embedding" exactly (Dropbox Tech, Dec 2024), cross-validating the arithmetic. Dropbox did not disclose whether it tested 16-bit as an intermediate step; that bar is shown for the arithmetic pattern, not as a reported measurement.
+      </ChartCaption>
+      <ChartInterpretation chartId="storage" state={state} setState={setState} prompts={[
+        { kind: "Quantitative reasoning", prompt: "Going from 32-bit to 8-bit precision cuts bytes per embedding from 4,096 to 1,024. Express this as a compression ratio, and state what share of the original storage budget that frees up for a second embedding per document.", answer: "4,096 / 1,024 = a 4x compression ratio. Freeing 75% of the original per-embedding storage is exactly what let Dropbox afford two embeddings per document (title-with-path, and content) inside its 4KB ceiling, instead of being limited to one full-precision embedding alone." },
+        { kind: "Mechanism", prompt: "Precision compression (32-bit to 8-bit) had a 'marginal' quality cost, but dimensionality compression (fewer of the 1,024 numbers) 'adversely affected quality.' Why would cutting the resolution of every number hurt less than cutting the count of numbers?", answer: "Each of the 1,024 dimensions encodes a distinct, model-learned aspect of meaning; removing dimensions destroys entire aspects of that representation outright. Reducing precision instead keeps every dimension but rounds each number more coarsely — a small, evenly distributed loss of resolution across all 1,024 aspects of meaning is far less damaging than deleting some of those aspects entirely, especially once Dropbox's custom quantization scheme (scaling to the maximum channel magnitude before rounding) was tuned to minimize cosine-similarity error specifically." }
+      ]} />
+      <p>
+        The quantization scheme itself is a small, telling detail: Dropbox scales each embedding so the largest channel
+        magnitude equals 1.0, stores that scale factor separately as a 32-bit float, and remaps the scaled embedding into
+        signed 8-bit integers — a scheme chosen because it minimized error on cosine similarity specifically, the exact
+        comparison vector search relies on (Dropbox Tech, Dec 2024). This is a reminder that "8-bit quantization" is not
+        one universal recipe; the right quantization scheme depends on which downstream calculation you are protecting.
+      </p>
+      <p>
+        The other lever Dropbox pulled to stay inside the 4KB budget was scope, not just precision: the final production
+        design stores exactly two embeddings per document — one for the file's title and path, and one for its content,
+        truncated to the first 512 tokens (Dropbox Tech, Dec 2024). Dropbox states plainly that this "doesn't encompass
+        the entire document," but "significantly lowered costs and processing demands" (Dropbox Tech, Dec 2024). At
+        Dropbox's disclosed scale of more than a trillion documents, that scoping decision is what keeps semantic search
+        computationally possible at all.
+      </p>
+      <NumericEstimate
+        id="td-storage"
+        prompt="Using Dropbox's own disclosed figures — more than a trillion documents indexed, two embeddings per document, and roughly 1KB per embedding at 8-bit precision — estimate the total embedding storage overhead, in petabytes, that this design adds on top of the documents themselves. Show your decomposition before entering a number."
+        isFermi={true}
+        actualValue={2}
+        actualLabel="~2+ petabytes (order-of-magnitude)"
+        factorChain="1,000,000,000,000 documents (1 trillion, FACT) × 2 embeddings/doc (FACT) × 1,024 bytes/embedding (FACT, matches Dropbox's own 8-bit figure) = 2.048 × 10^15 bytes ≈ 2.05 petabytes."
+        lowerBound="~1 petabyte (if 'more than a trillion' is close to 1 trillion and embeddings compress slightly further)"
+        upperBound="~10+ petabytes (if the real document count is several trillion, which 'more than a trillion' does not rule out)"
+        mostSensitiveFactor="the actual document count behind Dropbox's rounded 'more than a trillion' figure — a 5x higher real count changes the answer by 5x, while the byte-per-embedding figure is precisely confirmed by Dropbox's own post"
+        state={state} setState={setState}
+      />
+      <MCQ
+        id="th-rq3"
+        label="Critical reasoning — Assumption"
+        prompt="The argument that reducing embedding precision to 8-bit was a 'nearly free' optimization rests on Dropbox's own finding of 'marginal' quality impact. Which assumption, if false, would break this argument even though Dropbox's stated facts remain true?"
+        options={[
+          "That Dropbox's chosen storage ceiling of 4KB per document was the right number to begin with, rather than too conservative or too generous",
+          "That Nautilus really does index more than a trillion documents and exabytes of data, exactly as Dropbox's own engineering post disclosed",
+          "That multilingual-e5-large, not multilingual-e5-base or either mpnet/MiniLM baseline, was genuinely the best performer on Dropbox's own custom benchmark data",
+          "That the 'marginal' impact was evenly spread — not concentrated in the weaker languages the RQ1 benchmark already flagged, like Korean or Spanish"
+        ]}
+        correctIndex={3}
+        distractorErrors={[
+          ERR.scopeCreep,
+          ERR.hindsight,
+          ERR.baseRate,
+          null
+        ]}
+        correctNote="an aggregate 'marginal impact' claim only holds if the measured impact is evenly distributed; if quantization error concentrated in already-weaker segments (e.g., Korean or Spanish, which scored lower MRR in RQ1's benchmark), the average could look fine while a real subgroup got meaningfully worse."
+        transferCue="any time a company reports an average quality cost for an optimization, check whether that average could be hiding a worse outcome for a specific segment — the same check applies to model quantization, A/B test rollouts, and pricing changes alike."
+        scaffolding="Look back at the RQ1 chart: which languages already had the lowest MRR scores before any quantization was applied? An aggregate quality claim can be true on average while still being false for exactly those segments."
+        state={state} setState={setState}
+      />
+      <PatternTransfer
+        id="pt-rq3"
+        sectionPrinciple="Not every compression axis costs the same: reducing numeric precision can be nearly free while reducing the number of dimensions (or truncating content) can be expensive — know which axis you are cutting, and check whether an aggregate 'marginal impact' claim holds for every segment, not just on average."
+        newContext="a retail company deciding how to compress product-image embeddings for a visual-search feature across millions of SKUs"
+        state={state} setState={setState}
+      />
+      <PrincipleGate sectionId="rq3" state={state} setState={setState}
+        authored="Fix your total storage or compute budget first, then choose which axis to compress — numeric precision, dimensionality, or content scope — based on which one your own data shows is cheapest to cut, and verify that a 'marginal impact' finding holds across segments, not just in aggregate." />
+      <Glossary terms={[
+        { term: "Quantization", def: "Storing each number in an embedding with less precision (fewer bits) to save space, at some small cost to accuracy." },
+        { term: "Dimensionality", def: "How many numbers make up one embedding; more dimensions can capture more distinct aspects of meaning, at a higher storage cost." },
+        { term: "Petabyte", def: "About one thousand terabytes, or one million gigabytes — a unit for measuring very large amounts of stored data." }
+      ]} />
+    </Section>
+  );
+}
+
+/* ============================================================
+   SECTION: WHAT BROKE
+   ============================================================ */
+function WhatBrokeSection({ reg, state, setState }) {
+  return (
+    <div id="whatbroke" ref={reg} style={{ marginBottom: 64, paddingTop: 12, background: "#FEF2F2", border: "1px solid #FCA5A5", borderRadius: 14, padding: 28 }}>
+      <h2 style={{ fontSize: 22, marginBottom: 18 }}>What Broke: The 512-Token Blind Spot</h2>
+      <p>
+        Nautilus's semantic-search embeddings, rolled out internally in early 2024 and made generally available in
+        August 2024, cover exactly two things per document: the file's title and path, and the first 512 tokens of its
+        content (Dropbox Tech, Dec 2024). Dropbox states this directly: the approach "doesn't encompass the entire
+        document," and was chosen because it "significantly lowered costs and processing demands" at trillion-document
+        scale (Dropbox Tech, Dec 2024). This was not a bug discovered after launch — it was a disclosed, deliberate
+        design decision made to fit the 4KB-per-document storage budget covered in RQ3. But it carries exactly the
+        failure shape a classical assumption creates when it meets AI-native content: it assumes the important part of a
+        document sits near the front, an assumption that holds for a short note and fails for a forty-page contract
+        where the answer a user is searching for sits on page thirty.
+      </p>
+      <p>
+        Why it happened is straightforward arithmetic, not a design mistake: embedding the full content of every
+        document, at Dropbox's disclosed scale of more than a trillion documents, would have multiplied the RQ3 storage
+        estimate by however many times longer the average document's content is than 512 tokens — for documents that run
+        into the thousands of tokens, that is a large multiple of an already multi-petabyte number. Truncating to a
+        fixed window converts an unbounded, per-document cost into a bounded, predictable one. That is a completely
+        reasonable engineering tradeoff, and it is also the textbook form of a classical assumption — treating a
+        variable-length record as if it were fixed-length, the same assumption a traditional relational-database column
+        with a fixed-size text field makes — arriving inside a system whose whole value proposition is understanding
+        meaning wherever it appears in a document.
+      </p>
+      <p>
+        The cost of that assumption shows up in what Dropbox built next, not in a public incident report. When Dropbox
+        designed Dash's retrieval pipeline a year later, it did not reuse Nautilus's 512-token-truncated embeddings for
+        RAG retrieval. It built a separate system that chunks documents at query time specifically so retrieval is not
+        limited to a fixed prefix of the document (Dropbox Tech, Apr 2025). That is a real, disclosed cost: two
+        different chunking strategies, built and maintained by two different teams, inside one company, rather than one
+        shared retrieval layer serving both products (ESTIMATE — Dropbox has not published an engineering-hours or
+        dollar figure for this duplication; the duplication itself is directly evidenced by the architectural difference
+        between the two published posts).
+      </p>
+      <CoverageDiagramSVG />
+      <ChartCaption tier="FACT">
+        Architecture as disclosed in Dropbox's own two engineering posts (Dropbox Tech, Dec 2024 and Apr 2025). Diagram proportions illustrate the concept — full-document coverage versus fixed-prefix coverage — and are not a token-for-pixel measurement.
+      </ChartCaption>
+      <ChartInterpretation chartId="whatbroke" state={state} setState={setState} prompts={[
+        { kind: "So-what / kill-criteria", prompt: "If Nautilus's semantic search had shipped a monitoring signal that flagged 'zero-result-rate improvement was smaller for long documents than for short ones,' would that have caught this blind spot before a user noticed it — and what would the team have had to instrument to see it?", answer: "Yes, in principle — a ZRR or click-through breakdown segmented by document length (or by whether the matching content fell inside vs. outside the first 512 tokens) would have surfaced the gap directly, because the metric would show meaningfully weaker gains for long documents specifically. Dropbox's published post reports only the aggregate ZRR/qCTR figures from RQ2's Landscape chart, with no length-segmented breakdown disclosed, so it is not possible to say from public information whether this specific monitoring existed." },
+        { kind: "Mechanism", prompt: "Why did fixing this blind spot require Dash to build an entirely separate chunking system, rather than simply raising Nautilus's 512-token limit to, say, 4,096 tokens?", answer: "Raising the fixed token limit does not remove the fixed-window assumption, it only moves the boundary — a report longer than 4,096 tokens would still have an unreachable tail, and every increase multiplies the RQ3 storage cost across a trillion-plus documents. Dash's on-the-fly, query-time chunking sidesteps the tradeoff entirely by not pre-committing to any fixed window at indexing time, at the cost of doing that chunking work fresh on every query instead of once per document." }
+      ]} />
+      <MCQ
+        id="failure-mcq"
+        label="Failure-case reasoning"
+        prompt="Given the blind spot described above, which assumption was most likely held by the Nautilus team at launch, and considered uncontroversial at the time — and why was it wrong?"
+        options={[
+          "That most user queries are aimed at short documents, so a fixed truncation window would rarely cut off anything a user actually searches for",
+          "That the typical document was shorter than 512 tokens — true on average, but false for the long tail of much longer reports and contracts",
+          "That multilingual-e5-large itself was simply too weak a model to represent long documents accurately, regardless of any truncation window chosen",
+          "That reranking, applied later in the retrieval pipeline, would reliably recover any content the earlier embedding stage had already missed during indexing"
+        ]}
+        correctIndex={1}
+        distractorErrors={[
+          ERR.baseRate,
+          null,
+          ERR.hindsight,
+          ERR.scopeCreep
+        ]}
+        correctNote="the failure is a base-rate/tail problem: a 512-token window can be generous for the median document while still failing badly for the long tail, and cost calculations run on averages hide exactly that tail risk."
+        transferCue="any fixed truncation or timeout window chosen from an average or median case will systematically fail on the long tail of a skewed distribution — the same shape of failure shows up in API timeout budgets, page-size limits, and context-window truncation in LLM prompts generally."
+        scaffolding="Think about what 'average document length' hides: a distribution can have a short median and a very long tail (a small number of very long documents) at the same time. A budget set from the average, not the tail, is where this kind of blind spot usually comes from."
+        state={state} setState={setState}
+      />
+      <p>
+        The lesson that generalizes past Dropbox: a fixed truncation window that looked safe against a public benchmark
+        or an average document is not safe at production scale, where document length is heavily skewed rather than
+        uniform. And the fix that actually worked — on-the-fly chunking with no fixed window — is a genuinely different
+        architecture from "raise the limit," not a bigger version of the same one. A team facing this tradeoff should
+        expect to build two things, not one bigger thing, exactly as Dropbox did.
+      </p>
+      <PrincipleGate sectionId="whatbroke" state={state} setState={setState}
+        authored="A fixed truncation window chosen to fit an average-case cost budget will fail silently on the long tail of your real distribution, and the fix is a different architecture (no fixed window), not a larger fixed window — budget for building it as a second system, not a bigger version of the first." />
+    </div>
+  );
+}
+
+/* ============================================================
+   SECTION: LEARNING SUMMARY
+   ============================================================ */
+function SummarySection({ reg, state, setState }) {
+  const missed = Object.entries(state.q).filter(([id, q]) => q.submitted && q.isCorrect === false);
+  const set = (path, val) => setState(s => {
+    const applyIt = { ...s.applyIt };
+    if (path[0] === "present") applyIt.present = { ...applyIt.present, [path[1]]: val };
+    else if (path[0] === "future") applyIt.future = { ...applyIt.future, text: val };
+    else applyIt.insightSlot = val;
+    return { ...s, applyIt };
+  });
+  return (
+    <Section id="summary" reg={reg} title="Learning Summary">
+      <p style={{ fontSize: 15 }}>Score: <strong>{state.score}</strong> out of {Object.keys(state.scored).length} scored questions attempted.</p>
+      {state.warmUp.skipped && (
+        <div style={{ background: "#FEF3C7", borderRadius: 8, padding: 12, fontSize: 14, marginBottom: 16 }}>
+          Warm-up skipped — 3 prior principles not reviewed this session.
+        </div>
+      )}
+      <h3 style={{ fontSize: 17, marginTop: 24 }}>Missed questions, by principle tested</h3>
+      {missed.length === 0 ? <p style={{ fontSize: 14.5, color: "#6B7280" }}>No missed questions yet — or none attempted.</p> : (
+        <ul>
+          {missed.map(([id]) => <li key={id} style={{ fontSize: 14.5 }}>{id}</li>)}
+        </ul>
+      )}
+      <h3 style={{ fontSize: 17, marginTop: 24 }}>Three insight slots</h3>
+      <p style={{ fontSize: 15 }}>You have seen evidence across three research questions and a failure case. Write the single most non-obvious insight you would defend to a skeptical CTO:</p>
+      <textarea value={state.applyIt.insightSlot} onChange={e => set(["insight"], e.target.value)}
+        placeholder="Your insight..." style={{ width: "100%", minHeight: 70, padding: 10, borderRadius: 8, border: "1px solid #D1D5DB", fontSize: 14, fontFamily: "inherit", marginBottom: 14 }} />
+      <div style={{ background: "#F9FAFB", borderRadius: 8, padding: 14, fontSize: 14 }}>
+        <strong>How your insight compares — three authored takeaways:</strong>
+        <ol>
+          <li>Retrieval architecture is a function of latency budget and corpus volatility, not a ranking of techniques from old to new — the same company correctly ships two different architectures.</li>
+          <li>A benchmark answers the question it was built to answer (coarse model ranking) and is silent on your corpus-specific questions (chunking, length variance) — you need both a leaderboard and your own eval set, not one or the other.</li>
+          <li>Compression axes are not interchangeable: cutting numeric precision can be nearly free while cutting dimensionality or content scope can be expensive and can fail silently on the long tail.</li>
+        </ol>
+      </div>
+      <h3 style={{ fontSize: 17, marginTop: 28 }}>Apply It — present-day</h3>
+      <p style={{ fontSize: 14.5 }}>Apply the governing principle to an AI product you know. Four labeled parts, all encouraged (this does not lock the conclusion):</p>
+      {["thesis", "assumption", "disconfirm", "premortem"].map((k, i) => (
+        <div key={k} style={{ marginBottom: 10 }}>
+          <label style={{ fontSize: 13.5, fontWeight: 600 }}>{["(1) One-sentence so-what thesis", "(2) Load-bearing assumption", "(3) Strongest disconfirming evidence from the article", "(4) Pre-mortem: if this fails in 12 months, the most likely reason is ___"][i]}</label>
+          <textarea value={state.applyIt.present[k]} onChange={e => set(["present", k], e.target.value)}
+            style={{ width: "100%", minHeight: 45, padding: 8, borderRadius: 8, border: "1px solid #D1D5DB", fontSize: 14, fontFamily: "inherit", marginTop: 4 }} />
+        </div>
+      ))}
+      <h3 style={{ fontSize: 17, marginTop: 20 }}>Apply It — 2027 forward-looking</h3>
+      <p style={{ fontSize: 14.5 }}>Given the same constraints, but assuming foundation models now offer far longer context windows and much cheaper inference — what would you design differently, and which load-bearing assumption from this article does that replace?</p>
+      <textarea value={state.applyIt.future.text} onChange={e => set(["future"], e.target.value)}
+        style={{ width: "100%", minHeight: 60, padding: 8, borderRadius: 8, border: "1px solid #D1D5DB", fontSize: 14, fontFamily: "inherit" }} />
+    </Section>
+  );
+}
+
+/* ============================================================
+   SECTION: CONCLUSION
+   ============================================================ */
+function ConclusionSection({ reg, state, setState }) {
+  return (
+    <Section id="conclusion" reg={reg} title="Conclusion">
+      <p>
+        The governing principle holds up under both the evidence and the failure case, with one important qualifier:
+        chunking, embedding-model choice, and reranking are all decisions about how to spend a bytes-budget and a
+        milliseconds-budget, not a ranking of which technique is best in the abstract — and a fixed budget, applied
+        without checking the shape of your real data (a skewed document-length distribution, a multilingual query mix),
+        is exactly where it fails. Partial failure of this principle looks like Nautilus's 512-token window: a
+        budget-correct decision on average that silently breaks on the tail, because the team measured the average cost
+        without checking whether the quality cost was distributed the same way.
+      </p>
+      <p>
+        For an AI product manager, this changes how you should scope a retrieval feature: name your latency and storage
+        budgets before your team picks any model or architecture, and require that any "marginal impact" or "average
+        cost" claim be checked against your data's actual distribution — by language, by document length, by user
+        segment — before it is trusted as safe. A benchmark comparison and a cost estimate that only report an average
+        are not finished work; they are half of it.
+      </p>
+      <p>
+        For a future CTO, the platform implication is that a shared retrieval layer is not free just because it is
+        shared — Dropbox correctly ran two different retrieval architectures for two different products under two
+        different constraints, and tried to force them into one shared design would likely have produced a worse
+        compromise for both. The governance question worth asking before scaling any retrieval system is not "can we
+        reuse what we already built," but "does the new product's latency and freshness budget actually match the
+        product the existing system was built for."
+      </p>
+      <MCQ
+        id="te-conclusion"
+        label="Forward-looking implication (T-E)"
+        prompt="Present-day: given Dropbox's evidence, what is the most important decision a PM or CTO at a similar company should make in the next six months when scoping a new retrieval feature? Which option below, if it turned out to be true, would most weaken the article's governing principle that retrieval architecture should be chosen per-product from latency and freshness budgets, rather than from a single company-wide default?"
+        options={[
+          "Evidence that Dropbox has since raised its storage budget from 4KB to 8KB of metadata per indexed document",
+          "Evidence that multilingual-e5-large has since fallen from the top spot among multilingual models on the current public MTEB leaderboard rankings",
+          "Evidence that Dash's real production latency, once launched broadly, exceeded the 1–2 second target for more than 5 percent of all queries",
+          "Evidence that one shared architecture serves every Dropbox product equally well, once tuned, with no separate systems ever needed"
+        ]}
+        correctIndex={3}
+        distractorErrors={[
+          ERR.rateLevel,
+          ERR.metricForCause,
+          ERR.scopeCreep,
+          null
+        ]}
+        correctNote="this is the falsification case: if one well-tuned shared architecture had actually served both Nautilus's and Dash's needs, the article's central claim — that different products need different architectures — would be directly undermined. That evidence does not exist in what Dropbox has published; Dropbox instead built and shipped two separate systems."
+        transferCue="always look for the piece of evidence that would force you to abandon the article's central claim entirely, not just evidence that adjusts a number inside a claim you already accept — that is the difference between a falsification test and a footnote."
+        scaffolding="Ask yourself: which of these four options, if true, would mean Dropbox's whole reason for building two systems was wrong — not just that a number changed, but that the underlying claim (different products need different architectures) was false?"
+        state={state} setState={setState}
+      />
+      <p>
+        The most important question this case does not answer is whether Dropbox's own approach generalizes to a
+        company with far less scale and far less engineering capacity than Dropbox has. Dropbox could afford to build
+        two full retrieval systems, a custom multilingual benchmark, and a custom quantization scheme. A smaller team
+        facing the same tradeoffs may have to accept a worse-fit, single shared architecture simply because it cannot
+        afford Dropbox's answer — and this article's evidence does not tell you where that affordability line sits.
+      </p>
+      <PatternTransfer
+        id="pt-final"
+        sectionPrinciple="Retrieval architecture, chunking strategy, and embedding-model choice are all decisions about spending a fixed bytes-budget and a fixed milliseconds-budget — the right answer is a function of your specific constraints, not a ranking of techniques from newest to best, and 'average-case' cost or quality claims must be checked against your data's real, often-skewed distribution before being trusted."
+        newContext="a K-12 education company building AI-powered search across millions of student essays and teacher feedback comments, in over a dozen languages, with a strict requirement that results appear before a student loses attention (roughly 1 second)"
+        state={state} setState={setState}
+      />
+    </Section>
+  );
+}
+
+/* ============================================================
+   MAIN APP
+   ============================================================ */
+function App() {
+  const [state, setState] = useState({
+    warmUp: { answers: {}, submitted: {}, skipped: false, completed: false },
+    q: {}, interp: {}, principleGate: {}, score: 0, scored: {},
+    applyIt: { present: { thesis: "", assumption: "", disconfirm: "", premortem: "" }, future: { text: "" }, insightSlot: "" }
+  });
+  const [active, setActive] = useState("intro");
+  const [wide, setWide] = useState(window.innerWidth > 1160);
+  const refs = useRef({});
+
+  useEffect(() => {
+    const onResize = () => setWide(window.innerWidth > 1160);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+
+  useEffect(() => {
+    const onScroll = () => {
+      let current = SECTIONS[0].id;
+      for (const s of SECTIONS) {
+        const el = refs.current[s.id];
+        if (el && el.getBoundingClientRect().top - 160 < 0) current = s.id;
+      }
+      setActive(current);
+    };
+    window.addEventListener("scroll", onScroll);
+    return () => window.removeEventListener("scroll", onScroll);
+  }, []);
+
+  const scrollTo = (id) => {
+    const el = refs.current[id];
+    if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+
+  if (!state.warmUp.completed) {
+    return <WarmUp state={state} setState={setState} onDone={() => window.scrollTo(0, 0)} />;
+  }
+
+  return (
+    <div style={{ background: "#fff", color: "#111", fontSize: 16, lineHeight: 1.7 }}>
+      <Header active={active} score={state.score} />
+      <NavBar active={active} onNav={scrollTo} wide={wide} />
+      <div style={{ maxWidth: 720, margin: "0 auto", padding: "40px 24px 100px" }}>
+        <IntroSection reg={r => refs.current.intro = r} />
+        <LandscapeSection reg={r => refs.current.landscape = r} state={state} setState={setState} />
+        <RQ1Section reg={r => refs.current.rq1 = r} state={state} setState={setState} />
+        <RQ2Section reg={r => refs.current.rq2 = r} state={state} setState={setState} />
+        <RQ3Section reg={r => refs.current.rq3 = r} state={state} setState={setState} />
+        <WhatBrokeSection reg={r => refs.current.whatbroke = r} state={state} setState={setState} />
+        <SummarySection reg={r => refs.current.summary = r} state={state} setState={setState} />
+        <ConclusionSection reg={r => refs.current.conclusion = r} state={state} setState={setState} />
+      </div>
+    </div>
+  );
+}
+
+const root = ReactDOM.createRoot(document.getElementById("root"));
+root.render(<App />);

@@ -1,0 +1,1958 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Memory Sets the Price — How Together AI Engineered LLM Serving Around the KV Cache Bottleneck</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; color: #111; background: #fff; line-height: 1.7; font-size: 16px; }
+  h1, h2, h3 { line-height: 1.3; }
+  button { font-family: inherit; }
+  textarea, input { font-family: inherit; }
+  a { color: #6B5CD6; }
+  @media (max-width: 700px) {
+    body { font-size: 15px; }
+  }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script crossorigin src="https://unpkg.com/react@18.3.1/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/prop-types@15.8.1/prop-types.min.js"></script>
+<script crossorigin src="https://unpkg.com/recharts@2.12.7/umd/Recharts.js"></script>
+<script src="https://unpkg.com/@babel/standalone@7.24.7/babel.min.js"></script>
+<script type="text/babel" data-presets="env,react">
+/* ============================================================================
+   Memory Sets the Price
+   AI-Native System Design (Type 4) — Together AI LLM serving infrastructure:
+   batching, KV cache management, speculative decoding, cost-per-token curve.
+   Self-contained React app, transpiled in-browser via Babel standalone.
+   ========================================================================== */
+
+const { useState, useEffect, useRef, useMemo } = React;
+const {
+  ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
+  Legend, LineChart, Line, Cell
+} = Recharts;
+
+/* ---------------------------------------------------------------------------
+   DATA: cross-artifact warm-up (drawn from prior completed articles)
+--------------------------------------------------------------------------- */
+const WARMUP_QUESTIONS = [
+  {
+    id: "wu1",
+    prompt: "A streaming-video startup must choose between two GPU-memory allocation strategies for its live-transcription feature: pre-allocating a large fixed memory block per stream (fast to serve, wasteful when many streams are short) or dynamically growing memory as each stream's transcript grows (flexible, but risks running out mid-stream if too many long streams arrive at once). Using a prior article's principle about vector index selection, what should decide this choice, and why might there be no single 'right' answer across all traffic patterns?",
+    sourceArticle: "The Index Trades Places: What Meta's Own Benchmarks Reveal About Choosing Between HNSW and IVF (AI-Native System Design)",
+    principle: "A vector index's structure is a bet about which resource — build-time compute, steady-state memory, or drift tolerance — it spends to answer queries fast, not a ranking from worse to better; the same logic applies to any two engineering options that trade one resource for another rather than one simply beating the other."
+  },
+  {
+    id: "wu2",
+    prompt: "A subscription-based email-drafting AI tool currently charges a flat monthly fee for unlimited use. As usage grows, the company's underlying model API costs are rising faster than subscription revenue. Using a prior article's principle about how Notion built and priced its AI feature, what should the company check before deciding whether flat pricing is still safe, and what bet is a flat-fee model actually making?",
+    sourceArticle: "How Notion AI Actually Works: Why the Retrieval Bill Set the Price (AI Product Teardown)",
+    principle: "Unlimited-usage pricing is a bet on the infrastructure team's cost curve, not just on the current model's price sheet, and that bet only gets safer once the true cost per use has actually fallen."
+  },
+  {
+    id: "wu3",
+    prompt: "A customer-support AI company offers two features on the same product: an instant auto-suggested reply (needs to appear in under 300ms) and a deep case-history summary (users are fine waiting several seconds). Using a prior article's principle about how Cursor partitions its product, how should the engineering team decide which models and infrastructure to use for each feature, and what mistake would they make by using the same setup for both?",
+    sourceArticle: "How Cursor Actually Works: The Architecture Is the Product (AI Product Teardown)",
+    principle: "Partition an AI product by latency budget first, then choose models and retrieval per lane — the deadline, not the model's intelligence, decides how much context and machinery each feature can afford."
+  }
+];
+
+/* ---------------------------------------------------------------------------
+   DATA: charts
+--------------------------------------------------------------------------- */
+
+// Chart 1 — Background: vLLM's PagedAttention launch throughput vs prior engines (FACT, vLLM Blog 2023)
+const pagedAttnData = [
+  { name: "vs. HF Transformers\n(naive, no paging)", low: 14, high: 24 },
+  { name: "vs. HuggingFace TGI\n(early batching engine)", low: 2.2, high: 3.5 }
+];
+
+// Chart 2 — Background: estimated KV cache size for ONE request, by context length (ESTIMATE, derived from Raschka formula)
+const kvCacheGrowthData = [
+  { context: "4,000 tokens", gib: 1.2 },
+  { context: "32,000 tokens", gib: 9.8 },
+  { context: "128,000 tokens", gib: 39.1 }
+];
+
+// Chart 3 — RQ1: Together Inference Engine 2.0 speedup vs vLLM 0.5.1 baseline (FACT, Together AI Blog 2024)
+const engineSpeedupData = [
+  { tier: "Reference (FP16)", multiplier: 4.0 },
+  { tier: "Turbo (FP8)", multiplier: 4.5 }
+];
+
+// Chart 4 — RQ2: MagicDec speculative-decoding speedup by config (FACT, Together AI Blog / MagicDec, arXiv:2408.11049)
+const magicDecData = [
+  { config: "LLaMA-2-7B-32K\n8x A100", speedup: 2.0 },
+  { config: "LLaMA-3.1-8B\n8x A100", speedup: 1.84 },
+  { config: "LLaMA-3.1-8B + SnapKV\n8x H100, 100K ctx, batch 64", speedup: 2.51 }
+];
+
+// Chart 5 — RQ2: FP8 Turbo quality delta vs full-precision reference (FACT, Together AI Blog, "Llama 3.1: Same model, different results")
+const fp8QualityData = [
+  { model: "Llama 3.1 8B", deltaPct: -0.3 },
+  { model: "Llama 3.1 70B", deltaPct: 0.1 },
+  { model: "Llama 3.1 405B", deltaPct: 0.0 }
+];
+
+// Chart 6 — RQ3: Together AI price per million tokens, by model size and quantization tier (FACT, Together AI pricing pages, 2026)
+const pricingTierData = [
+  { name: "Llama 3.1 8B\n(Lite, INT4)", price: 0.10 },
+  { name: "Llama 3.1 8B\n(Turbo, FP8)", price: 0.18 },
+  { name: "Llama 3.1 70B\n(Turbo, FP8)", price: 0.88 },
+  { name: "Llama 3.1 405B", price: 3.50 }
+];
+
+// Chart 7 — What Broke: acceptance length before vs after degradation, 3 configs in same issue thread (FACT, vLLM GitHub Issue #41838)
+const acceptanceDegradationData = [
+  { config: "Config A", initial: 3.07, degraded: 2.8 },
+  { config: "Config B", initial: 3.07, degraded: 2.8 },
+  { config: "Config C", initial: 4.5, degraded: 2.8 }
+];
+
+/* ---------------------------------------------------------------------------
+   Small presentational primitives
+--------------------------------------------------------------------------- */
+
+function Tag({ children, tone }) {
+  const bg = tone === "fact" ? "#EEF6EC" : tone === "estimate" ? "#FEF6E7" : "#F2F0FB";
+  const fg = tone === "fact" ? "#2F6B2F" : tone === "estimate" ? "#8A5A00" : "#4B3F91";
+  return (
+    <span style={{
+      display: "inline-block", fontSize: 11, fontWeight: 700, letterSpacing: 0.4,
+      textTransform: "uppercase", background: bg, color: fg, borderRadius: 4,
+      padding: "2px 7px", marginRight: 6
+    }}>{children}</span>
+  );
+}
+
+function SourceNote({ children }) {
+  return <p style={{ fontSize: 13, color: "#555", marginTop: 6, lineHeight: 1.5 }}>{children}</p>;
+}
+
+function SectionHeading({ children, id }) {
+  return <h2 id={id + "-h"} style={{ fontSize: 24, marginTop: 40, marginBottom: 12, color: "#111" }}>{children}</h2>;
+}
+
+/* ---------------------------------------------------------------------------
+   Chart interpretation gate — two independently-gated prompts per chart
+--------------------------------------------------------------------------- */
+function InterpretationPrompt({ chartId, index, kindLabel, prompt, authored, state, onSubmit }) {
+  const key = chartId + "-" + index;
+  const submitted = !!(state[key] && state[key].submitted);
+  const [draft, setDraft] = useState((state[key] && state[key].text) || "");
+  const [selfNote, setSelfNote] = useState("");
+  const minLen = 15;
+
+  return (
+    <div style={{ border: "1px solid #E4E4E4", borderRadius: 10, padding: 16, marginTop: 12, background: "#FAFAFA" }}>
+      <div style={{ fontSize: 12, fontWeight: 700, color: "#6B5CD6", textTransform: "uppercase", marginBottom: 6 }}>
+        {kindLabel}
+      </div>
+      <p style={{ fontSize: 15, marginTop: 0 }}>{prompt}</p>
+      {!submitted && (
+        <>
+          <textarea
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            placeholder={"Write your answer (min " + minLen + " characters)..."}
+            style={{ width: "100%", minHeight: 64, borderRadius: 8, border: "1px solid #D8D8D8", padding: 10, fontSize: 14, fontFamily: "inherit" }}
+          />
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 6 }}>
+            <span style={{ fontSize: 12, color: draft.length >= minLen ? "#2F6B2F" : "#999" }}>
+              {draft.length}/{minLen} characters minimum
+            </span>
+            <button
+              disabled={draft.length < minLen}
+              onClick={() => onSubmit(key, draft)}
+              style={{
+                padding: "8px 16px", borderRadius: 8, border: "none", fontSize: 14, fontWeight: 600,
+                background: draft.length < minLen ? "#E5E5E5" : "#111", color: draft.length < minLen ? "#999" : "#fff",
+                cursor: draft.length < minLen ? "not-allowed" : "pointer"
+              }}
+            >Submit answer</button>
+          </div>
+        </>
+      )}
+      {submitted && (
+        <>
+          <div style={{ background: "#fff", border: "1px solid #E4E4E4", borderRadius: 8, padding: 10, marginTop: 8 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: "#555" }}>YOUR ANSWER</div>
+            <p style={{ margin: "4px 0 0 0", fontSize: 14 }}>{state[key].text}</p>
+          </div>
+          <div style={{ background: "#F2F0FB", border: "1px solid #DAD4F5", borderRadius: 8, padding: 10, marginTop: 8 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: "#4B3F91" }}>COMPARE YOUR ANSWER TO THE AUTHORED ONE</div>
+            <p style={{ margin: "4px 0 0 0", fontSize: 14 }}>{authored}</p>
+          </div>
+          {!state[key].selfNoteSubmitted && (
+            <div style={{ marginTop: 8 }}>
+              <input
+                value={selfNote}
+                onChange={(e) => setSelfNote(e.target.value)}
+                placeholder="Optional: in one sentence, why does the data move this way?"
+                style={{ width: "100%", padding: 8, borderRadius: 6, border: "1px solid #D8D8D8", fontSize: 13 }}
+              />
+              {selfNote.length > 0 && (
+                <button onClick={() => onSubmit(key, state[key].text, selfNote)}
+                  style={{ marginTop: 6, padding: "5px 10px", fontSize: 12, borderRadius: 6, border: "1px solid #ccc", background: "#fff", cursor: "pointer" }}>
+                  Save note
+                </button>
+              )}
+            </div>
+          )}
+          {state[key].selfNoteSubmitted && (
+            <p style={{ fontSize: 12, color: "#777", marginTop: 6, fontStyle: "italic" }}>Your note: {state[key].selfNote}</p>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+/* ---------------------------------------------------------------------------
+   Chart wrapper
+--------------------------------------------------------------------------- */
+function ChartCard({ chart, interpState, onInterpSubmit }) {
+  return (
+    <div style={{ margin: "24px 0" }}>
+      <div style={{ marginBottom: 8 }}>
+        <Tag tone={chart.tier}>{chart.tier.toUpperCase()}</Tag>
+        <strong style={{ fontSize: 15 }}>{chart.title}</strong>
+      </div>
+      <div style={{ width: "100%", height: chart.height || 300, background: "#fff", border: "1px solid #EDEDED", borderRadius: 10, padding: 12 }}>
+        {chart.render()}
+      </div>
+      <SourceNote>{chart.note}</SourceNote>
+      {chart.interp.map((it, i) => (
+        <InterpretationPrompt
+          key={i}
+          chartId={chart.id}
+          index={i}
+          kindLabel={it.kind}
+          prompt={it.prompt}
+          authored={it.authored}
+          state={interpState}
+          onSubmit={(key, text, note) => onInterpSubmit(key, text, note)}
+        />
+      ))}
+    </div>
+  );
+}
+
+/* ---------------------------------------------------------------------------
+   Architecture SVG (conceptual diagram)
+--------------------------------------------------------------------------- */
+function BatchingKVCacheSVG() {
+  return (
+    <svg viewBox="0 0 680 320" style={{ width: "100%", maxWidth: 680, display: "block", margin: "0 auto" }}>
+      <text x="340" y="22" textAnchor="middle" fontSize="14" fontWeight="700" fill="#111">Continuous batching schedules memory, not just requests</text>
+
+      <text x="90" y="50" textAnchor="middle" fontSize="11" fontWeight="700" fill="#333">Incoming requests</text>
+      <rect x="30" y="60" width="120" height="26" rx="5" fill="#F2F0FB" stroke="#6B5CD6" />
+      <text x="90" y="77" textAnchor="middle" fontSize="10" fill="#333">User A — short reply</text>
+      <rect x="30" y="94" width="120" height="26" rx="5" fill="#F2F0FB" stroke="#6B5CD6" />
+      <text x="90" y="111" textAnchor="middle" fontSize="10" fill="#333">User B — long report</text>
+      <rect x="30" y="128" width="120" height="26" rx="5" fill="#FEF6E7" stroke="#D97706" strokeWidth="2" />
+      <text x="90" y="145" textAnchor="middle" fontSize="10" fill="#8A5A00">User C — new arrival</text>
+
+      <text x="220" y="105" fontSize="20" fill="#999">→</text>
+
+      <rect x="250" y="55" width="150" height="120" rx="8" fill="#fff" stroke="#333" strokeWidth="1.4" />
+      <text x="325" y="48" textAnchor="middle" fontSize="11" fontWeight="700" fill="#111">Scheduler</text>
+      <text x="325" y="75" textAnchor="middle" fontSize="9.5" fill="#555">checks free KV-cache</text>
+      <text x="325" y="88" textAnchor="middle" fontSize="9.5" fill="#555">memory each step —</text>
+      <text x="325" y="101" textAnchor="middle" fontSize="9.5" fill="#555">not a fixed queue slot</text>
+      <text x="325" y="122" textAnchor="middle" fontSize="9.5" fill="#8A5A00" fontWeight="700">C admitted the instant</text>
+      <text x="325" y="135" textAnchor="middle" fontSize="9.5" fill="#8A5A00" fontWeight="700">A finishes and frees</text>
+      <text x="325" y="148" textAnchor="middle" fontSize="9.5" fill="#8A5A00" fontWeight="700">its blocks — no wait</text>
+      <text x="325" y="161" textAnchor="middle" fontSize="9.5" fill="#8A5A00" fontWeight="700">for B to finish too</text>
+
+      <text x="440" y="105" fontSize="20" fill="#999">→</text>
+
+      <text x="560" y="50" textAnchor="middle" fontSize="11" fontWeight="700" fill="#333">GPU memory: KV cache blocks</text>
+      {[0, 1, 2, 3, 4, 5].map((i) => {
+        const filled = i < 4;
+        const isNew = i === 3;
+        return (
+          <rect key={i} x={470 + (i % 3) * 45} y={60 + Math.floor(i / 3) * 40} width="38" height="32" rx="4"
+            fill={isNew ? "#FEF6E7" : filled ? "#B9AEEF" : "#F0F0F0"}
+            stroke={isNew ? "#D97706" : filled ? "#6B5CD6" : "#ccc"} strokeWidth={isNew ? 2 : 1} />
+        );
+      })}
+      <text x="560" y="145" textAnchor="middle" fontSize="9" fill="#666">each block = a fixed slice of one</text>
+      <text x="560" y="157" textAnchor="middle" fontSize="9" fill="#666">request's key/value cache, freed</text>
+      <text x="560" y="169" textAnchor="middle" fontSize="9" fill="#666">and reused when a request ends</text>
+
+      <line x1="20" y1="200" x2="660" y2="200" stroke="#ddd" strokeDasharray="4 4" />
+      <text x="340" y="222" textAnchor="middle" fontSize="11" fontWeight="700" fill="#111">Why User B's long report cannot block User C forever</text>
+      <text x="340" y="242" textAnchor="middle" fontSize="9.5" fill="#555">A static batch waits for every member to finish before accepting new work.</text>
+      <text x="340" y="257" textAnchor="middle" fontSize="9.5" fill="#555">Continuous batching checks memory at every decode step, so a short reply</text>
+      <text x="340" y="272" textAnchor="middle" fontSize="9.5" fill="#555">finishing early frees its blocks immediately for the next arrival — the</text>
+      <text x="340" y="287" textAnchor="middle" fontSize="9.5" fill="#555">queue is managed in memory blocks, not in whole-request turns.</text>
+    </svg>
+  );
+}
+
+/* ---------------------------------------------------------------------------
+   Question components
+--------------------------------------------------------------------------- */
+
+function MCQ({ q, state, onAnswer }) {
+  const st = state[q.id] || { selected: null, submitted: false, attempts: 0, correct: false, showScaffold: false };
+  const [selected, setSelected] = useState(st.selected);
+
+  function submit() {
+    if (selected === null) return;
+    const isCorrect = selected === q.correctIndex;
+    const attempts = st.attempts + 1;
+    onAnswer(q.id, {
+      selected, submitted: true, attempts, correct: isCorrect,
+      showScaffold: !isCorrect && attempts >= 2
+    });
+  }
+  function tryAgain() {
+    setSelected(null);
+    onAnswer(q.id, { ...st, selected: null, submitted: false });
+  }
+
+  const answered = st.submitted;
+  return (
+    <div style={{ border: "1px solid #E4E4E4", borderRadius: 10, padding: 16, margin: "16px 0" }}>
+      {q.subForm && <div style={{ fontSize: 11, fontWeight: 700, color: "#6B5CD6", textTransform: "uppercase", marginBottom: 6 }}>{q.subForm}</div>}
+      <div style={{ fontSize: 11, fontWeight: 700, color: "#888", textTransform: "uppercase", marginBottom: 6 }}>{q.typeLabel}</div>
+      <p style={{ marginTop: 0, fontSize: 15 }}>{q.prompt}</p>
+      <div style={{ display: "grid", gap: 8 }}>
+        {q.options.map((opt, i) => {
+          let bg = "#fff", border = "#D8D8D8";
+          if (answered) {
+            if (i === q.correctIndex) { bg = "#EEF6EC"; border = "#7EBF7E"; }
+            else if (i === st.selected) { bg = "#FDEDED"; border = "#E39999"; }
+          } else if (selected === i) { border = "#111"; }
+          return (
+            <button
+              key={i}
+              disabled={answered}
+              onClick={() => setSelected(i)}
+              style={{
+                textAlign: "left", padding: "10px 12px", borderRadius: 8, border: "1.5px solid " + border,
+                background: bg, cursor: answered ? "default" : "pointer", fontSize: 14, lineHeight: 1.5
+              }}
+            >
+              <strong>{String.fromCharCode(65 + i)}.</strong> {opt.text}
+            </button>
+          );
+        })}
+      </div>
+      {!answered && (
+        <button
+          disabled={selected === null}
+          onClick={submit}
+          style={{
+            marginTop: 10, padding: "8px 16px", borderRadius: 8, border: "none", fontWeight: 600,
+            background: selected === null ? "#E5E5E5" : "#111", color: selected === null ? "#999" : "#fff",
+            cursor: selected === null ? "not-allowed" : "pointer"
+          }}
+        >Submit</button>
+      )}
+      {selected === null && !answered && (
+        <div style={{ fontSize: 12, color: "#999", marginTop: 4 }}>Select an option to enable Submit.</div>
+      )}
+      {answered && (
+        <div style={{ marginTop: 12 }}>
+          <div style={{
+            padding: 10, borderRadius: 8,
+            background: st.correct ? "#EEF6EC" : "#FDEDED", fontSize: 14
+          }}>
+            <strong>{st.correct ? "Correct" : "Incorrect"}</strong> — {st.correct ? q.correctCalibration : q.options[st.selected].wrongCalibration}
+          </div>
+          <p style={{ fontSize: 14, marginTop: 8 }}>{q.explanation}</p>
+          <p style={{ fontSize: 13, color: "#555", marginTop: 4 }}><em>Where this generalizes:</em> {q.generalizes}</p>
+          {st.showScaffold && !st.correct && (
+            <div style={{ background: "#F2F0FB", border: "1px solid #DAD4F5", borderRadius: 8, padding: 10, marginTop: 8 }}>
+              <strong style={{ fontSize: 13 }}>Scaffold — second attempt</strong>
+              <p style={{ fontSize: 13.5, margin: "4px 0 0 0" }}>{q.scaffold}</p>
+            </div>
+          )}
+          {!st.correct && (
+            <button onClick={tryAgain} style={{ marginTop: 10, padding: "6px 14px", borderRadius: 8, border: "1px solid #111", background: "#fff", cursor: "pointer", fontSize: 13 }}>
+              Try again
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function TDQuestion({ q, state, onAnswer }) {
+  const st = state[q.id] || { value: "", submitted: false, offTarget: false };
+  const [value, setValue] = useState(st.value);
+
+  function submit() {
+    const num = parseFloat(value);
+    if (isNaN(num)) return;
+    let ratio = num / q.target;
+    if (ratio < 1) ratio = 1 / ratio;
+    const withinTolerance = q.scoring === "pct"
+      ? Math.abs(num - q.target) / q.target <= q.tolerancePct
+      : ratio <= 2; // log-distance style: within 2x either direction counts
+    onAnswer(q.id, { value, submitted: true, correct: withinTolerance, offTarget: ratio > 3 });
+  }
+
+  return (
+    <div style={{ border: "1px solid #E4E4E4", borderRadius: 10, padding: 16, margin: "16px 0" }}>
+      <div style={{ fontSize: 11, fontWeight: 700, color: "#888", textTransform: "uppercase", marginBottom: 6 }}>{q.typeLabel}</div>
+      <p style={{ marginTop: 0, fontSize: 15 }}>{q.prompt}</p>
+      {q.skeleton && (
+        <div style={{ background: "#FAFAFA", border: "1px dashed #ccc", borderRadius: 8, padding: 10, fontSize: 13, marginBottom: 8 }}>
+          <strong>Decomposition skeleton:</strong> {q.skeleton}
+        </div>
+      )}
+      {!st.submitted && (
+        <>
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <input
+              type="number"
+              value={value}
+              onChange={(e) => setValue(e.target.value)}
+              placeholder={q.placeholder}
+              style={{ padding: 8, borderRadius: 6, border: "1px solid #D8D8D8", fontSize: 14, width: 160 }}
+            />
+            <span style={{ fontSize: 13, color: "#666" }}>{q.unit}</span>
+          </div>
+          <button
+            disabled={value === ""}
+            onClick={submit}
+            style={{
+              marginTop: 10, padding: "8px 16px", borderRadius: 8, border: "none", fontWeight: 600,
+              background: value === "" ? "#E5E5E5" : "#111", color: value === "" ? "#999" : "#fff",
+              cursor: value === "" ? "not-allowed" : "pointer"
+            }}
+          >Submit estimate</button>
+          {value === "" && <div style={{ fontSize: 12, color: "#999", marginTop: 4 }}>Enter a number to enable Submit.</div>}
+        </>
+      )}
+      {st.submitted && (
+        <div style={{ marginTop: 10 }}>
+          <div style={{ padding: 10, borderRadius: 8, background: st.correct ? "#EEF6EC" : "#FDEDED", fontSize: 14 }}>
+            <strong>{st.correct ? "Within tolerance" : "Outside tolerance"}</strong> — your estimate: {st.value} {q.unit}; target: {q.target} {q.unit} ({q.targetLabel})
+          </div>
+          <p style={{ fontSize: 14, marginTop: 8 }}><strong>Anchor facts:</strong> {q.anchors}</p>
+          <p style={{ fontSize: 14 }}><strong>Decomposition:</strong> {q.decomposition}</p>
+          <p style={{ fontSize: 14 }}><strong>Bounds:</strong> {q.bounds}</p>
+          <p style={{ fontSize: 14 }}><strong>Why the actual value lands here:</strong> {q.whyHere}</p>
+          {st.offTarget && (
+            <div style={{ background: "#F2F0FB", border: "1px solid #DAD4F5", borderRadius: 8, padding: 10, marginTop: 8 }}>
+              <strong style={{ fontSize: 13 }}>Scaffold — you were off by more than 3x</strong>
+              <p style={{ fontSize: 13.5, margin: "4px 0 0 0" }}>{q.misjudgedFactor}</p>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function TGQuestion({ q, state, onAnswer }) {
+  const st = state[q.id] || { choice: null, justification: "", submitted: false };
+  const [choice, setChoice] = useState(st.choice);
+  const [justification, setJustification] = useState(st.justification);
+  const canSubmit = choice !== null && justification.length >= 15;
+
+  function submit() {
+    const correct = choice === q.correctAnswer;
+    onAnswer(q.id, { choice, justification, submitted: true, correct });
+  }
+
+  return (
+    <div style={{ border: "1px solid #E4E4E4", borderRadius: 10, padding: 16, margin: "16px 0" }}>
+      <div style={{ fontSize: 11, fontWeight: 700, color: "#888", textTransform: "uppercase", marginBottom: 6 }}>True / False with justification</div>
+      <p style={{ marginTop: 0, fontSize: 15 }}>{q.prompt}</p>
+      <div style={{ display: "flex", gap: 10 }}>
+        {["True", "False"].map((label, i) => {
+          const val = i === 0;
+          let bg = "#fff", border = "#D8D8D8";
+          if (st.submitted) {
+            if (val === q.correctAnswer) { bg = "#EEF6EC"; border = "#7EBF7E"; }
+            else if (val === st.choice) { bg = "#FDEDED"; border = "#E39999"; }
+          } else if (choice === val) { border = "#111"; }
+          return (
+            <button key={label} disabled={st.submitted} onClick={() => setChoice(val)}
+              style={{ flex: 1, padding: "10px", borderRadius: 8, border: "1.5px solid " + border, background: bg, cursor: st.submitted ? "default" : "pointer", fontWeight: 600 }}>
+              {label}
+            </button>
+          );
+        })}
+      </div>
+      {!st.submitted && (
+        <>
+          <textarea
+            value={justification}
+            onChange={(e) => setJustification(e.target.value)}
+            placeholder="Justify your answer in one sentence, naming the specific evidence (min 15 characters)..."
+            style={{ width: "100%", minHeight: 56, marginTop: 8, borderRadius: 8, border: "1px solid #D8D8D8", padding: 10, fontSize: 14, fontFamily: "inherit" }}
+          />
+          <button
+            disabled={!canSubmit}
+            onClick={submit}
+            style={{
+              marginTop: 8, padding: "8px 16px", borderRadius: 8, border: "none", fontWeight: 600,
+              background: !canSubmit ? "#E5E5E5" : "#111", color: !canSubmit ? "#999" : "#fff",
+              cursor: !canSubmit ? "not-allowed" : "pointer"
+            }}
+          >Submit</button>
+          {!canSubmit && <div style={{ fontSize: 12, color: "#999", marginTop: 4 }}>Choose True or False and write a 15+ character justification to enable Submit.</div>}
+        </>
+      )}
+      {st.submitted && (
+        <div style={{ marginTop: 10 }}>
+          <div style={{ padding: 10, borderRadius: 8, background: st.correct ? "#EEF6EC" : "#FDEDED", fontSize: 14 }}>
+            <strong>{st.correct ? "Correct" : "Incorrect"}</strong>{!st.correct && <> — this is {q.reasoningError}</>}
+          </div>
+          <div style={{ background: "#fff", border: "1px solid #E4E4E4", borderRadius: 8, padding: 10, marginTop: 8 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: "#555" }}>YOUR JUSTIFICATION</div>
+            <p style={{ margin: "4px 0 0 0", fontSize: 14 }}>{st.justification}</p>
+          </div>
+          <div style={{ background: "#F2F0FB", border: "1px solid #DAD4F5", borderRadius: 8, padding: 10, marginTop: 8 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: "#4B3F91" }}>AUTHORED JUSTIFICATION</div>
+            <p style={{ margin: "4px 0 0 0", fontSize: 14 }}>{q.authoredJustification}</p>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function TFQuestion({ q, state, onAnswer }) {
+  const st = state[q.id] || { text: "", submitted: false, checks: [false, false, false] };
+  const [text, setText] = useState(st.text);
+  const [checks, setChecks] = useState(st.checks);
+
+  function submit() {
+    onAnswer(q.id, { text, submitted: true, checks });
+  }
+  function toggleCheck(i) {
+    const next = checks.slice();
+    next[i] = !next[i];
+    setChecks(next);
+    if (st.submitted) onAnswer(q.id, { ...st, checks: next });
+  }
+
+  return (
+    <div style={{ border: "1px solid #E4E4E4", borderRadius: 10, padding: 16, margin: "16px 0", background: "#FBFBFD" }}>
+      <div style={{ fontSize: 11, fontWeight: 700, color: "#6B5CD6", textTransform: "uppercase", marginBottom: 6 }}>Pattern transfer</div>
+      <p style={{ marginTop: 0, fontSize: 15 }}>{q.prompt}</p>
+      {!st.submitted && (
+        <>
+          <textarea
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            placeholder={"Write your transfer (min " + q.minLen + " characters). Name the principle, apply it non-trivially, and name a new failure mode."}
+            style={{ width: "100%", minHeight: 100, borderRadius: 8, border: "1px solid #D8D8D8", padding: 10, fontSize: 14, fontFamily: "inherit" }}
+          />
+          <div style={{ fontSize: 12, color: text.length >= q.minLen ? "#2F6B2F" : "#999", marginTop: 4 }}>{text.length}/{q.minLen} characters minimum</div>
+          <button
+            disabled={text.length < q.minLen}
+            onClick={submit}
+            style={{
+              marginTop: 8, padding: "8px 16px", borderRadius: 8, border: "none", fontWeight: 600,
+              background: text.length < q.minLen ? "#E5E5E5" : "#111", color: text.length < q.minLen ? "#999" : "#fff",
+              cursor: text.length < q.minLen ? "not-allowed" : "pointer"
+            }}
+          >Submit</button>
+        </>
+      )}
+      {st.submitted && (
+        <div style={{ marginTop: 10 }}>
+          <div style={{ background: "#fff", border: "1px solid #E4E4E4", borderRadius: 8, padding: 10 }}>
+            <p style={{ margin: 0, fontSize: 14 }}>{text}</p>
+          </div>
+          <p style={{ fontSize: 13, fontWeight: 700, marginTop: 10, marginBottom: 4 }}>Self-evaluation checklist</p>
+          {[
+            "Did I name the principle accurately?",
+            "Is my application genuinely different from the original case?",
+            "Is my failure mode new (not one already covered in this article)?"
+          ].map((label, i) => (
+            <label key={i} style={{ display: "flex", gap: 8, alignItems: "flex-start", fontSize: 13.5, marginBottom: 4 }}>
+              <input type="checkbox" checked={checks[i]} onChange={() => toggleCheck(i)} style={{ marginTop: 3 }} />
+              {label}
+            </label>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function PrincipleGate({ sectionId, authored, state, onSubmit }) {
+  const st = state[sectionId] || { text: "", submitted: false };
+  const [text, setText] = useState(st.text);
+  return (
+    <div style={{ border: "1px dashed #B9AEEF", borderRadius: 10, padding: 16, margin: "20px 0", background: "#FBFAFF" }}>
+      <p style={{ marginTop: 0, fontSize: 14, fontWeight: 600 }}>Principle in one sentence</p>
+      <p style={{ fontSize: 13.5, color: "#555", marginTop: -4 }}>
+        State the transferable principle from this section — something a PM or CTO at a different company could apply tomorrow. (Not scored; you can move to any section regardless.)
+      </p>
+      {!st.submitted && (
+        <>
+          <textarea
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            placeholder="Minimum 20 characters..."
+            style={{ width: "100%", minHeight: 56, borderRadius: 8, border: "1px solid #D8D8D8", padding: 10, fontSize: 14, fontFamily: "inherit" }}
+          />
+          <button
+            disabled={text.length < 20}
+            onClick={() => onSubmit(sectionId, text)}
+            style={{
+              marginTop: 8, padding: "7px 14px", borderRadius: 8, border: "none", fontWeight: 600, fontSize: 13,
+              background: text.length < 20 ? "#E5E5E5" : "#111", color: text.length < 20 ? "#999" : "#fff",
+              cursor: text.length < 20 ? "not-allowed" : "pointer"
+            }}
+          >Submit</button>
+        </>
+      )}
+      {st.submitted && (
+        <>
+          <div style={{ background: "#fff", border: "1px solid #E4E4E4", borderRadius: 8, padding: 10 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: "#555" }}>YOUR PRINCIPLE</div>
+            <p style={{ margin: "4px 0 0 0", fontSize: 14 }}>{st.text}</p>
+          </div>
+          <div style={{ background: "#F2F0FB", border: "1px solid #DAD4F5", borderRadius: 8, padding: 10, marginTop: 8 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: "#4B3F91" }}>AUTHORED PRINCIPLE</div>
+            <p style={{ margin: "4px 0 0 0", fontSize: 14 }}>{authored}</p>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function Glossary({ items }) {
+  if (!items || items.length === 0) return null;
+  return (
+    <div style={{ background: "#F7F7F7", borderRadius: 10, padding: 16, marginTop: 28 }}>
+      <div style={{ fontSize: 12, fontWeight: 700, color: "#666", textTransform: "uppercase", marginBottom: 8 }}>Glossary</div>
+      {items.map((it, i) => (
+        <p key={i} style={{ fontSize: 13.5, margin: "4px 0" }}><strong>{it.term}</strong> — {it.def}</p>
+      ))}
+    </div>
+  );
+}
+
+/* ============================================================================
+   MAIN APP
+   ========================================================================== */
+function App() {
+  const [active, setActive] = useState("warmup");
+  const [warmupAnswers, setWarmupAnswers] = useState({});
+  const [warmupSkipped, setWarmupSkipped] = useState(false);
+  const [narrowScreen, setNarrowScreen] = useState(window.innerWidth < 1160);
+
+  const [interpState, setInterpState] = useState({});
+  const [mcqState, setMcqState] = useState({});
+  const [principleState, setPrincipleState] = useState({});
+  const [applyIt, setApplyIt] = useState({
+    present: { thesis: "", assumption: "", disconfirm: "", premortem: "" },
+    future: { change: "", replaces: "" },
+    submitted: false
+  });
+  const [insightSlot, setInsightSlot] = useState({ text: "", submitted: false });
+
+  const sectionRefs = useRef({});
+  const NAV = [
+    { id: "warmup", label: "Warm-Up" },
+    { id: "intro", label: "Introduction" },
+    { id: "background", label: "Landscape" },
+    { id: "rq1", label: "RQ1: Batching & KV Cache" },
+    { id: "rq2", label: "RQ2: Speculative Decoding" },
+    { id: "rq3", label: "RQ3: Cost Per Token" },
+    { id: "brokewhat", label: "What Broke" },
+    { id: "summary", label: "Learning Summary" },
+    { id: "conclusion", label: "Conclusion" }
+  ];
+
+  useEffect(() => {
+    function onResize() { setNarrowScreen(window.innerWidth < 1160); }
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+
+  useEffect(() => {
+    function onScroll() {
+      let current = NAV[0].id;
+      for (const n of NAV) {
+        const el = sectionRefs.current[n.id];
+        if (el && el.getBoundingClientRect().top - 120 <= 0) current = n.id;
+      }
+      setActive(current);
+    }
+    window.addEventListener("scroll", onScroll);
+    return () => window.removeEventListener("scroll", onScroll);
+  }, []);
+
+  function scrollTo(id) {
+    const el = sectionRefs.current[id];
+    if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+  function submitWarmup(id, text) {
+    setWarmupAnswers((prev) => ({ ...prev, [id]: { text, submitted: true } }));
+  }
+
+  function submitInterp(key, text, note) {
+    setInterpState((prev) => ({
+      ...prev,
+      [key]: { text, submitted: true, selfNote: note || (prev[key] && prev[key].selfNote), selfNoteSubmitted: !!note }
+    }));
+  }
+  function submitMcq(id, payload) {
+    setMcqState((prev) => ({ ...prev, [id]: payload }));
+  }
+  function submitPrinciple(id, text) {
+    setPrincipleState((prev) => ({ ...prev, [id]: { text, submitted: true } }));
+  }
+
+  // Progress: fraction of NAV sections visited (crude proxy: reached scroll position)
+  const [visited, setVisited] = useState({ warmup: true });
+  useEffect(() => { setVisited((v) => ({ ...v, [active]: true })); }, [active]);
+  const progressPct = Math.round((Object.keys(visited).length / NAV.length) * 100);
+
+  // score tally — only count entries that are fully submitted and carry a scored boolean "correct"
+  const scoredIds = Object.keys(mcqState).filter(
+    (k) => mcqState[k] && mcqState[k].submitted && typeof mcqState[k].correct === "boolean"
+  );
+  const correctCount = scoredIds.filter((k) => mcqState[k].correct).length;
+
+  return (
+    <div>
+      <div style={{ position: "fixed", top: 0, left: 0, right: 0, height: 4, background: "#eee", zIndex: 50 }}>
+        <div style={{ height: 4, background: "#6B5CD6", width: progressPct + "%", transition: "width .3s" }} />
+      </div>
+
+      <div style={{ position: "fixed", top: 4, left: 0, right: 0, background: "#fff", borderBottom: "1px solid #eee", zIndex: 49, padding: "10px 20px" }}>
+        <div style={{ maxWidth: 1000, margin: "0 auto", display: "flex", flexWrap: "wrap", alignItems: "center", gap: 12, justifyContent: "space-between" }}>
+          <div>
+            <div style={{ fontSize: 15, fontWeight: 800 }}>Memory Sets the Price</div>
+            <div style={{ fontSize: 11.5, color: "#666" }}>
+              <Tag tone="illustration">AI-NATIVE SYSTEM DESIGN</Tag>
+              Score: {correctCount}/{scoredIds.length || 0}
+            </div>
+          </div>
+          <div style={{ display: "flex", gap: 4, fontSize: 10.5, alignItems: "center" }}>
+            {["Feasibility", "Design", "Build", "Evaluate", "Deploy", "Scale", "Govern"].map((p) => {
+              const on = p === "Build" || p === "Scale";
+              return (
+                <span key={p} style={{
+                  padding: "3px 6px", borderRadius: 5, background: on ? "#111" : "#F0F0F0",
+                  color: on ? "#fff" : "#999", fontWeight: on ? 700 : 500
+                }}>{p}</span>
+              );
+            })}
+          </div>
+          <div style={{ fontSize: 12, color: "#666" }}>
+            Prev: <strong>Agentic System Architecture</strong> · Next: <strong>AI Product Sense</strong>
+          </div>
+        </div>
+      </div>
+
+      <div style={{ display: "flex", maxWidth: 1160, margin: "0 auto", paddingTop: 82 }}>
+        {!narrowScreen && (
+          <div style={{ width: 200, flexShrink: 0, position: "sticky", top: 90, height: "fit-content", paddingRight: 12 }}>
+            {NAV.map((n) => (
+              <div
+                key={n.id}
+                onClick={() => scrollTo(n.id)}
+                style={{
+                  padding: "8px 10px", fontSize: 13, cursor: "pointer", borderRadius: 6, marginBottom: 2,
+                  borderLeft: active === n.id ? "3px solid #6B5CD6" : "3px solid transparent",
+                  background: active === n.id ? "#F2F0FB" : "transparent",
+                  fontWeight: active === n.id ? 700 : 400, color: active === n.id ? "#111" : "#555"
+                }}
+              >{n.label}</div>
+            ))}
+          </div>
+        )}
+
+        <div style={{ maxWidth: 720, margin: "0 auto", padding: "0 16px 80px 16px" }}>
+
+          {/* ============================ WARM-UP ============================ */}
+          <div ref={(el) => (sectionRefs.current.warmup = el)} id="warmup">
+            <div style={{ background: "#F5F5F7", borderRadius: 12, padding: 20, marginTop: 20 }}>
+              <h2 style={{ marginTop: 0 }}>Before you begin — recall from your prior reading</h2>
+              <p style={{ fontSize: 14.5, color: "#444" }}>
+                Three quick questions test whether principles from earlier articles still transfer to a new context. This is retrieval practice, not a scored quiz — but skipping it is noted at the end.
+              </p>
+              {!warmupSkipped && WARMUP_QUESTIONS.map((w) => {
+                const ans = warmupAnswers[w.id];
+                return (
+                  <div key={w.id} style={{ background: "#fff", borderRadius: 10, padding: 14, marginTop: 12 }}>
+                    <p style={{ marginTop: 0, fontSize: 14.5 }}>{w.prompt}</p>
+                    {!ans && <WarmupInput id={w.id} onSubmit={submitWarmup} />}
+                    {ans && (
+                      <>
+                        <div style={{ background: "#FAFAFA", borderRadius: 8, padding: 10 }}>
+                          <div style={{ fontSize: 11, fontWeight: 700, color: "#555" }}>YOUR ANSWER</div>
+                          <p style={{ margin: "4px 0 0 0", fontSize: 13.5 }}>{ans.text}</p>
+                        </div>
+                        <p style={{ fontSize: 12.5, color: "#666", marginTop: 8 }}>
+                          <strong>Source:</strong> {w.sourceArticle}<br />
+                          <strong>Principle tested:</strong> {w.principle}
+                        </p>
+                      </>
+                    )}
+                  </div>
+                );
+              })}
+              {!warmupSkipped && (
+                <button onClick={() => setWarmupSkipped(true)} style={{ marginTop: 14, background: "none", border: "none", color: "#888", textDecoration: "underline", fontSize: 13, cursor: "pointer" }}>
+                  Skip warm-up
+                </button>
+              )}
+              {warmupSkipped && <p style={{ fontSize: 13.5, color: "#888" }}>Warm-up skipped. This is noted in your Learning Summary.</p>}
+            </div>
+          </div>
+
+          {/* ============================ INTRO ============================ */}
+          <div ref={(el) => (sectionRefs.current.intro = el)} id="intro">
+            <SectionHeading id="intro">Introduction</SectionHeading>
+            <p>
+              In classical web systems, the scarce resource is compute — processor cycles spent calculating
+              an answer — and the standard fix is to add more of them or cache the result. Serving a large
+              language model (LLM) does not work this way. Once a model's weights sit in GPU memory, the
+              next fixed cost is the <strong>KV cache</strong>: the key and value numbers the model saved
+              from every token it has already read or written, kept so it does not have to redo that math on
+              the next step. That cache grows with every new token and every simultaneous user, and it
+              competes for the exact same memory the model's weights already occupy. Together AI, a company
+              whose core product is running other companies' models as a paid service, has published its own
+              serving research stating this plainly: at large batch sizes and long input sequences, the slow
+              part of generating text is not the chip running out of math to do, it is the chip waiting on
+              memory bandwidth to read a KV cache that has grown too large to move quickly (Together AI,
+              2024). This article uses Together AI's own published engineering work — its serving engine,
+              its quantized model tiers, and its speculative-decoding research — as evidence, because it is
+              one of the few inference companies to publish detailed, numbered before-and-after comparisons
+              of the specific techniques it uses against this constraint, rather than only marketing claims
+              about being fast.
+            </p>
+            <p>
+              By 2024, Together AI's own benchmarks put its FP8-quantized "Turbo" endpoints at up to 4.5
+              times the throughput of the open-source vLLM engine (version 0.5.1) on Llama-3-8B-Instruct and
+              Llama-3-70B-Instruct, and its full-precision "Reference" endpoints at roughly 4 times vLLM's
+              throughput in normal serving conditions (Together AI, 2024). vLLM is not a strawman baseline —
+              its own 2023 launch benchmarks reported up to 24 times the throughput of a naive Hugging Face
+              Transformers deployment, by inventing a memory-management technique called PagedAttention
+              (vLLM Blog, 2023). Two peer inference platforms racing the same problem, Fireworks AI and
+              Baseten, both rent the same on-demand GPU class — an Nvidia H100 — at nearly the same hourly
+              rate ($7.00 and $6.50, respectively) and price at least two of the same open models identically
+              per token, evidence that the category has converged on a small menu of hardware and pricing
+              choices because the underlying constraint, GPU memory bandwidth, is identical for everyone
+              (Fireworks AI and Baseten pricing, via Morph LLM comparison, 2026).
+            </p>
+            <p>
+              Classical system design has a standard fix when a server runs low on capacity: batch more
+              requests together so a fixed cost amortizes across more work. Batching an LLM request is not
+              that simple, because a request has neither a fixed size nor a fixed finish time the way a
+              database query does — one user might need 20 tokens generated, another might need 2,000. A
+              batch that waits for every member to finish before accepting new work lets one long request
+              hold every short one behind it hostage, the opposite of amortizing cost. And because the memory
+              a request needs is not known in advance, a fixed-size reservation either wastes GPU memory that
+              could serve other users or runs out and crashes a request mid-generation. Both problems are
+              exactly what continuous batching and paged, block-based KV cache management — the subject of
+              this article's first research question — exist to solve.
+            </p>
+            <p>
+              This article addresses three questions. First, how do continuous batching and paged,
+              block-based key-value cache management change what a serving engine can promise, and what does
+              that change cost to build? Second, why does speculative decoding — a technique originally built
+              to speed up one user's response — also help at the opposite end of the spectrum, in the
+              large-batch, long-context traffic an inference provider actually runs at scale, and what does
+              that speed cost in output quality? Third, once a company like Together AI has these techniques
+              working, how does it turn them into the tiered, per-token prices customers actually pay, and
+              what operational discipline keeps a technique's promised speedup from silently rotting in
+              production?
+            </p>
+          </div>
+
+          {/* ============================ BACKGROUND ============================ */}
+          <div ref={(el) => (sectionRefs.current.background = el)} id="background">
+            <SectionHeading id="background">Technical and Product Landscape</SectionHeading>
+            <p>
+              Before continuous batching existed, serving engines used static batching: a fixed group of
+              requests started together, and the whole group finished together, no matter how much some
+              members outran the others. Every request in that group also received its own separately
+              reserved, contiguous block of GPU memory sized for the longest sequence the system allowed —
+              whether or not any single request actually used all of it. vLLM's own 2023 launch post named
+              memory waste from this pattern as the central bottleneck holding back serving throughput, and
+              introduced PagedAttention: a technique borrowed from how operating systems manage virtual
+              memory, which divides the KV cache into small, fixed-size blocks that can be allocated
+              non-contiguously and mapped to a request through a lookup table, instead of reserving one large
+              slab per request up front (vLLM Blog, 2023). The result, on the same hardware and the same
+              models, was up to 24 times the throughput of a naive Hugging Face Transformers deployment and
+              up to 3.5 times the throughput of HuggingFace's own early batching engine, TGI (vLLM Blog,
+              2023).
+            </p>
+            <ChartCard
+              chart={{
+                id: "pagedattnchart",
+                tier: "fact",
+                title: "vLLM's 2023 Launch Benchmark: Throughput Gain from PagedAttention + Continuous Batching",
+                height: 260,
+                note: "FACT: reported speedup ranges from vLLM's own launch announcement, measured against a naive Hugging Face Transformers deployment and against HuggingFace's TGI serving engine, same models and hardware (vLLM Blog, 2023).",
+                render: () => (
+                  <ResponsiveContainer>
+                    <BarChart data={pagedAttnData} layout="vertical" margin={{ left: 10, right: 20 }}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis type="number" label={{ value: "Speedup (x)", position: "insideBottom", offset: -5, fontSize: 11 }} />
+                      <YAxis type="category" dataKey="name" width={170} tick={{ fontSize: 10.5 }} />
+                      <Tooltip />
+                      <Legend />
+                      <Bar dataKey="low" name="Low end" fill="#B9AEEF" radius={4} />
+                      <Bar dataKey="high" name="High end" fill="#6B5CD6" radius={4} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                ),
+                interp: [
+                  {
+                    kind: "Quantitative reasoning",
+                    prompt: "The reported speedup over naive Hugging Face Transformers (14x-24x) is roughly 6-7x larger than the speedup over TGI (2.2x-3.5x), even though both comparisons used the same PagedAttention engine. Estimate how much throughput TGI itself must already have captured relative to the naive baseline, and state what that implies about how much of vLLM's total gain is genuinely new versus already-known batching wins.",
+                    authored: "If vLLM is roughly 24x naive and roughly 3.5x TGI, then TGI itself is roughly 24/3.5 ≈ 6.9x naive — meaning TGI's own batching work had already captured most of the low-hanging fruit before PagedAttention arrived. PagedAttention's genuinely new contribution is closer to that remaining 2.2x-3.5x, not the full 14x-24x headline number; comparing only to the weakest baseline (naive Transformers) would overstate how much of the gain is attributable to the new memory-management idea specifically."
+                  },
+                  {
+                    kind: "So-what / threshold-decision-rule",
+                    prompt: "If a team is currently running a naive, unbatched deployment and is deciding whether to adopt an early batching engine like TGI first or jump straight to a PagedAttention-based engine, at what point does skipping the intermediate step stop being worth the extra migration risk?",
+                    authored: "Skipping straight to a PagedAttention-based engine is worth the extra migration effort whenever the team's current unbatched throughput is already failing to meet demand today — in that case, capturing only TGI's roughly 7x and then migrating again later costs more total engineering time than migrating once. If current throughput is adequate and the move is purely opportunistic cost-cutting, taking the smaller, better-understood TGI-style step first reduces risk, since it isolates whether ordinary batching alone resolves the bottleneck before adopting a newer, less battle-tested engine."
+                  }
+                ]
+              }}
+              interpState={interpState}
+              onInterpSubmit={submitInterp}
+            />
+            <p>
+              PagedAttention fixed memory waste per request, but it did not make the memory problem
+              disappear — it made the problem scale with context length in a way that is easy to underrate
+              until it is written out in numbers. A decoder-only model's KV cache size for one request grows
+              in direct proportion to how many tokens are in play: for a model with L transformer layers,
+              H<sub>kv</sub> key/value attention heads, and head dimension D, one request's cache in 16-bit
+              precision takes roughly 4 × L × H<sub>kv</sub> × D × (sequence length) bytes, since both a key
+              and a value are stored for every layer and every head at every position (Raschka, LLM
+              Architecture Gallery). Plugging in the shape of a 70-billion-parameter, Llama-style model (80
+              layers, 8 key/value heads, 128-dimensional heads — a configuration Raschka uses directly as a
+              worked example) shows that a single 128,000-token request needs roughly 40 gibibytes of KV
+              cache on its own, in 16-bit precision (Raschka, LLM Architecture Gallery). That is not a
+              rounding error on top of the model's weights; for a 70-billion-parameter model, it is close to
+              the size of the weights themselves.
+            </p>
+            <ChartCard
+              chart={{
+                id: "kvgrowthchart",
+                tier: "estimate",
+                title: "Estimated KV Cache Size for ONE Request, by Context Length (70B-class Llama-style model, 16-bit precision)",
+                height: 260,
+                note: "ESTIMATE: computed as 4 x L x H_kv x D x sequence length, using L=80 layers, H_kv=8 key/value heads, D=128 head dimension — the worked example Raschka uses for a Llama-70B-style model (Raschka, LLM Architecture Gallery). The 128,000-token result (about 39 GiB here) matches the roughly 40 GiB figure Raschka states directly for that same context length, which is a useful cross-check on the formula.",
+                render: () => (
+                  <ResponsiveContainer>
+                    <BarChart data={kvCacheGrowthData}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="context" tick={{ fontSize: 11 }} />
+                      <YAxis label={{ value: "KV cache size (GiB)", angle: -90, position: "insideLeft", fontSize: 10 }} />
+                      <Tooltip />
+                      <Bar dataKey="gib" radius={4}>
+                        {kvCacheGrowthData.map((d, i) => <Cell key={i} fill={["#B9AEEF", "#8A7AE0", "#6B5CD6"][i]} />)}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                ),
+                interp: [
+                  {
+                    kind: "Qualitative / mechanism",
+                    prompt: "Going from a 4,000-token request to a 128,000-token request (32x longer) grows the estimated KV cache from about 1.2 GiB to about 39 GiB — also roughly 32x. Why does KV cache size scale in direct, linear proportion to sequence length, rather than growing faster or slower than that?",
+                    authored: "Every additional token adds exactly one new key and one new value at every layer and every attention head — the model has to remember that token's contribution at each of those positions to attend back to it later. Because each new token contributes a fixed, constant amount of new cache regardless of how many tokens came before it, total cache size is simply that per-token cost multiplied by the number of tokens: a linear relationship, not one that compounds or saturates."
+                  },
+                  {
+                    kind: "So-what / sizing",
+                    prompt: "Using this chart's 128,000-token estimate of about 39 GiB per request, size how many such maximum-length requests a single 80 GB H100 GPU could hold in KV cache alone if none of its memory needed to hold model weights at all, and say what this implies about whether a single GPU could ever serve more than one long-context conversation for a 70B-class model.",
+                    authored: "80 GB ÷ 39 GiB ≈ 2 requests, and that is the generous case where the GPU holds zero model weights. In reality the same GPU must also hold the model's weights, which for a 70-billion-parameter model take tens of gigabytes even after compression, so the true number of simultaneous full-length requests a single GPU can serve is 0 or 1, not 2 — a hard ceiling that has nothing to do with how fast the chip can compute and everything to do with how much of it is bytes of remembered attention state."
+                  }
+                ]
+              }}
+              interpState={interpState}
+              onInterpSubmit={submitInterp}
+            />
+            <p>
+              By 2025, three inference platforms serving open-weight models at scale — Together AI,
+              Fireworks AI, and Baseten — had each converged on the same broad response to this constraint:
+              multiple quantization tiers, priced separately, plus per-hour dedicated GPU rental on the same
+              small menu of hardware (Nvidia H100, H200, B200, and B300 cards). Baseten's own published rates
+              charge $6.50 an hour for an H100 versus Fireworks's $7.00, and both companies price at least two
+              shared open models — DeepSeek V4 and Kimi K2.6 — at identical per-token rates to each other
+              (Fireworks AI and Baseten pricing, via Morph LLM comparison, 2026). That level of convergence
+              across independent companies is itself evidence for this article's governing claim: when the
+              scarce resource is the same physical thing (GPU memory and memory bandwidth) for every
+              provider, the menu of viable business responses — compress the model, ration memory across
+              users, or charge by the GPU-hour instead of the token — narrows to roughly the same handful of
+              options industry-wide.
+            </p>
+            <Glossary items={[
+              { term: "KV cache (key-value cache)", def: "The saved attention math (keys and values) from every token a model has already processed, kept in GPU memory so the model does not have to redo that work for each new token." },
+              { term: "PagedAttention", def: "A technique that stores a request's KV cache in small, reusable memory blocks instead of one large reserved slab, cutting memory waste and letting more requests share the same GPU." },
+              { term: "Continuous batching", def: "A scheduling approach that checks free GPU memory at every generation step and admits a new request the moment memory frees up, instead of waiting for an entire batch of requests to finish together." },
+              { term: "Quantization", def: "Storing a model's numbers (weights and sometimes activations) in fewer bits than the original training precision, shrinking memory use and speeding up compute at some risk to accuracy." }
+            ]} />
+          </div>
+
+          {/* ============================ RQ1 ============================ */}
+          <div ref={(el) => (sectionRefs.current.rq1 = el)} id="rq1">
+            <SectionHeading id="rq1">RQ1 — Batching and the KV Cache: Scheduling Memory, Not Requests</SectionHeading>
+            <p>
+              The claim to defend in this section: continuous batching and paged KV cache management work
+              because they treat GPU memory, not a request queue slot, as the thing being scheduled — and
+              every one of Together AI's own published serving-engine gains sits on top of that same
+              foundation. A classical request scheduler asks "is there a free worker?" An LLM serving
+              scheduler has to ask a fundamentally different question: "is there enough free memory, in
+              blocks, to hold this specific request's growing cache?" — and that question has to be
+              re-answered at every single token generated, for every request in flight, because the answer
+              changes constantly as caches grow and shrink.
+            </p>
+            <BatchingKVCacheSVG />
+            <p style={{ fontSize: 13, color: "#555", marginTop: 4 }}>
+              <em>ILLUSTRATION: a generic diagram of continuous batching's decision rule, not a specific
+              company's exact implementation or request mix. Illustrative values — not reported
+              statistics.</em>
+            </p>
+            <p>
+              Together AI's own published numbers show what building this kind of memory-aware scheduling,
+              on top of an already-strong baseline, is worth in practice. Its Inference Engine 2.0 measured
+              itself directly against vLLM 0.5.1 — the same engine whose own launch benchmark this article's
+              Landscape section already used as the founding evidence for memory-aware serving — and reported
+              up to 4 times the throughput on its full-precision "Reference" tier and up to 4.5 times on its
+              FP8-quantized "Turbo" tier, on Llama-3-8B-Instruct and Llama-3-70B-Instruct (Together AI, 2024).
+            </p>
+            <ChartCard
+              chart={{
+                id: "enginechart",
+                tier: "fact",
+                title: "Together Inference Engine 2.0: Speedup vs. vLLM 0.5.1, by Tier (Together AI, 2024)",
+                height: 220,
+                note: "FACT: reported throughput multiplier over vLLM 0.5.1, same models (Llama-3-8B-Instruct and Llama-3-70B-Instruct), as published by Together AI.",
+                render: () => (
+                  <ResponsiveContainer>
+                    <BarChart data={engineSpeedupData}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="tier" tick={{ fontSize: 11 }} />
+                      <YAxis label={{ value: "Speedup vs. vLLM 0.5.1 (x)", angle: -90, position: "insideLeft", fontSize: 9.5 }} domain={[0, 5]} />
+                      <Tooltip />
+                      <Bar dataKey="multiplier" radius={4}>
+                        {engineSpeedupData.map((d, i) => <Cell key={i} fill={["#B9AEEF", "#6B5CD6"][i]} />)}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                ),
+                interp: [
+                  {
+                    kind: "Quantitative reasoning",
+                    prompt: "Turbo's reported speedup (4.5x) is 0.5x higher than Reference's (4.0x), and the only architectural difference between the two tiers is FP8 quantization. Express that extra gain as a percentage on top of Reference's own already-large improvement, and say what that percentage represents mechanistically.",
+                    authored: "0.5 ÷ 4.0 = 12.5% additional throughput on top of what continuous batching and paged KV cache management (shared by both tiers) already deliver. Mechanistically, that 12.5% is specifically what quantization buys on its own: smaller weights and activations move through memory faster and let more of each request's KV cache fit in the same GPU memory, on top of — not instead of — the scheduling gains this section's diagram illustrates."
+                  },
+                  {
+                    kind: "So-what / build-buy-partner",
+                    prompt: "A team could try to replicate Together's own continuous-batching and quantization engineering in-house rather than paying an inference provider's markup. Using the 4x-4.5x gap shown here, frame this as a build-vs-buy-vs-partner decision: at what point does building an equivalent stop being worth it compared to buying inference from a provider who has already built it?",
+                    authored: "Building an equivalent only clears the bar once token volume is large enough that the provider's per-token margin, multiplied by that volume, would exceed the fully-loaded cost of hiring and continuously running an inference-engineering team — for most companies below very large scale, a 4x-4.5x gap like this is not a one-time trick but the product of ongoing, specialized engineering investment, which argues for buying it from a specialist provider rather than rebuilding and maintaining it in-house."
+                  }
+                ]
+              }}
+              interpState={interpState}
+              onInterpSubmit={submitInterp}
+            />
+            <MCQ
+              q={{
+                id: "mcq-rq1",
+                typeLabel: "T-A — Architecture and system implication",
+                prompt: "Based on the diagram, continuous batching admits a new request the instant GPU memory frees up, without waiting for every other request in the batch to finish. If a product's average request length grows 10x — for example, from short chat replies to long document-analysis outputs — which part of this design is most likely to become the new bottleneck, and what should a PM prioritize investing in next?",
+                options: [
+                  { text: "The KV cache's memory footprint, because a 10x longer average request multiplies how much cache every concurrent user occupies — a PM should prioritize KV-cache compression or eviction techniques over a faster chip.", wrongCalibration: "" },
+                  { text: "The GPU's raw floating-point throughput, because generating 10x more tokens per request means 10x more matrix multiplications need to run — a PM should prioritize the newest, fastest GPU generation available.", wrongCalibration: "this applies a classical assumption that a speed problem is always a compute problem — decode-step compute per token barely changes with sequence length, only the size of the cache each step must read does, so a faster chip alone would not relieve this specific bottleneck." },
+                  { text: "The network bandwidth between the load balancer and the GPU nodes, because longer responses mean more bytes streamed back to each user — a PM should prioritize a content delivery network.", wrongCalibration: "this misreads a rate for a level: bytes streamed to a user's browser are trivial compared to the GPU-internal memory traffic this diagram highlights, so external network bandwidth is not the constraint shown here." },
+                  { text: "The CPU-side request scheduler, because inserting new requests into a running batch at iteration granularity adds scheduling overhead per token generated — a PM should prioritize rewriting the scheduler in a faster language.", wrongCalibration: "this is a single-cause fallacy that fixates on a real but comparatively small cost (scheduling overhead) while ignoring the dominant, diagram-highlighted cost: GPU memory occupied by the KV cache itself." }
+                ],
+                correctIndex: 0,
+                correctCalibration: "this generalizes to any 'scale by 10x' architecture question: the first move is to ask which resource the diagram shows growing with the new dimension of scale, not to assume the newest hardware generation fixes every bottleneck.",
+                explanation: "Continuous batching's core promise, shown in the diagram, is that GPU memory — not a scheduling queue — decides whether a new request can join a running batch. Longer average requests mean each concurrent user's KV cache occupies more of that shared memory pool for longer, so the pool fills up faster and the number of requests the system can run at once falls, even though the GPU's raw compute per token barely changes. A PM should invest in whatever shrinks or manages that footprint, because a faster chip changes compute time per token, not how many KV caches fit in memory at once.",
+                scaffold: "Look again at what continuous batching actually checks before admitting a new request into the batch in the diagram — is it checking free compute cycles, or something else?",
+                generalizes: "Any capacity-planning question where 'faster hardware' is proposed as the default fix — the same mistake appears when a team assumes a faster CPU will fix a database bottleneck that is actually caused by running out of connection-pool memory, not compute."
+              }}
+              state={mcqState}
+              onAnswer={submitMcq}
+            />
+            <p>
+              A related, complementary technique worth knowing, because it attacks a different failure mode
+              of the same batching system: chunked prefill. Before a model can generate its first output
+              token, it has to run a "prefill" pass over the entire input prompt — and a very long prompt
+              (a large document to summarize, for example) can take long enough that it blocks every other
+              request's decode step from running during that window, the same head-of-line problem
+              continuous batching was built to solve for whole requests, reappearing inside a single request.
+              Chunked prefill splits a long prompt's processing into smaller pieces and interleaves them with
+              other requests' ongoing decode steps, so one enormous prompt does not stall everyone else's
+              short replies (industry serving-engine documentation describes this as a standard complementary
+              technique alongside continuous batching and PagedAttention). It is a reminder that "continuous
+              batching" is not one single mechanism but a family of related scheduling decisions, each
+              solving a different way a batch can get stuck.
+            </p>
+            <TDQuestion
+              q={{
+                id: "td-rq1",
+                typeLabel: "T-D — Engineering estimation (Fermi, scaffolded)",
+                prompt: "Together AI's Turbo tier serves Llama-3.1-70B using FP8 weights (one byte per parameter). A 70-billion-parameter model's weights therefore take about 70 GB in FP8. A single NVIDIA H100 GPU has 80 GB of total memory. Estimate how many GB of that 80 GB remain for the KV cache once the FP8 weights are loaded, before any request even arrives. Tolerance: within 10%, since this is subtraction, not a genuine order-of-magnitude guess.",
+                skeleton: "GB remaining = total GPU memory − FP8 weight size",
+                placeholder: "e.g. 10",
+                unit: "GB",
+                target: 10,
+                targetLabel: "80 GB − 70 GB = 10 GB remaining",
+                scoring: "pct",
+                tolerancePct: 0.10,
+                anchors: "70B parameters x 1 byte/parameter in FP8 ≈ 70 GB (arithmetic, ESTIMATE); H100 = 80 GB total memory (public hardware specification, FACT).",
+                decomposition: "80 GB (H100 total memory) − 70 GB (FP8 weights) = 10 GB left over for the KV cache, activation memory, and any framework overhead combined.",
+                bounds: "Upper bound: exactly 10 GB, if FP8 weights were the only other consumer of memory. Lower bound: meaningfully less than 10 GB in practice, since real deployments reserve extra memory for CUDA context, activation buffers, and a safety margin — so 10 GB is an optimistic ceiling, not a guaranteed floor.",
+                whyHere: "10 GB sounds like a reasonable cushion until it is compared to a single long-context request: this section's own chart shows a 70B-class model needs roughly 39 GiB of KV cache for just one 128,000-token request in 16-bit precision. Ten GB is a quarter of that. This is the arithmetic reason Together AI, and every other provider serving 70B-class models at long context, must either shard a model across multiple GPUs, cap effective context length well below the model's advertised maximum, or compress the KV cache itself, not just the weights — a single H100 running one 70B model at FP8 cannot hold even one maximum-length conversation's cache alongside the weights.",
+                misjudgedFactor: "If you were off by more than 3x, check whether you added the two numbers instead of subtracting, or used a different bytes-per-parameter assumption than the FP8 (1 byte) figure stated in the question."
+              }}
+              state={mcqState}
+              onAnswer={submitMcq}
+            />
+            <PrincipleGate sectionId="rq1" authored="Continuous batching and paged, block-based KV cache allocation work because they treat GPU memory, not compute, as the resource being scheduled — a new request joins the batch the instant memory frees up, and the cache itself is allocated in reusable blocks instead of one large reservation per request, which is why serving capacity is a memory-management problem before it is a model-speed problem." state={principleState} onSubmit={submitPrinciple} />
+            <TFQuestion
+              q={{
+                id: "tf-rq1",
+                minLen: 50,
+                prompt: "The principle from this section: serving capacity is decided by how memory is scheduled, not by how fast the chip computes. Apply this to a company building a real-time AI voice-translation earpiece, where each active conversation must keep a rolling window of recent audio context in memory rather than a growing KV cache of text tokens. What would the engineering team choose to manage first, and what new failure mode would they face that does not appear in this section's text-serving example (which never has to discard old context to keep the memory footprint from growing without bound)?"
+              }}
+              state={mcqState}
+              onAnswer={submitMcq}
+            />
+            <p>
+              The evidence in this section supports treating memory scheduling, not raw compute, as the
+              primary constraint continuous batching and PagedAttention were built to manage — vLLM's own
+              launch numbers and the KV cache growth arithmetic both point the same direction. What this
+              section's evidence does not yet show is whether every technique that trades some speed for
+              memory savings is free, or whether some of those trades cost something in output quality — a
+              question the next section takes up through Together AI's own speculative-decoding research.
+            </p>
+            <Glossary items={[
+              { term: "Prefill", def: "The first pass a model runs over an entire input prompt before generating any output token, building the initial KV cache for everything the user already typed." },
+              { term: "Chunked prefill", def: "Splitting a long prompt's prefill pass into smaller pieces and interleaving them with other requests' decode steps, so one huge prompt does not block everyone else's replies." },
+              { term: "FP8 / BF16 / INT4", def: "Numeric formats for storing a model's weights: FP8 uses 8 bits (1 byte) per number, BF16 uses 16 bits (2 bytes), and INT4 uses 4 bits (half a byte) — fewer bits means less memory but more risk of losing precision." }
+            ]} />
+          </div>
+
+          {/* ============================ RQ2 ============================ */}
+          <div ref={(el) => (sectionRefs.current.rq2 = el)} id="rq2">
+            <SectionHeading id="rq2">RQ2 — Speculative Decoding: A Latency Trick That Turned Into a Throughput Trick</SectionHeading>
+            <p>
+              The claim to defend here: speculative decoding was built to cut one user's response latency,
+              but Together AI's own research shows it also raises throughput at large batch sizes and long
+              context — because in both cases, the real bottleneck is identical: the GPU sitting idle while
+              it waits to read a KV cache too large to move through memory quickly, and a cheap draft model's
+              guesses hide that wait instead of eliminating it. Speculative decoding works by having a small,
+              fast "draft" model guess several tokens ahead, then having the large "target" model check all
+              of those guesses in a single pass; whenever the draft guessed right, the system banks several
+              tokens for the compute cost of one verification step.
+            </p>
+            <p>
+              For years, the standard framing of speculative decoding treated it as a latency-only technique,
+              useful mainly for a single user waiting on a single response, and assumed it would help less
+              once many requests were batched together, because a big batch is already keeping the GPU's
+              compute busy. Together AI's own published research directly overturns half of that assumption:
+              at large batch sizes and long input sequences, decoding is memory-bound, not compute-bound — the
+              GPU is waiting on the KV cache, not running out of math to do — which means there is idle
+              compute capacity sitting around even in a large batch, and speculative decoding can use it
+              (Together AI, 2024). Together's own MagicDec approach keeps the draft model's own KV cache
+              capped at a fixed size using a StreamingLLM-style window, so the draft stays cheap to run no
+              matter how long the target sequence gets, and reported up to a 2x improvement in both
+              throughput and latency on 8 A100 GPUs (Together AI, 2024).
+            </p>
+            <ChartCard
+              chart={{
+                id: "magicdecchart",
+                tier: "fact",
+                title: "Speculative-Decoding Speedup by Model and GPU Configuration (Together AI / MagicDec, arXiv:2408.11049)",
+                height: 280,
+                note: "FACT: reported speedup multipliers over standard (non-speculative) decoding, from the MagicDec paper and Together AI's own blog covering the same research (Together AI Blog, 2024; Chen et al., arXiv:2408.11049, ICLR 2025).",
+                render: () => (
+                  <ResponsiveContainer>
+                    <BarChart data={magicDecData}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="config" tick={{ fontSize: 9.5 }} interval={0} />
+                      <YAxis label={{ value: "Speedup (x)", angle: -90, position: "insideLeft", fontSize: 10 }} />
+                      <Tooltip />
+                      <Bar dataKey="speedup" radius={4}>
+                        {magicDecData.map((d, i) => <Cell key={i} fill={["#B9AEEF", "#8A7AE0", "#6B5CD6"][i]} />)}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                ),
+                interp: [
+                  {
+                    kind: "Causal / comparative",
+                    prompt: "LLaMA-3.1-8B's reported speedup rises from 1.84x on 8 A100 GPUs to 2.51x on 8 H100 GPUs — but the H100 result also adds a longer 100,000-token context, a larger batch size of 64, and a different technique (SnapKV self-speculation) at the same time. A reader concludes 'moving to H100 GPUs causes speculative decoding to speed up more.' What is the strongest reason NOT to draw that conclusion from this comparison alone?",
+                    authored: "Three things changed at once between the two LLaMA-3.1-8B rows: the GPU generation, the context length, and the speculation method itself. Any one of the three, or some combination, could explain the higher multiplier — the comparison as given cannot isolate the GPU's contribution alone, the same way crediting a single variable in a two-variable (or here, three-variable) experiment is never justified without a controlled test that holds the other variables fixed."
+                  },
+                  {
+                    kind: "Quantitative reasoning",
+                    prompt: "LLaMA-2-7B-32K reaches a 2.0x speedup and LLaMA-3.1-8B reaches 1.84x, both on the same 8 A100 GPU setup. Compute the percentage-point gap between the two, and say whether a gap this size is more likely to reflect a meaningful difference between the two model architectures or normal variation across similar benchmark runs.",
+                    authored: "2.0 − 1.84 = 0.16, or a 16-percentage-point gap on this speedup-multiplier scale (about an 8% relative difference: 0.16 ÷ 2.0). A gap this small, on the same hardware, is more consistent with normal run-to-run variation and modest architectural differences (different parameter count, different context length capability) than with one model family being fundamentally more or less suited to speculative decoding — a much larger, systematic gap across multiple repeated runs would be needed before concluding the technique's benefit meaningfully depends on model family."
+                  }
+                ]
+              }}
+              interpState={interpState}
+              onInterpSubmit={submitInterp}
+            />
+            <p>
+              Evidence against a simple "speculative decoding always helps this much" reading already exists
+              inside the same chart: the reported multipliers range from 1.84x to 2.51x depending on model,
+              GPU generation, context length, and technique variant, and none of the three rows isolates a
+              single variable. What the evidence can support, more narrowly, is that the underlying mechanism
+              — hiding a memory-bound wait behind speculative compute — holds across every tested combination
+              in this specific research, even though the exact multiplier moves with the details. That
+              distinction matters for a PM evaluating a vendor's headline number: the mechanism generalizes
+              more confidently than the specific multiplier does.
+            </p>
+            <MCQ
+              q={{
+                id: "mcq-rq2-tb",
+                typeLabel: "T-B — Technical trend reasoning",
+                prompt: "The chart shows LLaMA-3.1-8B's reported speedup rising from 1.84x on 8 A100 GPUs to 2.51x on 8 H100 GPUs, but the H100 test also used a longer 100,000-token context, a batch size of 64, and an added SnapKV self-speculation technique. Which is the strongest reason NOT to conclude that moving to H100 GPUs alone caused the larger speedup?",
+                options: [
+                  { text: "H100 GPUs were not commercially available at the time Together's 8-A100 benchmark was originally run, so the two results come from different hardware eras and cannot be meaningfully compared at all.", wrongCalibration: "this applies a classical assumption that treats a published, side-by-side comparison as invalid — Together's own research explicitly reports and compares both results in the same body of work." },
+                  { text: "The H100 result changed three things at once — the GPU generation, the context length, and the speculation technique (added SnapKV) — so the higher multiplier cannot be attributed to the GPU alone.", wrongCalibration: "" },
+                  { text: "Speculative-decoding speedups are inherently random from one benchmark run to the next, so the higher 2.51x figure cannot be attributed with confidence to any specific hardware or technique change.", wrongCalibration: "this is base-rate neglect: it dismisses a specifically reported, repeated pattern across multiple configurations as pure noise, without evidence that noise is the explanation." },
+                  { text: "SnapKV and speculative decoding are competing techniques, so combining them should have produced a smaller speedup, not a larger one, meaning the 2.51x figure is likely a measurement error.", wrongCalibration: "this misattributes causation by inventing a competing-techniques relationship that the source material does not claim, then using that invented claim to declare the real reported figure an error." }
+                ],
+                correctIndex: 1,
+                correctCalibration: "this generalizes to any 'upgrade' comparison across benchmarks: crediting a single variable when three changed at once is the same mistake as crediting a new GPU for a speedup that also involved a longer test and a new algorithm.",
+                explanation: "Between the 8-A100 LLaMA-3.1-8B result (1.84x) and the 8-H100 result (2.51x), three things changed simultaneously: the GPU generation, the context length (unspecified versus 100,000 tokens), and the speculation method (plain speculative decoding versus SnapKV-based self-speculation). Any of the three, or some combination, could explain the higher multiplier — the comparison as given cannot isolate the GPU's contribution alone.",
+                scaffold: "List every variable that differs between the 8-A100 LLaMA-3.1-8B row and the 8-H100 LLaMA-3.1-8B row in the chart. How many separate things changed?",
+                generalizes: "Any 'benchmark A vs. benchmark B' comparison where more than one variable moved between the two rows — the same confound appears when a team compares database performance before a hardware upgrade and after a simultaneous software version bump."
+              }}
+              state={mcqState}
+              onAnswer={submitMcq}
+            />
+            <p>
+              A complementary approach worth knowing, because it solves the same problem through a different
+              mechanism: rather than pairing a large target model with a small, separately-trained draft
+              model the way Together's MagicDec research does, some serving engines instead attach extra
+              prediction heads directly onto the target model itself (approaches publicly known as EAGLE and
+              Medusa), so the same forward pass produces both the next token and a guess at several tokens
+              after it, with no separate draft model to load or keep in sync. This removes the need to manage
+              a second model's own memory footprint, but it ties the technique's benefit to how well those
+              extra heads, trained specifically for that one target model, keep predicting well as real
+              traffic changes underneath them — a coupling this article's What Broke section returns to
+              directly.
+            </p>
+            <TDQuestion
+              q={{
+                id: "td-rq2",
+                typeLabel: "T-D — Engineering estimation (open Fermi, no skeleton supplied)",
+                prompt: "Suppose a provider's 8-GPU node, without speculative decoding, can sustain 25,000 long-context requests per day (a stated assumption for this exercise). Together's own research reports up to a 2x throughput improvement on 8-GPU nodes from speculative decoding at this same large-batch, long-context workload (Together AI, 2024). If the provider must serve a fixed daily load of 400,000 such requests, estimate how many fewer 8-GPU nodes it would need once speculative decoding is enabled. State your own decomposition path before entering a number. Scoring is on log-distance, so being 2x too high and 2x too low both count as equally 'off.'",
+                skeleton: null,
+                placeholder: "e.g. 8",
+                unit: "fewer nodes",
+                target: 8,
+                targetLabel: "16 nodes needed without SD, 8 nodes needed with SD — a reduction of 8 nodes",
+                scoring: "log",
+                anchors: "25,000 requests/day per node without speculative decoding (stated assumption); 400,000 requests/day required (given); up to 2x throughput improvement from speculative decoding at this workload (Together AI, 2024, FACT).",
+                decomposition: "Without speculative decoding: 400,000 ÷ 25,000 = 16 nodes needed. With a 2x throughput improvement, each node now sustains 50,000 requests/day, so 400,000 ÷ 50,000 = 8 nodes needed. Reduction: 16 − 8 = 8 fewer nodes.",
+                bounds: "Lower bound: 0 fewer nodes, if the real-world speedup does not hold for this specific traffic shape (this article's own evidence shows the multiplier varies by model, GPU, and context length). Upper bound: 8 fewer nodes, the full arithmetic benefit if the reported 2x applies cleanly to this workload.",
+                whyHere: "8 fewer nodes is exactly half of the original 16, because a clean 2x throughput improvement always halves the node count needed for a fixed load — the interesting part is not the arithmetic itself but that this section's own evidence (the 1.84x-2.51x range) shows the real multiplier is workload-dependent, so a team should budget for something less than the full 8-node reduction until it measures its own traffic.",
+                misjudgedFactor: "If you were off by more than 3x in log-distance terms, check whether you divided by 2 instead of first finding nodes-without-SD and nodes-with-SD separately, or whether you subtracted in the wrong direction."
+              }}
+              state={mcqState}
+              onAnswer={submitMcq}
+            />
+            <MCQ
+              q={{
+                id: "mcq-rq2-tc",
+                typeLabel: "T-C — PM consulting case",
+                subForm: "Case Prompt",
+                prompt: "Vantage Legal, a legal-tech startup, serves an AI contract-review assistant that mostly handles short queries (under 500 tokens) at low, steady traffic. An engineer proposes enabling speculative decoding company-wide because 'Together AI's own research shows up to a 2x speedup.' Which assumption must hold for that recommendation to create value for Vantage Legal specifically, and what evidence in this article is thinnest in supporting it applying to Vantage's workload?",
+                options: [
+                  { text: "That Vantage has access to the exact same 8-GPU A100 configuration Together's own benchmark used, since the engineer's recommendation was built entirely around that one specific published hardware setup.", wrongCalibration: "this is scope creep misdiagnosis — the specific hardware model is not the load-bearing assumption; the shape of the workload is." },
+                  { text: "That legal contract review is similar enough to whatever use case Together originally tested that the same small draft model would keep matching the target model's real outputs without any retraining.", wrongCalibration: "this is an unrelated-premise substitution — draft-model choice is a real implementation detail, but it is not what this article's evidence speaks to as the thin spot here." },
+                  { text: "That Vantage's traffic includes large-batch, long-context requests the way Together's MagicDec benchmark did — thin, because Vantage's stated workload is short queries at low, steady volume, the opposite of the long-context, large-batch condition the 2x figure was measured under.", wrongCalibration: "" },
+                  { text: "That speculative decoding never changes a single generated token in any configuration or traffic condition, since Vantage's contract-review use case cannot tolerate even a small, occasional risk of accuracy drift.", wrongCalibration: "this restates a separate accuracy concern the article addresses elsewhere, rather than testing the workload-fit assumption this question targets." }
+                ],
+                correctIndex: 2,
+                correctCalibration: "this generalizes to any 'company X's published benchmark shows Y% improvement' recommendation: the load-bearing assumption is always that your own workload resembles the tested condition in the dimension that produced the result.",
+                explanation: "Together's own finding is specifically that speculative decoding helps most when decoding becomes memory-bound, which happens at large batch sizes and long context — not automatically for every workload. Vantage's short queries at low, steady traffic sit close to the opposite condition: with few concurrent requests and short outputs, the KV cache never grows large enough for memory-bound decoding to bite, so the 2x figure, measured under long-context, large-batch conditions, may not transfer. Before adopting speculative decoding, Vantage should benchmark its own actual query-length and concurrency profile rather than import a headline multiplier measured under a different load shape.",
+                scaffold: "Reread this section's own explanation of why speculative decoding helps at large batch and long context specifically. Does Vantage's described traffic match that condition, or its opposite?",
+                generalizes: "Any 'best practice' adopted from a vendor's own published benchmark and applied unmodified to a different workload — the same weak link appears when a team copies a caching strategy from a blog post without checking whether their own access pattern matches the one the blog post tested."
+              }}
+              state={mcqState}
+              onAnswer={submitMcq}
+            />
+            <MCQ
+              q={{
+                id: "th-rq2",
+                typeLabel: "T-H — Critical reasoning",
+                subForm: "Weaken",
+                prompt: "The argument: 'Because Together's MagicDec research shows speculative decoding improves throughput by up to 2x on 8 A100 GPUs for long-context, large-batch workloads, every inference provider should enable speculative decoding by default for all its serving traffic.' Which new piece of evidence, if true, would most weaken this conclusion?",
+                options: [
+                  { text: "A survey of engineers rating speculative decoding as conceptually elegant, noting it closely resembles the branch-prediction techniques already used inside modern CPU processor design.", wrongCalibration: "this is irrelevant to the performance claim being tested — an aesthetic or conceptual opinion does not bear on whether default-enabling the technique creates value." },
+                  { text: "Documentation confirming that speculative decoding always needs a second, smaller draft model loaded into GPU memory alongside the larger target model it assists.", wrongCalibration: "this is already addressed by evidence already in the article — this section's own prose already states that speculative decoding requires a draft model, so it is not new information that would change confidence in the conclusion." },
+                  { text: "A second, independently run benchmark confirming that speculative decoding again improves throughput on 8-GPU A100 clusters for the same long-context workloads.", wrongCalibration: "this is a restatement of the conclusion rather than a test of it — confirming the same result again does not address whether the technique should be a universal default across all traffic types." },
+                  { text: "A production log showing draft-model acceptance rates can quietly fall under sustained real traffic until generation becomes slower than running without speculative decoding at all.", wrongCalibration: "" }
+                ],
+                correctIndex: 3,
+                correctCalibration: "this generalizes to any 'benchmark shows X% improvement, so default it everywhere' argument: the strongest weakening evidence is always a documented case where the same technique underperformed or backfired under conditions the benchmark did not test.",
+                explanation: "The argument's leap is from 'this specific workload shape benefited' to 'every workload should get this by default.' A documented case where the technique's benefit can silently erode or reverse under sustained real traffic is genuinely new information — outside anything already stated in Together's benchmark — and it directly attacks the 'enable by default, everywhere' recommendation rather than the narrower, already-supported claim that speculative decoding can help under the right conditions.",
+                scaffold: "A 'weaken' answer needs to introduce a real risk the original benchmark never tested, not just repeat what the benchmark already showed. Which of the four options describes a scenario the MagicDec benchmark itself never measured?",
+                generalizes: "Any 'benchmark proves it's safe to enable everywhere' argument — the same weakening move applies to a caching layer that tested well in a load test but is later found to serve stale data under a traffic pattern the load test never modeled."
+              }}
+              state={mcqState}
+              onAnswer={submitMcq}
+            />
+            <PrincipleGate sectionId="rq2" authored="Speculative decoding was built to cut single-request latency, but Together's own research shows it also raises throughput at large batch and long context, because in both cases the real bottleneck is the same: the GPU sitting idle while it waits to read a KV cache too large to move through memory quickly, and letting a cheap draft model guess ahead hides that wait instead of eliminating it." state={principleState} onSubmit={submitPrinciple} />
+            <TFQuestion
+              q={{
+                id: "tf-rq2",
+                minLen: 50,
+                prompt: "The principle from this section: a technique built to hide one kind of wait (single-user latency) can also help with a structurally similar wait (large-batch throughput), because both share the same underlying memory-bound mechanism. Apply this to a company building a real-time fraud-scoring system that must re-check every transaction against a growing graph of recent transactions in memory. What analogous 'guess ahead, verify cheaply' technique might the team borrow, and what new failure mode would appear that has nothing to do with a draft language model's token predictions?"
+              }}
+              state={mcqState}
+              onAnswer={submitMcq}
+            />
+            <p>
+              The evidence in this section supports treating speculative decoding as a mechanism-level
+              solution to memory-bound decoding, applicable wherever that mechanism is present, rather than a
+              latency-only trick with a fixed, universal multiplier. What the evidence does not establish is
+              a single number a team can plan around: the reported speedups range from 1.84x to 2.51x across
+              only three tested configurations, and this article's own consulting case shows the technique's
+              benefit can vanish entirely for a workload shaped differently from the ones Together tested —
+              a gap the next section's cost analysis, and this article's own What Broke section, both return
+              to from different angles.
+            </p>
+            <Glossary items={[
+              { term: "Speculative decoding", def: "A technique where a small, fast draft model guesses several tokens ahead and a larger target model checks all the guesses in one pass, banking multiple tokens for the cost of one verification step whenever the guesses are right." },
+              { term: "Draft model / target model", def: "In speculative decoding, the draft model is the small model making fast guesses; the target model is the large model whose output actually matters, which verifies or rejects each guess." },
+              { term: "Acceptance rate / acceptance length", def: "How often, or how many tokens in a row, the target model accepts the draft model's guesses before it has to reject one and fall back to its own next token." }
+            ]} />
+          </div>
+
+          {/* ============================ RQ3 ============================ */}
+          <div ref={(el) => (sectionRefs.current.rq3 = el)} id="rq3">
+            <SectionHeading id="rq3">RQ3 — The Cost-Per-Token Curve: Turning Memory Tricks Into a Price Sheet</SectionHeading>
+            <p>
+              The claim to defend here: a provider's cost-per-token curve is not one number set by a model's
+              parameter count; it is a menu of quantization tiers, each trading a small, measured accuracy
+              change for a real price cut, and the "right" tier is a workload-specific decision, not a
+              default a whole company should inherit from one published benchmark. Together AI turns its
+              engineering work directly into product tiers: "Turbo" endpoints run FP8 (8-bit) quantization,
+              "Reference" endpoints run full BF16 precision, and "Lite" endpoints run INT4 (4-bit)
+              quantization — three points on the same speed-versus-accuracy curve, priced differently
+              (Together AI, 2024).
+            </p>
+            <p>
+              The quality side of that tradeoff is not marketing language; Together AI published specific,
+              measured deltas. Its FP8 quantization approach applies to most of a model's matrix
+              multiplications — specifically, roughly half of total inference compute inside the feedforward
+              network layers — while deliberately leaving the self-attention layers unquantized, and it uses
+              dynamic scaling factors tuned per layer to limit precision loss (Together AI, 2024). Measured
+              against Meta's own full-precision reference implementation, downstream task accuracy came out
+              0.1 percentage points higher on average for Llama-3.1-70B, 0.3 percentage points lower for
+              Llama-3.1-8B, and effectively unchanged for Llama-3.1-405B (Together AI, 2024).
+            </p>
+            <ChartCard
+              chart={{
+                id: "fp8chart",
+                tier: "fact",
+                title: "FP8 (Turbo) Accuracy Delta vs. Full-Precision Reference, by Model Size (Together AI, 2024)",
+                height: 240,
+                note: "FACT: average downstream-task accuracy change, Together AI's FP8 Turbo tier vs. Meta's own full-precision reference implementation, as reported directly by Together AI.",
+                render: () => (
+                  <ResponsiveContainer>
+                    <BarChart data={fp8QualityData}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="model" tick={{ fontSize: 11 }} />
+                      <YAxis label={{ value: "Accuracy delta (pp)", angle: -90, position: "insideLeft", fontSize: 10 }} domain={[-0.5, 0.5]} />
+                      <Tooltip />
+                      <Bar dataKey="deltaPct" radius={4}>
+                        {fp8QualityData.map((d, i) => <Cell key={i} fill={d.deltaPct < 0 ? "#D97706" : "#6B5CD6"} />)}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                ),
+                interp: [
+                  {
+                    kind: "Quantitative reasoning",
+                    prompt: "Llama-3.1-8B lost 0.3 percentage points of accuracy under FP8, while Llama-3.1-70B actually gained 0.1 percentage points. Compute the absolute size of the gap between these two deltas, and explain why a gain on the larger model does not mean FP8 quantization 'improves' models in general.",
+                    authored: "The gap is 0.1 − (−0.3) = 0.4 percentage points. A small positive delta on one model size almost certainly reflects noise in the specific downstream benchmark suite (quantization changes numerical rounding in ways that can occasionally nudge a score up or down by chance) rather than FP8 systematically improving reasoning — treating a 0.1 percentage-point gain as proof of a real quality improvement would be over-reading noise as signal, especially given the near-zero net effect on the largest (405B) model."
+                  },
+                  {
+                    kind: "So-what / segmentation",
+                    prompt: "Given that the three tested model sizes show three different accuracy deltas (-0.3, +0.1, ~0.0 percentage points), how should a PM segment which of their own product's AI features are safe to run on the FP8 Turbo tier by default versus which should stay on the more expensive Reference tier?",
+                    authored: "Segment by how sensitive a given feature is to small accuracy shifts, not by model size alone: a feature where a fraction of a percentage point of accuracy change could plausibly flip a user-visible answer (a medical or financial calculation, for example) should default to Reference regardless of which model size is used, while a feature tolerant of small variance (casual conversation, brainstorming) can default to Turbo — because the measured deltas here are all small in absolute terms, but 'small' is only safe when the feature's own error tolerance is not also small."
+                  }
+                ]
+              }}
+              interpState={interpState}
+              onInterpSubmit={submitInterp}
+            />
+            <p>
+              That quality curve turns directly into Together AI's own published price sheet. Llama-3.1-8B
+              costs $0.10 per million tokens on the INT4 "Lite" tier or $0.18 per million tokens on the FP8
+              "Turbo" tier; Llama-3.1-70B costs $0.88 per million tokens on Turbo; and Llama-3.1-405B costs
+              $3.50 per million tokens (Together AI pricing, 2026). Two things are worth noticing in that
+              curve together: price does not rise in exact proportion to parameter count (405B has roughly 50
+              times as many parameters as 8B but costs about 35 times as much per token, using 8B's Turbo
+              price as the comparison point), and the cheapest price point available for the smallest model
+              uses a more aggressive compression tier than the price points shown for the larger models.
+            </p>
+            <ChartCard
+              chart={{
+                id: "pricingchart",
+                tier: "fact",
+                title: "Together AI: Price per Million Tokens, by Model Size and Quantization Tier (Together AI pricing, 2026)",
+                height: 260,
+                note: "FACT: published per-token prices, Together AI model pricing pages, 2026. Together AI reviews and can change these prices; treat as a snapshot, not a permanent rate.",
+                render: () => (
+                  <ResponsiveContainer>
+                    <BarChart data={pricingTierData}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="name" tick={{ fontSize: 9.5 }} interval={0} />
+                      <YAxis label={{ value: "$ per million tokens", angle: -90, position: "insideLeft", fontSize: 10 }} />
+                      <Tooltip />
+                      <Bar dataKey="price" radius={4}>
+                        {pricingTierData.map((d, i) => <Cell key={i} fill={["#B9AEEF", "#8A7AE0", "#6B5CD6", "#4B3F91"][i]} />)}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                ),
+                interp: [
+                  {
+                    kind: "So-what / threshold-decision-rule",
+                    prompt: "Llama-3.1-8B costs $0.08 more per million tokens on Turbo (FP8) than on Lite (INT4) — an 80% price premium for the higher-precision tier at this size. At what estimated monthly token volume would that $0.08-per-million-token gap become large enough (say, over $1,000 a month) that a PM should invest engineering time in testing whether Lite's accuracy is good enough for their feature, rather than defaulting to Turbo?",
+                    authored: "$1,000 ÷ $0.08 per million tokens = 12,500 million tokens, or 12.5 billion tokens a month. Below that volume, the absolute dollar gap is small enough that defaulting to the safer, higher-precision Turbo tier is a reasonable default; above it, the accumulating cost difference justifies dedicating engineering time to benchmark whether Lite's accuracy holds up for the specific feature in question."
+                  },
+                  {
+                    kind: "Qualitative / mechanism",
+                    prompt: "Why does the price gap between Llama-3.1-8B's two tiers ($0.08) look small in absolute terms compared to the price gap between Llama-3.1-70B and Llama-3.1-405B (both shown only at their higher tiers, a $2.62 gap), even though both pairs represent a real compute-cost difference?",
+                    authored: "Absolute dollar gaps mix two different things together: how much compute the underlying model requires (which grows with parameter count, driving the 70B-to-405B gap) and how much a given quantization tier saves at a fixed model size (which drives the 8B Lite-to-Turbo gap). A small absolute gap at 8B does not mean quantization tier matters less than model size in general — at 70B or 405B scale, the same percentage savings from choosing a cheaper tier would represent a much larger absolute dollar figure, which is exactly why the tier decision matters more, not less, as a company's largest-model usage grows."
+                  }
+                ]
+              }}
+              interpState={interpState}
+              onInterpSubmit={submitInterp}
+            />
+            <p>
+              A complementary cost lever worth knowing, because it operates on a completely different axis
+              than quantization tier: caching the input tokens themselves. Peer platform Fireworks AI prices
+              at least one shared model's cached input tokens far below fresh ones — for example, listing
+              Kimi K2.6 at $0.95 per million fresh input tokens but only $0.16 per million for input tokens
+              already seen and cached from a prior request (Fireworks AI pricing, via Morph LLM comparison,
+              2026). Where quantization tier trades accuracy for a cheaper price on every token, prompt
+              caching trades nothing in accuracy at all — it exploits the fact that many real conversations
+              repeat a long, unchanged prefix (a system prompt or reused document) across requests, so the
+              KV cache for that shared prefix can be computed once and reused rather than recomputed and
+              rebilled every time.
+            </p>
+            <MCQ
+              q={{
+                id: "mcq-rq3-tb",
+                typeLabel: "T-B — Technical trend reasoning",
+                prompt: "Together AI's own per-token price rises from $0.10 (Llama 3.1 8B, Lite/INT4) to $3.50 (Llama 3.1 405B) — a 35x price gap across a model-size range of roughly 50x in parameter count. What does the price not rising in exact proportion to parameter count most likely indicate about how Together prices its quantization tiers?",
+                options: [
+                  { text: "Since 405B costs only about 35 times more than 8B despite having roughly 50 times more parameters, larger models must therefore be measurably cheaper to run per parameter than smaller ones in absolute dollar terms.", wrongCalibration: "this confuses a rate with a level — a smaller price-to-parameter ratio does not mean lower absolute cost; 405B's absolute per-token price is still far higher than 8B's." },
+                  { text: "The price gap must be driven entirely by fluctuating GPU market demand specifically for the 405B model, since no plausible engineering or quantization-related reason could ever produce a non-proportional scaling relationship like this one.", wrongCalibration: "this is a single-cause fallacy that invents a demand-driven mechanism not supported by evidence in this article, while ignoring the tiering explanation the article's own evidence directly supports." },
+                  { text: "Together prices each model at a different quantization tier: 8B's cheapest option uses 4-bit weights, while the larger sizes shown here do not offer that option — so part of the gap reflects a tier choice, not parameter count alone.", wrongCalibration: "" },
+                  { text: "Because Together applies the exact same FP8 quantization precision to every model size shown in this chart, the residual price gap must come from a fixed per-request platform fee added only to the larger models.", wrongCalibration: "this is a factual misattribution that contradicts evidence already in this article: the $0.10 price point is explicitly the INT4 Lite tier, not the same FP8 precision used for the other three prices." }
+                ],
+                correctIndex: 2,
+                correctCalibration: "this generalizes to any cross-product pricing comparison: a price curve that does not track a single input linearly usually means more than one lever (here, quantization tier) is baked into the number.",
+                explanation: "The four prices compared here are not all the same quantization tier: the $0.10 figure is Llama 3.1 8B's INT4 'Lite' tier, while 70B and 405B are shown at their FP8 'Turbo' or full-precision tiers. Because a lower-precision tier is cheaper to run per token by design, part of the reason 8B's price is so much lower than a naive per-parameter scaling would predict is that its cheapest available tier uses more aggressive compression than what is shown for the larger models in this comparison — the price curve mixes a model-size effect and a quantization-tier effect together.",
+                scaffold: "Check which quantization tier each of the four prices in the chart actually reflects — are they all the same precision, or does one of them use a cheaper compression setting than the others?",
+                generalizes: "Any per-unit price comparison across a product line where the cheapest SKU also happens to use a lower-cost configuration — the same mixing of effects appears when comparing cloud storage tiers priced per gigabyte, where the cheapest tier is also the slowest, and the price difference is not purely about storage volume."
+              }}
+              state={mcqState}
+              onAnswer={submitMcq}
+            />
+            <MCQ
+              q={{
+                id: "mcq-rq3-tc",
+                typeLabel: "T-C — PM consulting case",
+                subForm: "Case Prompt",
+                prompt: "Quantum Ledger, a fintech startup, is choosing a serving vendor for a customer-facing chat feature and picks Together AI's Turbo (FP8) tier company-wide because 'FP8 is basically free accuracy — Together's own numbers show it's within a few tenths of a percent of full precision.' Which assumption must hold for this recommendation to create value, and what evidence in this article is thinnest in supporting it?",
+                options: [
+                  { text: "That Together AI charges the exact same price for its Turbo tier no matter which model size is served, a claim this article's own pricing chart already shows is clearly false, since prices rise sharply across the sizes shown.", wrongCalibration: "this is a factual misattribution — it contradicts the article's own pricing evidence, which is why it can be eliminated quickly rather than being the genuinely thin assumption." },
+                  { text: "That Quantum Ledger's specific model and task resemble the Llama 3.1 family and general benchmarks Together tested — thin, because the reported deltas were measured on three model sizes on general tasks, not on Quantum Ledger's own fine-tuned financial-compliance model.", wrongCalibration: "" },
+                  { text: "That FP8 hardware support is universally available on every GPU generation Quantum Ledger might realistically use in production, which this article simply treats as a settled, uncontested, universal fact never actually in question.", wrongCalibration: "this is an unrelated-premise substitution — hardware support was never the article's central point of uncertainty; the workload-similarity assumption is." },
+                  { text: "That speculative decoding must always be enabled alongside FP8 quantization for these particular accuracy numbers to hold true in production, a linkage this article never actually claims anywhere in its evidence.", wrongCalibration: "this is an unrelated-premise substitution that conflates two independent techniques the article treats separately." }
+                ],
+                correctIndex: 1,
+                correctCalibration: "this generalizes to any 'the vendor's own benchmark proves it's safe for us' decision: the load-bearing assumption is always that the tested workload resembles your own in the dimension the benchmark measured, and a fine-tuned or specialized model is exactly the kind of workload most likely to diverge from a general benchmark.",
+                explanation: "Together's own reported deltas are real, verified numbers, but they were measured on three specific model sizes within one model family, on general downstream benchmarks. Quantum Ledger's chat feature likely runs a fine-tuned or specialized model tuned to financial-compliance language — a workload Together's published comparison never tested. The safer path is to run Quantum Ledger's own evaluation set through both FP8 and full-precision versions of its actual production model before trusting an industry-wide 'FP8 is basically free' framing.",
+                scaffold: "Reread what Together's own accuracy numbers actually measured — which models, and on what kind of benchmark. Does Quantum Ledger's own model and task match that description?",
+                generalizes: "Any decision that imports a vendor's own general-purpose benchmark result and applies it unmodified to a specialized, fine-tuned production model — the same gap appears whenever a team assumes an industry-wide latency or accuracy number applies to its own, differently-shaped workload."
+              }}
+              state={mcqState}
+              onAnswer={submitMcq}
+            />
+            <TGQuestion
+              q={{
+                id: "tg-rq3",
+                prompt: "True or False: Because Together AI's FP8 Turbo tier showed a +0.1 percentage point accuracy change on Llama-3.1-70B and a near-zero change on Llama-3.1-405B, FP8 quantization can be assumed safe and effectively lossless for any model at any size.",
+                correctAnswer: false,
+                reasoningError: "over-generalizing a necessary condition into a sufficient one — near-lossless results on these three specific, tested configurations do not establish universal safety, and Together's own numbers already show a real, if small, accuracy loss on Llama-3.1-8B (-0.3 percentage points), so even within the tested family the result is not uniformly zero-loss.",
+                authoredJustification: "False — Together's own numbers show a real, if small, accuracy loss on Llama-3.1-8B (-0.3 percentage points), not a uniform zero-loss result, and all three data points come from one model family at three specific sizes on general benchmarks; extending 'near-lossless here' into 'safe for any model at any size' oversteps what three tested configurations can support."
+              }}
+              state={mcqState}
+              onAnswer={submitMcq}
+            />
+            <PrincipleGate sectionId="rq3" authored="A provider's cost-per-token curve is not a single number set by the model; it is a menu of quantization tiers, each trading a small, measured accuracy change for a real price cut, and the 'right' tier is a workload-specific decision, not a default a whole company should inherit from one published benchmark." state={principleState} onSubmit={submitPrinciple} />
+            <TFQuestion
+              q={{
+                id: "tf-rq3",
+                minLen: 50,
+                prompt: "The principle from this section: a per-token price is really a bundle of a model-size cost and a quantization-tier cost, and the right tier depends on how much accuracy variance a specific feature can tolerate. Apply this to a company pricing a real-time video-captioning feature, where the 'model' cost driver is video-frame processing rather than text tokens. What would a PM need to test before defaulting to the cheapest available processing tier, and what new failure mode might appear that has nothing to do with a percentage-point accuracy delta on a text benchmark?"
+              }}
+              state={mcqState}
+              onAnswer={submitMcq}
+            />
+            <p>
+              The evidence in this section supports treating a provider's price sheet as a direct, readable
+              expression of its underlying engineering tradeoffs — Together's own tier structure and reported
+              accuracy deltas make that unusually visible compared to a typical vendor's marketing page. What
+              the evidence does not establish is what the "right" tier is for any specific company's specific
+              feature; every reported delta here is a general-benchmark average, not a guarantee that holds
+              for a specialized, fine-tuned, or unusually accuracy-sensitive workload — a gap this article's
+              What Broke section widens further, from the angle of a technique whose benefit can erode after
+              launch rather than at launch.
+            </p>
+            <Glossary items={[
+              { term: "Cost-per-token", def: "The price a provider charges per unit of text processed or generated, typically quoted per million tokens, and usually different for input tokens versus output tokens." },
+              { term: "Prompt / prefix caching", def: "Reusing the already-computed KV cache for a prompt's unchanged opening portion (a system prompt or repeated document) across multiple requests, instead of recomputing it every time." }
+            ]} />
+          </div>
+
+          {/* ============================ WHAT BROKE ============================ */}
+          <div ref={(el) => (sectionRefs.current.brokewhat = el)} id="brokewhat">
+            <div style={{ background: "#FEF2F2", border: "1px solid #FCA5A5", borderRadius: 14, padding: 24, marginTop: 40 }}>
+              <SectionHeading id="brokewhat">What Broke</SectionHeading>
+              <p>
+                Speculative decoding's benefit is not a fixed, load-once setting — and the clearest public
+                evidence for that is a still-open reliability problem in vLLM, the same open-source serving
+                engine this article has used throughout as the industry baseline. Two separate, publicly
+                filed bug reports describe a production configuration that worked well when first turned on,
+                then quietly got worse. In the first, filed in December 2024, an engineer running
+                Llama-3.3-70B-Instruct as the target model with a smaller Llama-3.2-3B-Instruct draft model
+                reported that the draft acceptance rate stayed healthy at first, then began falling after
+                roughly 15 minutes of live production traffic, kept falling for about 30 more minutes, and
+                leveled out between 0.2 and 0.4 — a point at which generation speed was actually lower than
+                running with speculative decoding turned off entirely (vLLM GitHub Issue #11188, 2024). In a
+                second, later report, engineers running Eagle- and Eagle3-based speculative decoding (a method
+                that adds extra prediction heads directly onto the target model, described in this article's
+                RQ2 section) on two different vLLM releases found that the accepted-tokens-per-step metric
+                "smoothly and monotonically regresses" under sustained real traffic, never recovers on its
+                own, and resets to its original healthy value only after a full service restart — with the
+                degradation concentrated specifically on the highest-volume prompt types (vLLM GitHub Issue
+                #41838).
+              </p>
+              <p>
+                The assumption that failed is one most engineering teams never think to name, because it is
+                true almost everywhere else in ordinary software: that a feature validated once, and turned
+                on, keeps performing the way it did during validation, the same way a compiled program's
+                speed does not degrade on its own while it keeps running. That assumption does not hold for
+                speculative decoding, because the number that determines its entire benefit — how often, and
+                how many tokens in a row, the small draft model correctly predicts what the large target model
+                would have generated — is not a property of the code. It is a live statistical measure of how
+                well two models currently agree on real, changing traffic. Nothing about the underlying
+                program needs to change for that agreement rate to drift as the mix of prompt types shifts
+                under sustained volume; that is exactly why a restart, not a code fix, is the only reported
+                way back to the original number.
+              </p>
+              <ChartCard
+                chart={{
+                  id: "brokechart",
+                  tier: "fact",
+                  title: "Acceptance Length Before vs. After Degradation, Three Tested Configurations (vLLM GitHub Issue #41838)",
+                  height: 260,
+                  note: "FACT: initial and degraded acceptance-length values (average accepted draft tokens per verification step) as reported across three separate tested configurations in the same issue thread, vLLM versions 0.17.1 and 0.19.1, Eagle/Eagle3 speculative decoding. The source issue does not name which specific model pairing produced each row, so configurations are labeled generically (A, B, C) here rather than attributed to models not confirmed in the source.",
+                  render: () => (
+                    <ResponsiveContainer>
+                      <BarChart data={acceptanceDegradationData}>
+                        <CartesianGrid strokeDasharray="3 3" />
+                        <XAxis dataKey="config" tick={{ fontSize: 11 }} />
+                        <YAxis label={{ value: "Acceptance length (tokens/step)", angle: -90, position: "insideLeft", fontSize: 9.5 }} />
+                        <Tooltip />
+                        <Legend />
+                        <Bar dataKey="initial" name="Initial (validated)" fill="#6B5CD6" radius={4} />
+                        <Bar dataKey="degraded" name="Degraded (under sustained traffic)" fill="#DC2626" radius={4} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  ),
+                  interp: [
+                    {
+                      kind: "So-what / kill-criteria",
+                      prompt: "Given that acceptance length degraded silently in all three configurations — no crash, no error, just a slow decline that only a full restart resets — what single monitoring signal would you add to a production speculative-decoding deployment as a kill-criterion, since neither uptime nor a generic latency dashboard would catch this?",
+                      authored: "A dedicated, continuously tracked acceptance-length (or acceptance-rate) metric, sampled per prompt type and alerted against its own launch-day baseline — for example, firing when acceptance length drops more than 15-20% below its initial value for a sustained window — because this is the only signal that directly tracks the draft model's live match rate with the target model, which is exactly the thing degrading here while every other health signal stays green."
+                    },
+                    {
+                      kind: "Quantitative reasoning",
+                      prompt: "Configs A and B both fell from an acceptance length of about 3.07 to about 2.8, while Config C fell from about 4.5 to about 2.8 — the same ending point from three different starting points. Compute the percentage decline for each configuration, and say which one lost the largest share of its original throughput advantage.",
+                      authored: "Configs A and B: (3.07 − 2.8) ÷ 3.07 ≈ 8.8% decline each. Config C: (4.5 − 2.8) ÷ 4.5 ≈ 37.8% decline. Config C lost by far the largest share of its original advantage — it started with the longest accepted sequence per verification step, meaning it had the most speculative-decoding benefit to lose, and the degradation erased more than a third of it, while Configs A and B, which started closer to the shared floor of about 2.8, had much less room left to fall."
+                    }
+                  ]
+                }}
+                interpState={interpState}
+                onInterpSubmit={submitInterp}
+              />
+              <p>
+                Neither public issue reports a fully itemized mitigation cost, so what follows should be read
+                as an ESTIMATE rather than a stated figure: at minimum, the affected teams had to build their
+                own acceptance-length dashboards and alerting from scratch, since this metric is not part of
+                the health signals most serving stacks already track, and put in place some form of
+                scheduled or threshold-triggered restart as a workaround, engineering effort that a team which
+                assumed "we turned speculative decoding on, we are done" would never have budgeted for. The
+                harder cost to put a number on is the one that matters most for a paying customer of an
+                inference platform: the second issue reports the regression persisting across two different
+                vLLM releases (0.17.1 and 0.19.1), meaning upgrading the software was not a fix — any customer
+                billed on a "speedup included" basis had no way to know, from the outside, that the speedup
+                they were promised had quietly fallen by up to 38%.
+              </p>
+              <p>
+                The lesson generalizes past this one open-source project's bug reports. Any serving
+                optimization whose benefit depends on an ongoing statistical match between two models on real
+                traffic — a draft model's agreement with a target model, a quantized model's accuracy delta
+                on a specific customer's specialized workload, a cache's hit rate against a shifting query mix
+                — is not a one-time configuration decision. It is a bet that needs its own continuously
+                monitored metric, separate from every other health signal a team already tracks, precisely
+                because the failure mode described here is invisible to uptime, error-rate, and even a naive
+                latency dashboard until someone happens to compare today's throughput against a stale
+                baseline and finds the "optimization" has quietly become a tax.
+              </p>
+              <MCQ
+                q={{
+                  id: "mcq-broke",
+                  typeLabel: "Failure-case question",
+                  prompt: "Given the vLLM speculative-decoding acceptance-length regression, which assumption in the original design was most likely held by the team and considered uncontroversial — and why was it wrong?",
+                  options: [
+                    { text: "That the draft model was simply too small and too different from the target model to ever match its outputs well, meaning speculative decoding should never have been enabled for this pairing in the first place.", wrongCalibration: "this is hindsight bias — it frames the initial rollout as a mistake, when the configuration actually started with a healthy, validated acceptance rate; the failure appeared later, under sustained traffic, not at launch." },
+                    { text: "That upgrading the vLLM serving engine to whatever the next released version happened to be would automatically fix this specific regression, since ordinary software bugs are normally resolved in the following release cycle.", wrongCalibration: "this is a single-cause fallacy — it treats 'upgrade the software' as sufficient without engaging with the article's own evidence that the regression persisted across two separate vLLM versions." },
+                    { text: "That once a speculative-decoding configuration is validated and turned on, its performance stays a fixed property of the setup, the same way a compiled program's speed does not silently degrade on its own — a fair assumption for ordinary software, but wrong here.", wrongCalibration: "" },
+                    { text: "That vLLM's speculative decoding implementation contains one specific, identifiable memory leak in its verification step, and that this single confirmed leak directly and fully causes the acceptance-length numbers to fall over time.", wrongCalibration: "this is scope creep misdiagnosis — the public issue reports a correlation with traffic volume and a full recovery only via restart, not a confirmed memory-leak root cause; naming an unconfirmed specific bug mechanism overstates what the evidence shows." }
+                  ],
+                  correctIndex: 2,
+                  correctCalibration: "this generalizes to any optimization whose benefit depends on live agreement between two models or between a system and its input distribution — the same wrong assumption (validated once, therefore fixed forever) appears in recommendation-system relevance scores and fraud-model precision, both of which can drift the same way under real traffic without any code changing.",
+                  explanation: "The team's speculative-decoding setup passed validation with a healthy acceptance length, and it is entirely reasonable to treat a validated configuration as stable — that is how ordinary compiled software behaves. But acceptance length measures how often a small draft model's guesses match a much larger target model's real output on live traffic, and that match rate is a property of the traffic distribution, not just the two models. As traffic volume concentrated on certain prompt types, the live match rate drifted, and nothing about the code needed to change for the number to fall — which is exactly why a full restart, not a code fix, was the only reported way back to the original value.",
+                  scaffold: "What does 'acceptance length' actually measure — a property of the code, or a property of how well two models currently agree on real, changing traffic? Which of those two things can drift without a single line of code changing?",
+                  generalizes: "Any system whose value depends on ongoing agreement between two models or between a system and its input distribution — fraud-detection precision degrading as fraud patterns shift, or a recommendation model's click-through rate drifting as user behavior changes, both fail the same 'validated once means stable forever' assumption."
+                }}
+                state={mcqState}
+                onAnswer={submitMcq}
+              />
+              <Glossary items={[
+                { term: "Regression (in this context)", def: "A gradual decline in a system's measured performance over time, without any change to the underlying code — here, the draft model's acceptance length falling under sustained real traffic." }
+              ]} />
+            </div>
+          </div>
+
+          {/* ============================ LEARNING SUMMARY ============================ */}
+          <div ref={(el) => (sectionRefs.current.summary = el)} id="summary">
+            <SectionHeading id="summary">Learning Summary</SectionHeading>
+            <LearningSummaryBody
+              mcqState={mcqState}
+              warmupSkipped={warmupSkipped}
+              principleState={principleState}
+              insightSlot={insightSlot}
+              setInsightSlot={setInsightSlot}
+              applyIt={applyIt}
+              setApplyIt={setApplyIt}
+            />
+          </div>
+
+          {/* ============================ CONCLUSION ============================ */}
+          <div ref={(el) => (sectionRefs.current.conclusion = el)} id="conclusion">
+            <SectionHeading id="conclusion">Conclusion</SectionHeading>
+            <p>
+              The governing principle, now stress-tested against both the evidence and the failure case:
+              memory — specifically, the KV cache's footprint — not compute, is usually the resource that
+              runs out first in LLM serving, and Together AI's own architecture of continuous batching,
+              tiered quantization, and speculative decoding is built entirely around buying back or hiding
+              that constraint. The vLLM acceptance-length regression shows what partial failure of this
+              principle looks like: even a technique correctly designed around the memory-bound reality can
+              quietly stop delivering its promised benefit once real traffic behaves differently than the
+              traffic it was validated on, and nothing about "the code" has to break for that to happen.
+            </p>
+            <p>
+              For an AI product manager, this changes what "we enabled a serving optimization" should mean
+              operationally. It is not a one-time engineering decision but a metric that needs its own
+              dashboard, alerting, and periodic reevaluation, the same way a fraud model's precision or a
+              recommendation model's click-through rate needs ongoing monitoring — because a technique's
+              benefit can decay in production for reasons that have nothing to do with a bug in the
+              traditional sense.
+            </p>
+            <p>
+              For a future CTO, the platform implication is that any serving optimization whose benefit
+              depends on matching production traffic — speculative decoding's acceptance rate, a cache's hit
+              rate, a quantization tier's accuracy delta — needs to be exposed as a first-class, company-wide
+              observability signal, not buried inside one team's internal tuning notes. Together AI's own
+              tiered pricing model shows why this matters commercially, not just technically: these
+              engineering choices become the literal product a customer buys and is billed by, so a silent
+              regression in any of them is a silent change to what customers are actually paying for.
+            </p>
+            <p>
+              The most important question this article cannot answer: none of the sources used here report
+              what a sustained acceptance-length regression, or a switch from a Reference to a Turbo pricing
+              tier, actually does to a real customer-facing product metric — a chatbot's resolution rate, a
+              coding assistant's accepted-suggestion rate — as opposed to a throughput or cost number measured
+              on a synthetic benchmark. That link, from a serving-engine metric to a genuine product outcome,
+              is exactly the gap the next article type in this curriculum, AI Product Sense, exists to close,
+              and it remains open here.
+            </p>
+
+            <TEQuestion />
+
+            <p style={{ fontSize: 13, fontWeight: 700, color: "#6B5CD6", textTransform: "uppercase", marginTop: 28, marginBottom: -6 }}>
+              Final question — pattern transfer to a domain not covered in this article
+            </p>
+            <TFQuestion
+              q={{
+                id: "tf-final",
+                minLen: 50,
+                prompt: "Apply this article's governing principle (that GPU memory, not compute, decides serving capacity) to a company building a real-time AI video-dubbing product that must re-render lip movements for a live broadcast within 200 milliseconds per frame. What would the team choose between batching more video streams together versus investing in raw compute speed, and what new failure mode might appear that has nothing to do with a KV cache, since video-diffusion models do not keep one in the same sense a language model does?"
+              }}
+              state={mcqState}
+              onAnswer={submitMcq}
+            />
+          </div>
+
+          <div style={{ marginTop: 60, paddingTop: 20, borderTop: "1px solid #eee", fontSize: 13, color: "#777" }}>
+            <p><strong>Sources</strong></p>
+            <ul style={{ paddingLeft: 18 }}>
+              <li>Kwon, W., et al. "vLLM: Easy, Fast, and Cheap LLM Serving with PagedAttention." vLLM Blog, June 20, 2023. <a href="https://vllm.ai/blog/2023-06-20-vllm" target="_blank" rel="noopener">vllm.ai/blog/2023-06-20-vllm</a> — FACT tier, primary source for PagedAttention's launch throughput figures vs. Hugging Face Transformers and TGI.</li>
+              <li>Together AI. "Announcing Together Inference Engine 2.0 with new Turbo and Lite endpoints." Together AI Blog, 2024. <a href="https://www.together.ai/blog/together-inference-engine-2" target="_blank" rel="noopener">together.ai/blog/together-inference-engine-2</a> — FACT tier, primary source for Turbo/Reference speedup vs. vLLM 0.5.1 and the Turbo/Reference/Lite quantization-tier naming and technical approach.</li>
+              <li>Together AI. "Llama 3.1: Same model, different results. The impact of a percentage point." Together AI Blog, 2024. <a href="https://www.together.ai/blog/llama-31-quality" target="_blank" rel="noopener">together.ai/blog/llama-31-quality</a> — FACT tier, primary source for FP8 quality-preservation deltas by model size.</li>
+              <li>Together AI. "Speculative decoding for high-throughput long-context inference." Together AI Blog, 2024. <a href="https://www.together.ai/blog/speculative-decoding-for-high-throughput-long-context-inference" target="_blank" rel="noopener">together.ai/blog/speculative-decoding-for-high-throughput-long-context-inference</a> — FACT tier, primary source for the memory-bound-decoding finding and the MagicDec approach.</li>
+              <li>Chen, R., et al. "MagicDec: Breaking the Latency-Throughput Tradeoff for Long Context Generation with Speculative Decoding." arXiv:2408.11049 (ICLR 2025). <a href="https://arxiv.org/abs/2408.11049" target="_blank" rel="noopener">arxiv.org/abs/2408.11049</a> — FACT tier, primary source for per-GPU, per-model speedup figures.</li>
+              <li>"[Bug]: Speculative decoding draft acceptance rate decreasing over time." vLLM GitHub Issue #11188, filed December 14, 2024. <a href="https://github.com/vllm-project/vllm/issues/11188" target="_blank" rel="noopener">github.com/vllm-project/vllm/issues/11188</a> — FACT tier, production-reported evidence used in What Broke.</li>
+              <li>"[Bug]: Eagle 2/3 acceptance length regression over time." vLLM GitHub Issue #41838. <a href="https://github.com/vllm-project/vllm/issues/41838" target="_blank" rel="noopener">github.com/vllm-project/vllm/issues/41838</a> — FACT tier, primary source for the acceptance-length degradation numbers used in What Broke.</li>
+              <li>Raschka, S. "KV Cache / Token (bf16)." LLM Architecture Gallery. <a href="https://sebastianraschka.com/llm-architecture-gallery/kv-cache-calculations/" target="_blank" rel="noopener">sebastianraschka.com/llm-architecture-gallery/kv-cache-calculations</a> — FACT tier, source for the KV cache size formula and the roughly-40-GiB / 128K-token-request anchor figure.</li>
+              <li>Together AI. "Llama 3.1 8B API: Pricing, Benchmarks & Docs" and "Llama 3.1 70B API: Pricing, Benchmarks & Docs." Together AI, 2026. <a href="https://www.together.ai/models/llama-3-1" target="_blank" rel="noopener">together.ai/models/llama-3-1</a> and <a href="https://www.together.ai/models/llama-3-1-70b" target="_blank" rel="noopener">together.ai/models/llama-3-1-70b</a> — FACT tier, primary source for per-token pricing by model size and tier.</li>
+              <li>"Fireworks vs Baseten Pricing (2026): Same Per-Token Rates, $6.50/hr vs $7.00/hr H100." Morph LLM, 2026. <a href="https://www.morphllm.com/comparisons/fireworks-vs-baseten" target="_blank" rel="noopener">morphllm.com/comparisons/fireworks-vs-baseten</a> — Tier 5, secondary pricing aggregator; used only for cross-company GPU-hourly and per-token rate comparisons in the Landscape and RQ3 sections, treated with caution as a rate-card snapshot rather than a performance claim.</li>
+            </ul>
+            <p style={{ marginTop: 14, fontSize: 12.5, fontStyle: "italic" }}>
+              Research note: this article's web-fetch tool was unavailable during generation; every source
+              above was verified through search-tool results that quoted and cited the original page
+              directly, rather than through a direct page fetch. Pricing figures in particular should be
+              treated as a 2026 snapshot and reverified before being used in a live purchasing decision.
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function WarmupInput({ id, onSubmit }) {
+  const [text, setText] = useState("");
+  const minLen = 25;
+  return (
+    <>
+      <textarea
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        placeholder={"Write your answer (min " + minLen + " characters)..."}
+        style={{ width: "100%", minHeight: 60, borderRadius: 8, border: "1px solid #D8D8D8", padding: 10, fontSize: 14, fontFamily: "inherit" }}
+      />
+      <button
+        disabled={text.length < minLen}
+        onClick={() => onSubmit(id, text)}
+        style={{
+          marginTop: 6, padding: "6px 14px", borderRadius: 8, border: "none", fontWeight: 600, fontSize: 13,
+          background: text.length < minLen ? "#E5E5E5" : "#111", color: text.length < minLen ? "#999" : "#fff",
+          cursor: text.length < minLen ? "not-allowed" : "pointer"
+        }}
+      >Submit</button>
+      {text.length < minLen && <div style={{ fontSize: 12, color: "#999", marginTop: 4 }}>{text.length}/{minLen} characters minimum.</div>}
+    </>
+  );
+}
+
+function TEQuestion() {
+  const [present, setPresent] = useState({ thesis: "", assumption: "", disconfirm: "", premortem: "" });
+  const [future, setFuture] = useState({ change: "", replaces: "" });
+  const [submitted, setSubmitted] = useState(false);
+
+  const presentFields = [
+    ["thesis", "One-sentence so-what thesis"],
+    ["assumption", "Load-bearing assumption"],
+    ["disconfirm", "Strongest disconfirming evidence from this article"],
+    ["premortem", "One-line pre-mortem: \"If this fails in 12 months, the most likely reason is ___\""]
+  ];
+  const allFilled = presentFields.every(([k]) => present[k].length >= 15) && future.change.length >= 15 && future.replaces.length >= 15;
+  const weakest = presentFields.concat([["change", "2027: what changes"], ["replaces", "2027: assumption replaced"]])
+    .map(([k, label]) => ({ key: k, label, val: (present[k] !== undefined ? present[k] : future[k]) || "" }))
+    .sort((a, b) => a.val.length - b.val.length)[0];
+
+  return (
+    <div style={{ border: "1px solid #E4E4E4", borderRadius: 10, padding: 18, margin: "20px 0" }}>
+      <div style={{ fontSize: 11, fontWeight: 700, color: "#888", textTransform: "uppercase", marginBottom: 8 }}>
+        T-E — Forward-looking implication (Apply It)
+      </div>
+      <p style={{ fontWeight: 700, marginTop: 0 }}>Present-day variant</p>
+      <p style={{ fontSize: 13.5, color: "#555", marginTop: -6 }}>Apply the governing principle to a company or product you know.</p>
+      {presentFields.map(([key, label]) => (
+        <div key={key} style={{ marginBottom: 8 }}>
+          <label style={{ fontSize: 13, fontWeight: 600 }}>{label}</label>
+          <input
+            disabled={submitted}
+            value={present[key]}
+            onChange={(e) => setPresent({ ...present, [key]: e.target.value })}
+            style={{ width: "100%", padding: 8, borderRadius: 6, border: "1px solid #D8D8D8", fontSize: 13.5, marginTop: 3 }}
+          />
+        </div>
+      ))}
+      <p style={{ fontWeight: 700, marginTop: 16 }}>2027 forward-looking variant</p>
+      <p style={{ fontSize: 13.5, color: "#555", marginTop: -6 }}>
+        Given the same business constraints and user problem, but assuming foundation-model capabilities have improved (longer context, cheaper inference, better reasoning), what would you design or decide differently?
+      </p>
+      <div style={{ marginBottom: 8 }}>
+        <label style={{ fontSize: 13, fontWeight: 600 }}>What you would build/decide differently in 2027</label>
+        <input disabled={submitted} value={future.change} onChange={(e) => setFuture({ ...future, change: e.target.value })}
+          style={{ width: "100%", padding: 8, borderRadius: 6, border: "1px solid #D8D8D8", fontSize: 13.5, marginTop: 3 }} />
+      </div>
+      <div style={{ marginBottom: 8 }}>
+        <label style={{ fontSize: 13, fontWeight: 600 }}>The load-bearing assumption the 2027 version replaces — and what evidence would most change this article's governing principle (falsification)</label>
+        <input disabled={submitted} value={future.replaces} onChange={(e) => setFuture({ ...future, replaces: e.target.value })}
+          style={{ width: "100%", padding: 8, borderRadius: 6, border: "1px solid #D8D8D8", fontSize: 13.5, marginTop: 3 }} />
+      </div>
+      {!submitted && (
+        <button
+          disabled={!allFilled}
+          onClick={() => setSubmitted(true)}
+          style={{
+            marginTop: 6, padding: "8px 16px", borderRadius: 8, border: "none", fontWeight: 600,
+            background: !allFilled ? "#E5E5E5" : "#111", color: !allFilled ? "#999" : "#fff",
+            cursor: !allFilled ? "not-allowed" : "pointer"
+          }}
+        >Submit Apply It</button>
+      )}
+      {!allFilled && !submitted && <div style={{ fontSize: 12, color: "#999", marginTop: 4 }}>Fill in all six fields (15+ characters each) to enable Submit.</div>}
+      {submitted && (
+        <div style={{ background: "#F2F0FB", border: "1px solid #DAD4F5", borderRadius: 8, padding: 12, marginTop: 10 }}>
+          <p style={{ margin: 0, fontSize: 13.5 }}>
+            <strong>Evaluator note:</strong> all six parts are present. The part reading as thinnest by length is
+            "<em>{weakest.label}</em>" — worth revisiting with a more specific, decision-relevant detail if you want to
+            stress-test your own answer further. This evaluator checks for presence and relative depth of each labeled
+            part, not for keyword matches.
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function LearningSummaryBody({ mcqState, warmupSkipped, principleState, insightSlot, setInsightSlot, applyIt, setApplyIt }) {
+  const scored = Object.keys(mcqState).filter(
+    (k) => mcqState[k] && mcqState[k].submitted && typeof mcqState[k].correct === "boolean"
+  );
+  const correct = scored.filter((k) => mcqState[k].correct);
+  const missed = scored.filter((k) => !mcqState[k].correct);
+
+  const principleMap = {
+    rq1: "Continuous batching and paged KV cache allocation treat GPU memory, not compute, as the resource being scheduled.",
+    rq2: "Speculative decoding hides a memory-bound wait behind speculative compute, which is why it also helps at large batch and long context, not just single-user latency.",
+    rq3: "A per-token price is a quantization-tier choice bundled with a model-size cost, not a single number set by parameter count alone.",
+    broke: "A serving optimization whose benefit depends on live agreement between two models is a bet that needs its own continuous monitoring, not a one-time setting."
+  };
+  const missedPrinciples = missed.map((k) => {
+    if (k.includes("rq1")) return principleMap.rq1;
+    if (k.includes("rq2")) return principleMap.rq2;
+    if (k.includes("rq3")) return principleMap.rq3;
+    if (k.includes("broke")) return principleMap.broke;
+    return "General principle of the article.";
+  });
+  const uniqueMissedPrinciples = [...new Set(missedPrinciples)];
+
+  return (
+    <div>
+      <div style={{ background: "#F7F7F7", borderRadius: 10, padding: 16, marginBottom: 20 }}>
+        <p style={{ fontWeight: 700, marginTop: 0 }}>Score breakdown</p>
+        <p style={{ fontSize: 14 }}>{correct.length} correct out of {scored.length} scored questions.</p>
+        <p style={{ fontSize: 13.5, color: "#555" }}>
+          {warmupSkipped
+            ? "Warm-up skipped — 3 prior principles not reviewed this session."
+            : "Warm-up completed before this session."}
+        </p>
+      </div>
+
+      <div style={{ marginBottom: 20 }}>
+        <p style={{ fontWeight: 700 }}>Principle production review</p>
+        {["rq1", "rq2", "rq3"].map((id) => (
+          <div key={id} style={{ background: "#fff", border: "1px solid #E4E4E4", borderRadius: 8, padding: 10, marginBottom: 8 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: "#555" }}>YOUR PRINCIPLE ({id.toUpperCase()})</div>
+            <p style={{ margin: "4px 0 0 0", fontSize: 13.5 }}>{principleState[id] && principleState[id].submitted ? principleState[id].text : "Not yet submitted."}</p>
+          </div>
+        ))}
+        <p style={{ fontSize: 13.5, color: "#555" }}>Which of your stated principles surprised you most when compared to the authored version? Why? (Reflect in your own notes — this is not re-scored here.)</p>
+      </div>
+
+      <div style={{ marginBottom: 20 }}>
+        <p style={{ fontWeight: 700 }}>Three insight slots</p>
+        <p style={{ fontSize: 13.5, color: "#555" }}>You have seen evidence from Together AI, vLLM, and two peer inference platforms. Write the single most non-obvious insight you would defend to a skeptical CTO.</p>
+        {!insightSlot.submitted && (
+          <>
+            <textarea
+              value={insightSlot.text}
+              onChange={(e) => setInsightSlot({ ...insightSlot, text: e.target.value })}
+              style={{ width: "100%", minHeight: 60, borderRadius: 8, border: "1px solid #D8D8D8", padding: 10, fontSize: 14, fontFamily: "inherit" }}
+              placeholder="Minimum 20 characters..."
+            />
+            <button
+              disabled={insightSlot.text.length < 20}
+              onClick={() => setInsightSlot({ ...insightSlot, submitted: true })}
+              style={{
+                marginTop: 6, padding: "7px 14px", borderRadius: 8, border: "none", fontWeight: 600, fontSize: 13,
+                background: insightSlot.text.length < 20 ? "#E5E5E5" : "#111", color: insightSlot.text.length < 20 ? "#999" : "#fff",
+                cursor: insightSlot.text.length < 20 ? "not-allowed" : "pointer"
+              }}
+            >Reveal authored insights</button>
+          </>
+        )}
+        {insightSlot.submitted && (
+          <>
+            <div style={{ background: "#fff", border: "1px solid #E4E4E4", borderRadius: 8, padding: 10, marginBottom: 8 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: "#555" }}>YOUR INSIGHT</div>
+              <p style={{ margin: "4px 0 0 0", fontSize: 13.5 }}>{insightSlot.text}</p>
+            </div>
+            <p style={{ fontSize: 13, fontWeight: 700 }}>How your insight compares — three authored insight cards:</p>
+            {[
+              "The two Together AI numbers that matter most for a PM aren't 'how much faster' but 'faster at what cost to accuracy' — a +0.1 to -0.3 percentage point accuracy shift across FP8 tiers is a real, measured tradeoff, not a marketing footnote, and it is a different tradeoff at every model size.",
+              "Every 'we enabled a serving optimization' decision is really a bet that production traffic will keep resembling whatever traffic the optimization was validated on — the vLLM acceptance-length regression shows that bet can quietly go bad with no crash, no error, and no code change, purely because the traffic distribution shifted.",
+              "A provider's per-token price is not one number derived from parameter count; it is parameter count times a quantization-tier choice, which is why Together's own price curve does not scale in direct proportion to model size — the tier is a second, independent lever a buyer can pull that a naive 'bigger model costs proportionally more' assumption misses."
+            ].map((t, i) => (
+              <div key={i} style={{ background: "#F2F0FB", border: "1px solid #DAD4F5", borderRadius: 8, padding: 10, marginBottom: 6 }}>
+                <p style={{ margin: 0, fontSize: 13.5 }}>{t}</p>
+              </div>
+            ))}
+          </>
+        )}
+      </div>
+
+      <div style={{ marginBottom: 8 }}>
+        <p style={{ fontWeight: 700 }}>Principles to revisit</p>
+        {uniqueMissedPrinciples.length === 0 && <p style={{ fontSize: 13.5, color: "#555" }}>No missed questions yet, or none answered — this list fills in as you answer scored questions above.</p>}
+        {uniqueMissedPrinciples.map((p, i) => (
+          <p key={i} style={{ fontSize: 13.5, background: "#FDEDED", padding: 8, borderRadius: 6 }}>{p}</p>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+const root = ReactDOM.createRoot(document.getElementById("root"));
+root.render(<App />);
+</script>
+</body>
+</html>

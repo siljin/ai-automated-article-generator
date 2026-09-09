@@ -48,9 +48,9 @@ Status: `[ ]` pending · `[x]` done
 
 ## Type 4 — AI-Native System Design
 
-- [ ] Type 4 | Multiple | RAG pipeline design at production scale — chunking strategies, embedding model selection, re-ranking, and the retrieval precision vs recall tradeoff as corpus grows | https://github.com/Yigtwxx/Awesome-RAG-Production
-- [ ] Type 4 | Multiple | Vector database selection and design — how the choice of indexing strategy (HNSW vs IVF) affects latency, recall, and cost at different scales | https://www.evidentlyai.com/ml-system-design
-- [ ] Type 4 | Together AI | LLM serving infrastructure — batching strategies, KV cache management, speculative decoding, and the cost-per-token optimization curve | https://www.zenml.io/llmops-database
+- [x] Type 4 | Dropbox | RAG pipeline design at production scale — chunking strategies, embedding model selection, re-ranking, and the retrieval precision vs recall tradeoff as corpus grows | https://github.com/Yigtwxx/Awesome-RAG-Production → PR-17-dropbox-rag-retrieval-system-design/index.html
+- [x] Type 4 | Multiple | Vector database selection and design — how the choice of indexing strategy (HNSW vs IVF) affects latency, recall, and cost at different scales | https://www.evidentlyai.com/ml-system-design → PR-18-hnsw-vs-ivf-vector-index-selection/index.html
+- [x] Type 4 | Together AI | LLM serving infrastructure — batching strategies, KV cache management, speculative decoding, and the cost-per-token optimization curve | https://www.zenml.io/llmops-database → PR-19-together-ai-llm-serving-infrastructure/index.html
 - [ ] Type 4 | Multiple | Streaming AI responses — how token-by-token streaming changes frontend architecture, perceived latency, and the UX design space | https://www.evidentlyai.com/ml-system-design
 - [ ] Type 4 | Multiple | Multimodal AI pipeline design — how adding vision or audio to an LLM pipeline changes retrieval, latency budgets, and cost structure | https://github.com/themanojdesai/genai-llm-ml-case-studies
 

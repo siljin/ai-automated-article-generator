@@ -1,0 +1,2006 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>The Index Trades Places — HNSW vs IVF Vector Index Selection</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; color: #111; background: #fff; line-height: 1.7; font-size: 16px; }
+  h1, h2, h3 { line-height: 1.3; }
+  button { font-family: inherit; }
+  textarea, input { font-family: inherit; }
+  a { color: #6B5CD6; }
+  @media (max-width: 700px) {
+    body { font-size: 15px; }
+  }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script crossorigin src="https://unpkg.com/react@18.3.1/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/prop-types@15.8.1/prop-types.min.js"></script>
+<script crossorigin src="https://unpkg.com/recharts@2.12.7/umd/Recharts.js"></script>
+<script src="https://unpkg.com/@babel/standalone@7.24.7/babel.min.js"></script>
+<script type="text/babel" data-presets="env,react">
+/* ============================================================================
+   The Index Trades Places
+   AI-Native System Design (Type 4) — HNSW vs IVF vector index selection
+   Self-contained React app, transpiled in-browser via Babel standalone.
+   ========================================================================== */
+
+const { useState, useEffect, useRef, useMemo } = React;
+const {
+  ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
+  Legend, LineChart, Line, Cell
+} = Recharts;
+
+/* ---------------------------------------------------------------------------
+   DATA: cross-artifact warm-up (drawn from prior completed articles)
+--------------------------------------------------------------------------- */
+const WARMUP_QUESTIONS = [
+  {
+    id: "wu1",
+    prompt: "A hospital scheduling system wants to add semantic search over doctors' free-text case notes, choosing between a pre-built vector index refreshed nightly and a live query-time reranking pipeline. Using a prior article's principle about how Dropbox built two different search products, what should decide this choice, and why might the 'more modern' option not be the right one for a nightly-refreshed corpus?",
+    sourceArticle: "Two Budgets, Not One Model: How Dropbox Rebuilt Search for the AI-Native Era (AI-Native System Design)",
+    principle: "Retrieval architecture is a function of latency budget and corpus volatility, not a ranking of techniques from newest to best — the same organization can correctly ship different architectures for different products with different constraints."
+  },
+  {
+    id: "wu2",
+    prompt: "A retailer wants an AI system to flag which product listings are most likely to be counterfeit. Using a prior article's principle about Google's feasibility gates, what audit should the team run before choosing any model, and what real failure does skipping it risk repeating?",
+    sourceArticle: "When Not to Use AI: Google's Feasibility Gates, and the Failure That Skipped Them (AI Feasibility & Technical Scoping)",
+    principle: "Feasibility is not 'can AI do this?' but 'does AI beat a transparent heuristic once the cost of a wrong answer is priced in?' — start with the simplest thing that could work and make AI earn the incremental value."
+  },
+  {
+    id: "wu3",
+    prompt: "A logistics company's AI dispatch agent has a 98% task-success rate on its dashboard. Using a prior article's principle about grading agents on more than final outcomes, what should the company check before trusting that number, and what could it be hiding?",
+    sourceArticle: "Grading the Task Isn't Enough: Amazon's Three-Layer Answer to Why Agents Fail (Agentic System Architecture)",
+    principle: "Production-grade reliability comes from separately instrumenting each way a system can fail, not from one blended success/fail score — a correct final answer can hide an internal misstep that got lucky."
+  }
+];
+
+/* ---------------------------------------------------------------------------
+   DATA: charts
+--------------------------------------------------------------------------- */
+
+// Chart 1 — Background: memory budget arithmetic (ESTIMATE derived from FACTs)
+const memoryBudgetData = [
+  { name: "Raw float32\n(96-dim, uncompressed)", bytes: 384 },
+  { name: "Faiss PQ20\n(20-byte codes)", bytes: 20 },
+  { name: "Meta's stated\nRAM budget", bytes: 30 }
+];
+
+// Chart 2 — Background: GPU speedup over CPU by hardware generation (FACT, Meta 2017)
+const gpuSpeedupData = [
+  { name: "Maxwell Titan X (2015-era)", low: 5, high: 10 },
+  { name: "Pascal P100 (2016-era)", low: 20, high: 24 }
+];
+
+// Chart 3 — Section 3: build time by index type and scale (FACT, Meta Engineering 2025)
+const buildTimeData = [
+  { index: "IVF Flat", "5M x 1536": 24.4, "100M x 96": 101.4 },
+  { index: "IVF PQ", "5M x 1536": 42.0, "100M x 96": 168.2 },
+  { index: "HNSW (CPU)", "5M x 1536": 1106.1, "100M x 96": 3322.1 }
+];
+
+// Chart 4 — Section 4: search latency by index type and scale (FACT, Meta Engineering 2025)
+const searchLatencyData = [
+  { index: "IVF Flat", "5M x 1536": 1.98, "100M x 96": 0.75 },
+  { index: "IVF PQ", "5M x 1536": 1.78, "100M x 96": 0.49 },
+  { index: "HNSW (CPU)", "5M x 1536": 0.71, "100M x 96": 0.56 }
+];
+
+// Chart 5 — Section 5: Spotify Voyager vs Annoy multipliers (FACT, Spotify Engineering 2023)
+const voyagerData = [
+  { name: "Speed at equal recall", multiplier: 10, unit: "x faster" },
+  { name: "Accuracy at equal speed", multiplier: 1.5, unit: "x (50% more)" },
+  { name: "Memory footprint", multiplier: 0.25, unit: "x (4x less)" }
+];
+
+// Chart 6 — Section 5: recall/latency under corpus growth (FACT, Sarkar 2026, reproducible FAISS benchmark)
+const growthLatencyData = [
+  { size: "50,000", Flat: 5.144, "HNSW ef=10": 0.0851, "HNSW ef=160": 0.4613 },
+  { size: "100,000", Flat: 9.385, "HNSW ef=10": 0.0742, "HNSW ef=160": 0.3992 },
+  { size: "150,000", Flat: 14.884, "HNSW ef=10": 0.0763, "HNSW ef=160": 0.4140 },
+  { size: "200,000", Flat: 18.410, "HNSW ef=10": 0.0768, "HNSW ef=160": 0.4064 }
+];
+
+/* ---------------------------------------------------------------------------
+   Small presentational primitives
+--------------------------------------------------------------------------- */
+
+function Tag({ children, tone }) {
+  const bg = tone === "fact" ? "#EEF6EC" : tone === "estimate" ? "#FEF6E7" : "#F2F0FB";
+  const fg = tone === "fact" ? "#2F6B2F" : tone === "estimate" ? "#8A5A00" : "#4B3F91";
+  return (
+    <span style={{
+      display: "inline-block", fontSize: 11, fontWeight: 700, letterSpacing: 0.4,
+      textTransform: "uppercase", background: bg, color: fg, borderRadius: 4,
+      padding: "2px 7px", marginRight: 6
+    }}>{children}</span>
+  );
+}
+
+function SourceNote({ children }) {
+  return <p style={{ fontSize: 13, color: "#555", marginTop: 6, lineHeight: 1.5 }}>{children}</p>;
+}
+
+function SectionHeading({ children, id }) {
+  return <h2 id={id + "-h"} style={{ fontSize: 24, marginTop: 40, marginBottom: 12, color: "#111" }}>{children}</h2>;
+}
+
+/* ---------------------------------------------------------------------------
+   Chart interpretation gate — two independently-gated prompts per chart
+--------------------------------------------------------------------------- */
+function InterpretationPrompt({ chartId, index, kindLabel, prompt, authored, state, onSubmit }) {
+  const key = chartId + "-" + index;
+  const submitted = !!(state[key] && state[key].submitted);
+  const [draft, setDraft] = useState((state[key] && state[key].text) || "");
+  const [selfNote, setSelfNote] = useState("");
+  const minLen = 15;
+
+  return (
+    <div style={{ border: "1px solid #E4E4E4", borderRadius: 10, padding: 16, marginTop: 12, background: "#FAFAFA" }}>
+      <div style={{ fontSize: 12, fontWeight: 700, color: "#6B5CD6", textTransform: "uppercase", marginBottom: 6 }}>
+        {kindLabel}
+      </div>
+      <p style={{ fontSize: 15, marginTop: 0 }}>{prompt}</p>
+      {!submitted && (
+        <>
+          <textarea
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            placeholder={"Write your answer (min " + minLen + " characters)..."}
+            style={{ width: "100%", minHeight: 64, borderRadius: 8, border: "1px solid #D8D8D8", padding: 10, fontSize: 14, fontFamily: "inherit" }}
+          />
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 6 }}>
+            <span style={{ fontSize: 12, color: draft.length >= minLen ? "#2F6B2F" : "#999" }}>
+              {draft.length}/{minLen} characters minimum
+            </span>
+            <button
+              disabled={draft.length < minLen}
+              onClick={() => onSubmit(key, draft)}
+              style={{
+                padding: "8px 16px", borderRadius: 8, border: "none", fontSize: 14, fontWeight: 600,
+                background: draft.length < minLen ? "#E5E5E5" : "#111", color: draft.length < minLen ? "#999" : "#fff",
+                cursor: draft.length < minLen ? "not-allowed" : "pointer"
+              }}
+            >Submit answer</button>
+          </div>
+        </>
+      )}
+      {submitted && (
+        <>
+          <div style={{ background: "#fff", border: "1px solid #E4E4E4", borderRadius: 8, padding: 10, marginTop: 8 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: "#555" }}>YOUR ANSWER</div>
+            <p style={{ margin: "4px 0 0 0", fontSize: 14 }}>{state[key].text}</p>
+          </div>
+          <div style={{ background: "#F2F0FB", border: "1px solid #DAD4F5", borderRadius: 8, padding: 10, marginTop: 8 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: "#4B3F91" }}>COMPARE YOUR ANSWER TO THE AUTHORED ONE</div>
+            <p style={{ margin: "4px 0 0 0", fontSize: 14 }}>{authored}</p>
+          </div>
+          {!state[key].selfNoteSubmitted && (
+            <div style={{ marginTop: 8 }}>
+              <input
+                value={selfNote}
+                onChange={(e) => setSelfNote(e.target.value)}
+                placeholder="Optional: in one sentence, why does the data move this way?"
+                style={{ width: "100%", padding: 8, borderRadius: 6, border: "1px solid #D8D8D8", fontSize: 13 }}
+              />
+              {selfNote.length > 0 && (
+                <button onClick={() => onSubmit(key, state[key].text, selfNote)}
+                  style={{ marginTop: 6, padding: "5px 10px", fontSize: 12, borderRadius: 6, border: "1px solid #ccc", background: "#fff", cursor: "pointer" }}>
+                  Save note
+                </button>
+              )}
+            </div>
+          )}
+          {state[key].selfNoteSubmitted && (
+            <p style={{ fontSize: 12, color: "#777", marginTop: 6, fontStyle: "italic" }}>Your note: {state[key].selfNote}</p>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+/* ---------------------------------------------------------------------------
+   Chart wrapper
+--------------------------------------------------------------------------- */
+function ChartCard({ chart, interpState, onInterpSubmit }) {
+  return (
+    <div style={{ margin: "24px 0" }}>
+      <div style={{ marginBottom: 8 }}>
+        <Tag tone={chart.tier}>{chart.tier.toUpperCase()}</Tag>
+        <strong style={{ fontSize: 15 }}>{chart.title}</strong>
+      </div>
+      <div style={{ width: "100%", height: chart.height || 300, background: "#fff", border: "1px solid #EDEDED", borderRadius: 10, padding: 12 }}>
+        {chart.render()}
+      </div>
+      <SourceNote>{chart.note}</SourceNote>
+      {chart.interp.map((it, i) => (
+        <InterpretationPrompt
+          key={i}
+          chartId={chart.id}
+          index={i}
+          kindLabel={it.kind}
+          prompt={it.prompt}
+          authored={it.authored}
+          state={interpState}
+          onSubmit={(key, text, note) => onInterpSubmit(key, text, note)}
+        />
+      ))}
+    </div>
+  );
+}
+
+/* ---------------------------------------------------------------------------
+   Architecture / timeline SVGs (conceptual diagrams)
+--------------------------------------------------------------------------- */
+function ArchitectureSVG() {
+  return (
+    <svg viewBox="0 0 680 300" style={{ width: "100%", maxWidth: 680, display: "block", margin: "0 auto" }}>
+      <text x="150" y="24" textAnchor="middle" fontSize="14" fontWeight="700" fill="#111">IVF: partition, then search nearby buckets</text>
+      <circle cx="70" cy="120" r="34" fill="#F2F0FB" stroke="#6B5CD6" />
+      <circle cx="150" cy="90" r="34" fill="#F2F0FB" stroke="#6B5CD6" />
+      <circle cx="230" cy="130" r="34" fill="#FEF6E7" stroke="#D97706" strokeWidth="2.5" />
+      <circle cx="150" cy="190" r="34" fill="#F2F0FB" stroke="#6B5CD6" />
+      <circle cx="70" cy="220" r="34" fill="#F2F0FB" stroke="#6B5CD6" />
+      <text x="70" y="124" textAnchor="middle" fontSize="10" fill="#333">cluster A</text>
+      <text x="150" y="94" textAnchor="middle" fontSize="10" fill="#333">cluster B</text>
+      <text x="230" y="126" textAnchor="middle" fontSize="10" fill="#8A5A00">cluster C</text>
+      <text x="230" y="140" textAnchor="middle" fontSize="9" fill="#8A5A00">(query lands here)</text>
+      <text x="150" y="194" textAnchor="middle" fontSize="10" fill="#333">cluster D</text>
+      <text x="70" y="224" textAnchor="middle" fontSize="10" fill="#333">cluster E</text>
+      <text x="300" y="130" fontSize="22" fill="#999">→</text>
+      <text x="300" y="150" fontSize="9" fill="#777">query only</text>
+      <text x="300" y="162" fontSize="9" fill="#777">compares C</text>
+
+      <text x="530" y="24" textAnchor="middle" fontSize="14" fontWeight="700" fill="#111">HNSW: hop through a navigable graph</text>
+      <g stroke="#6B5CD6" strokeWidth="1.4" fill="none">
+        <line x1="430" y1="60" x2="490" y2="90" />
+        <line x1="490" y1="90" x2="560" y2="70" />
+        <line x1="490" y1="90" x2="470" y2="150" />
+        <line x1="470" y1="150" x2="540" y2="170" />
+        <line x1="540" y1="170" x2="600" y2="140" />
+        <line x1="470" y1="150" x2="420" y2="200" />
+        <line x1="540" y1="170" x2="560" y2="230" />
+        <line x1="420" y1="200" x2="480" y2="250" />
+        <line x1="480" y1="250" x2="560" y2="230" />
+      </g>
+      <circle cx="430" cy="60" r="8" fill="#fff" stroke="#6B5CD6" strokeWidth="2" />
+      <circle cx="490" cy="90" r="8" fill="#fff" stroke="#6B5CD6" strokeWidth="2" />
+      <circle cx="560" cy="70" r="8" fill="#fff" stroke="#6B5CD6" strokeWidth="2" />
+      <circle cx="470" cy="150" r="8" fill="#fff" stroke="#6B5CD6" strokeWidth="2" />
+      <circle cx="540" cy="170" r="8" fill="#fff" stroke="#6B5CD6" strokeWidth="2" />
+      <circle cx="600" cy="140" r="8" fill="#fff" stroke="#6B5CD6" strokeWidth="2" />
+      <circle cx="420" cy="200" r="8" fill="#fff" stroke="#6B5CD6" strokeWidth="2" />
+      <circle cx="480" cy="250" r="9" fill="#FEF6E7" stroke="#D97706" strokeWidth="2.5" />
+      <circle cx="560" cy="230" r="8" fill="#fff" stroke="#6B5CD6" strokeWidth="2" />
+      <text x="430" y="48" textAnchor="middle" fontSize="9" fill="#333">entry point</text>
+      <text x="480" y="270" textAnchor="middle" fontSize="9" fill="#8A5A00">query converges here</text>
+      <line x1="335" y1="260" x2="335" y2="20" stroke="#ddd" strokeDasharray="4 4" />
+    </svg>
+  );
+}
+
+function IncidentTimelineSVG() {
+  const steps = [
+    { t: "t = 0", label: "DELETE collection", detail: "returns 200 OK" },
+    { t: "t = 0+", label: "GET collection", detail: "returns 404 Not Found" },
+    { t: "t = 0+", label: "POST same name", detail: "rejected: \"already exists\"" },
+    { t: "t ≈ up to 60 min", label: "hourly sweep runs", detail: "tombstone cleared" },
+    { t: "after sweep", label: "POST same name", detail: "now succeeds" }
+  ];
+  return (
+    <svg viewBox="0 0 680 200" style={{ width: "100%", maxWidth: 680, display: "block", margin: "0 auto" }}>
+      <line x1="30" y1="100" x2="650" y2="100" stroke="#FCA5A5" strokeWidth="3" />
+      {steps.map((s, i) => {
+        const x = 30 + i * (620 / (steps.length - 1));
+        return (
+          <g key={i}>
+            <circle cx={x} cy="100" r="7" fill="#FEF2F2" stroke="#DC2626" strokeWidth="2" />
+            <text x={x} y="80" textAnchor="middle" fontSize="10" fill="#7F1D1D" fontWeight="700">{s.t}</text>
+            <text x={x} y="122" textAnchor="middle" fontSize="10.5" fill="#111">{s.label}</text>
+            <text x={x} y="138" textAnchor="middle" fontSize="9.5" fill="#666">{s.detail}</text>
+          </g>
+        );
+      })}
+    </svg>
+  );
+}
+
+/* ---------------------------------------------------------------------------
+   Question components
+--------------------------------------------------------------------------- */
+
+function MCQ({ q, state, onAnswer }) {
+  const st = state[q.id] || { selected: null, submitted: false, attempts: 0, correct: false, showScaffold: false };
+  const [selected, setSelected] = useState(st.selected);
+
+  function submit() {
+    if (selected === null) return;
+    const isCorrect = selected === q.correctIndex;
+    const attempts = st.attempts + 1;
+    onAnswer(q.id, {
+      selected, submitted: true, attempts, correct: isCorrect,
+      showScaffold: !isCorrect && attempts >= 2
+    });
+  }
+  function tryAgain() {
+    setSelected(null);
+    onAnswer(q.id, { ...st, selected: null, submitted: false });
+  }
+
+  const answered = st.submitted;
+  return (
+    <div style={{ border: "1px solid #E4E4E4", borderRadius: 10, padding: 16, margin: "16px 0" }}>
+      {q.subForm && <div style={{ fontSize: 11, fontWeight: 700, color: "#6B5CD6", textTransform: "uppercase", marginBottom: 6 }}>{q.subForm}</div>}
+      <div style={{ fontSize: 11, fontWeight: 700, color: "#888", textTransform: "uppercase", marginBottom: 6 }}>{q.typeLabel}</div>
+      <p style={{ marginTop: 0, fontSize: 15 }}>{q.prompt}</p>
+      <div style={{ display: "grid", gap: 8 }}>
+        {q.options.map((opt, i) => {
+          let bg = "#fff", border = "#D8D8D8";
+          if (answered) {
+            if (i === q.correctIndex) { bg = "#EEF6EC"; border = "#7EBF7E"; }
+            else if (i === st.selected) { bg = "#FDEDED"; border = "#E39999"; }
+          } else if (selected === i) { border = "#111"; }
+          return (
+            <button
+              key={i}
+              disabled={answered}
+              onClick={() => setSelected(i)}
+              style={{
+                textAlign: "left", padding: "10px 12px", borderRadius: 8, border: "1.5px solid " + border,
+                background: bg, cursor: answered ? "default" : "pointer", fontSize: 14, lineHeight: 1.5
+              }}
+            >
+              <strong>{String.fromCharCode(65 + i)}.</strong> {opt.text}
+            </button>
+          );
+        })}
+      </div>
+      {!answered && (
+        <button
+          disabled={selected === null}
+          onClick={submit}
+          style={{
+            marginTop: 10, padding: "8px 16px", borderRadius: 8, border: "none", fontWeight: 600,
+            background: selected === null ? "#E5E5E5" : "#111", color: selected === null ? "#999" : "#fff",
+            cursor: selected === null ? "not-allowed" : "pointer"
+          }}
+        >Submit</button>
+      )}
+      {selected === null && !answered && (
+        <div style={{ fontSize: 12, color: "#999", marginTop: 4 }}>Select an option to enable Submit.</div>
+      )}
+      {answered && (
+        <div style={{ marginTop: 12 }}>
+          <div style={{
+            padding: 10, borderRadius: 8,
+            background: st.correct ? "#EEF6EC" : "#FDEDED", fontSize: 14
+          }}>
+            <strong>{st.correct ? "Correct" : "Incorrect"}</strong> — {st.correct ? q.correctCalibration : q.options[st.selected].wrongCalibration}
+          </div>
+          <p style={{ fontSize: 14, marginTop: 8 }}>{q.explanation}</p>
+          <p style={{ fontSize: 13, color: "#555", marginTop: 4 }}><em>Where this generalizes:</em> {q.generalizes}</p>
+          {st.showScaffold && !st.correct && (
+            <div style={{ background: "#F2F0FB", border: "1px solid #DAD4F5", borderRadius: 8, padding: 10, marginTop: 8 }}>
+              <strong style={{ fontSize: 13 }}>Scaffold — second attempt</strong>
+              <p style={{ fontSize: 13.5, margin: "4px 0 0 0" }}>{q.scaffold}</p>
+            </div>
+          )}
+          {!st.correct && (
+            <button onClick={tryAgain} style={{ marginTop: 10, padding: "6px 14px", borderRadius: 8, border: "1px solid #111", background: "#fff", cursor: "pointer", fontSize: 13 }}>
+              Try again
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function TDQuestion({ q, state, onAnswer }) {
+  const st = state[q.id] || { value: "", submitted: false, offTarget: false };
+  const [value, setValue] = useState(st.value);
+
+  function submit() {
+    const num = parseFloat(value);
+    if (isNaN(num)) return;
+    let ratio = num / q.target;
+    if (ratio < 1) ratio = 1 / ratio;
+    const withinTolerance = q.scoring === "pct"
+      ? Math.abs(num - q.target) / q.target <= q.tolerancePct
+      : ratio <= 2; // log-distance style: within 2x either direction counts
+    onAnswer(q.id, { value, submitted: true, correct: withinTolerance, offTarget: ratio > 3 });
+  }
+
+  return (
+    <div style={{ border: "1px solid #E4E4E4", borderRadius: 10, padding: 16, margin: "16px 0" }}>
+      <div style={{ fontSize: 11, fontWeight: 700, color: "#888", textTransform: "uppercase", marginBottom: 6 }}>{q.typeLabel}</div>
+      <p style={{ marginTop: 0, fontSize: 15 }}>{q.prompt}</p>
+      {q.skeleton && (
+        <div style={{ background: "#FAFAFA", border: "1px dashed #ccc", borderRadius: 8, padding: 10, fontSize: 13, marginBottom: 8 }}>
+          <strong>Decomposition skeleton:</strong> {q.skeleton}
+        </div>
+      )}
+      {!st.submitted && (
+        <>
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <input
+              type="number"
+              value={value}
+              onChange={(e) => setValue(e.target.value)}
+              placeholder={q.placeholder}
+              style={{ padding: 8, borderRadius: 6, border: "1px solid #D8D8D8", fontSize: 14, width: 160 }}
+            />
+            <span style={{ fontSize: 13, color: "#666" }}>{q.unit}</span>
+          </div>
+          <button
+            disabled={value === ""}
+            onClick={submit}
+            style={{
+              marginTop: 10, padding: "8px 16px", borderRadius: 8, border: "none", fontWeight: 600,
+              background: value === "" ? "#E5E5E5" : "#111", color: value === "" ? "#999" : "#fff",
+              cursor: value === "" ? "not-allowed" : "pointer"
+            }}
+          >Submit estimate</button>
+          {value === "" && <div style={{ fontSize: 12, color: "#999", marginTop: 4 }}>Enter a number to enable Submit.</div>}
+        </>
+      )}
+      {st.submitted && (
+        <div style={{ marginTop: 10 }}>
+          <div style={{ padding: 10, borderRadius: 8, background: st.correct ? "#EEF6EC" : "#FDEDED", fontSize: 14 }}>
+            <strong>{st.correct ? "Within tolerance" : "Outside tolerance"}</strong> — your estimate: {st.value} {q.unit}; target: {q.target} {q.unit} ({q.targetLabel})
+          </div>
+          <p style={{ fontSize: 14, marginTop: 8 }}><strong>Anchor facts:</strong> {q.anchors}</p>
+          <p style={{ fontSize: 14 }}><strong>Decomposition:</strong> {q.decomposition}</p>
+          <p style={{ fontSize: 14 }}><strong>Bounds:</strong> {q.bounds}</p>
+          <p style={{ fontSize: 14 }}><strong>Why the actual value lands here:</strong> {q.whyHere}</p>
+          {st.offTarget && (
+            <div style={{ background: "#F2F0FB", border: "1px solid #DAD4F5", borderRadius: 8, padding: 10, marginTop: 8 }}>
+              <strong style={{ fontSize: 13 }}>Scaffold — you were off by more than 3x</strong>
+              <p style={{ fontSize: 13.5, margin: "4px 0 0 0" }}>{q.misjudgedFactor}</p>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function TGQuestion({ q, state, onAnswer }) {
+  const st = state[q.id] || { choice: null, justification: "", submitted: false };
+  const [choice, setChoice] = useState(st.choice);
+  const [justification, setJustification] = useState(st.justification);
+  const canSubmit = choice !== null && justification.length >= 15;
+
+  function submit() {
+    const correct = choice === q.correctAnswer;
+    onAnswer(q.id, { choice, justification, submitted: true, correct });
+  }
+
+  return (
+    <div style={{ border: "1px solid #E4E4E4", borderRadius: 10, padding: 16, margin: "16px 0" }}>
+      <div style={{ fontSize: 11, fontWeight: 700, color: "#888", textTransform: "uppercase", marginBottom: 6 }}>True / False with justification</div>
+      <p style={{ marginTop: 0, fontSize: 15 }}>{q.prompt}</p>
+      <div style={{ display: "flex", gap: 10 }}>
+        {["True", "False"].map((label, i) => {
+          const val = i === 0;
+          let bg = "#fff", border = "#D8D8D8";
+          if (st.submitted) {
+            if (val === q.correctAnswer) { bg = "#EEF6EC"; border = "#7EBF7E"; }
+            else if (val === st.choice) { bg = "#FDEDED"; border = "#E39999"; }
+          } else if (choice === val) { border = "#111"; }
+          return (
+            <button key={label} disabled={st.submitted} onClick={() => setChoice(val)}
+              style={{ flex: 1, padding: "10px", borderRadius: 8, border: "1.5px solid " + border, background: bg, cursor: st.submitted ? "default" : "pointer", fontWeight: 600 }}>
+              {label}
+            </button>
+          );
+        })}
+      </div>
+      {!st.submitted && (
+        <>
+          <textarea
+            value={justification}
+            onChange={(e) => setJustification(e.target.value)}
+            placeholder="Justify your answer in one sentence, naming the specific evidence (min 15 characters)..."
+            style={{ width: "100%", minHeight: 56, marginTop: 8, borderRadius: 8, border: "1px solid #D8D8D8", padding: 10, fontSize: 14, fontFamily: "inherit" }}
+          />
+          <button
+            disabled={!canSubmit}
+            onClick={submit}
+            style={{
+              marginTop: 8, padding: "8px 16px", borderRadius: 8, border: "none", fontWeight: 600,
+              background: !canSubmit ? "#E5E5E5" : "#111", color: !canSubmit ? "#999" : "#fff",
+              cursor: !canSubmit ? "not-allowed" : "pointer"
+            }}
+          >Submit</button>
+          {!canSubmit && <div style={{ fontSize: 12, color: "#999", marginTop: 4 }}>Choose True or False and write a 15+ character justification to enable Submit.</div>}
+        </>
+      )}
+      {st.submitted && (
+        <div style={{ marginTop: 10 }}>
+          <div style={{ padding: 10, borderRadius: 8, background: st.correct ? "#EEF6EC" : "#FDEDED", fontSize: 14 }}>
+            <strong>{st.correct ? "Correct" : "Incorrect"}</strong>{!st.correct && <> — this is {q.reasoningError}</>}
+          </div>
+          <div style={{ background: "#fff", border: "1px solid #E4E4E4", borderRadius: 8, padding: 10, marginTop: 8 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: "#555" }}>YOUR JUSTIFICATION</div>
+            <p style={{ margin: "4px 0 0 0", fontSize: 14 }}>{st.justification}</p>
+          </div>
+          <div style={{ background: "#F2F0FB", border: "1px solid #DAD4F5", borderRadius: 8, padding: 10, marginTop: 8 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: "#4B3F91" }}>AUTHORED JUSTIFICATION</div>
+            <p style={{ margin: "4px 0 0 0", fontSize: 14 }}>{q.authoredJustification}</p>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function TFQuestion({ q, state, onAnswer }) {
+  const st = state[q.id] || { text: "", submitted: false, checks: [false, false, false] };
+  const [text, setText] = useState(st.text);
+  const [checks, setChecks] = useState(st.checks);
+
+  function submit() {
+    onAnswer(q.id, { text, submitted: true, checks });
+  }
+  function toggleCheck(i) {
+    const next = checks.slice();
+    next[i] = !next[i];
+    setChecks(next);
+    if (st.submitted) onAnswer(q.id, { ...st, checks: next });
+  }
+
+  return (
+    <div style={{ border: "1px solid #E4E4E4", borderRadius: 10, padding: 16, margin: "16px 0", background: "#FBFBFD" }}>
+      <div style={{ fontSize: 11, fontWeight: 700, color: "#6B5CD6", textTransform: "uppercase", marginBottom: 6 }}>Pattern transfer</div>
+      <p style={{ marginTop: 0, fontSize: 15 }}>{q.prompt}</p>
+      {!st.submitted && (
+        <>
+          <textarea
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            placeholder={"Write your transfer (min " + q.minLen + " characters). Name the principle, apply it non-trivially, and name a new failure mode."}
+            style={{ width: "100%", minHeight: 100, borderRadius: 8, border: "1px solid #D8D8D8", padding: 10, fontSize: 14, fontFamily: "inherit" }}
+          />
+          <div style={{ fontSize: 12, color: text.length >= q.minLen ? "#2F6B2F" : "#999", marginTop: 4 }}>{text.length}/{q.minLen} characters minimum</div>
+          <button
+            disabled={text.length < q.minLen}
+            onClick={submit}
+            style={{
+              marginTop: 8, padding: "8px 16px", borderRadius: 8, border: "none", fontWeight: 600,
+              background: text.length < q.minLen ? "#E5E5E5" : "#111", color: text.length < q.minLen ? "#999" : "#fff",
+              cursor: text.length < q.minLen ? "not-allowed" : "pointer"
+            }}
+          >Submit</button>
+        </>
+      )}
+      {st.submitted && (
+        <div style={{ marginTop: 10 }}>
+          <div style={{ background: "#fff", border: "1px solid #E4E4E4", borderRadius: 8, padding: 10 }}>
+            <p style={{ margin: 0, fontSize: 14 }}>{text}</p>
+          </div>
+          <p style={{ fontSize: 13, fontWeight: 700, marginTop: 10, marginBottom: 4 }}>Self-evaluation checklist</p>
+          {[
+            "Did I name the principle accurately?",
+            "Is my application genuinely different from the original case?",
+            "Is my failure mode new (not one already covered in this article)?"
+          ].map((label, i) => (
+            <label key={i} style={{ display: "flex", gap: 8, alignItems: "flex-start", fontSize: 13.5, marginBottom: 4 }}>
+              <input type="checkbox" checked={checks[i]} onChange={() => toggleCheck(i)} style={{ marginTop: 3 }} />
+              {label}
+            </label>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function PrincipleGate({ sectionId, authored, state, onSubmit }) {
+  const st = state[sectionId] || { text: "", submitted: false };
+  const [text, setText] = useState(st.text);
+  return (
+    <div style={{ border: "1px dashed #B9AEEF", borderRadius: 10, padding: 16, margin: "20px 0", background: "#FBFAFF" }}>
+      <p style={{ marginTop: 0, fontSize: 14, fontWeight: 600 }}>Principle in one sentence</p>
+      <p style={{ fontSize: 13.5, color: "#555", marginTop: -4 }}>
+        State the transferable principle from this section — something a PM or CTO at a different company could apply tomorrow. (Not scored; you can move to any section regardless.)
+      </p>
+      {!st.submitted && (
+        <>
+          <textarea
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            placeholder="Minimum 20 characters..."
+            style={{ width: "100%", minHeight: 56, borderRadius: 8, border: "1px solid #D8D8D8", padding: 10, fontSize: 14, fontFamily: "inherit" }}
+          />
+          <button
+            disabled={text.length < 20}
+            onClick={() => onSubmit(sectionId, text)}
+            style={{
+              marginTop: 8, padding: "7px 14px", borderRadius: 8, border: "none", fontWeight: 600, fontSize: 13,
+              background: text.length < 20 ? "#E5E5E5" : "#111", color: text.length < 20 ? "#999" : "#fff",
+              cursor: text.length < 20 ? "not-allowed" : "pointer"
+            }}
+          >Submit</button>
+        </>
+      )}
+      {st.submitted && (
+        <>
+          <div style={{ background: "#fff", border: "1px solid #E4E4E4", borderRadius: 8, padding: 10 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: "#555" }}>YOUR PRINCIPLE</div>
+            <p style={{ margin: "4px 0 0 0", fontSize: 14 }}>{st.text}</p>
+          </div>
+          <div style={{ background: "#F2F0FB", border: "1px solid #DAD4F5", borderRadius: 8, padding: 10, marginTop: 8 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: "#4B3F91" }}>AUTHORED PRINCIPLE</div>
+            <p style={{ margin: "4px 0 0 0", fontSize: 14 }}>{authored}</p>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function Glossary({ items }) {
+  if (!items || items.length === 0) return null;
+  return (
+    <div style={{ background: "#F7F7F7", borderRadius: 10, padding: 16, marginTop: 28 }}>
+      <div style={{ fontSize: 12, fontWeight: 700, color: "#666", textTransform: "uppercase", marginBottom: 8 }}>Glossary</div>
+      {items.map((it, i) => (
+        <p key={i} style={{ fontSize: 13.5, margin: "4px 0" }}><strong>{it.term}</strong> — {it.def}</p>
+      ))}
+    </div>
+  );
+}
+
+/* ============================================================================
+   MAIN APP
+   ========================================================================== */
+function App() {
+  const [active, setActive] = useState("warmup");
+  const [warmupAnswers, setWarmupAnswers] = useState({});
+  const [warmupSkipped, setWarmupSkipped] = useState(false);
+  const [narrowScreen, setNarrowScreen] = useState(window.innerWidth < 1160);
+
+  const [interpState, setInterpState] = useState({});
+  const [mcqState, setMcqState] = useState({});
+  const [principleState, setPrincipleState] = useState({});
+  const [applyIt, setApplyIt] = useState({
+    present: { thesis: "", assumption: "", disconfirm: "", premortem: "" },
+    future: { change: "", replaces: "" },
+    submitted: false
+  });
+  const [insightSlot, setInsightSlot] = useState({ text: "", submitted: false });
+
+  const sectionRefs = useRef({});
+  const NAV = [
+    { id: "warmup", label: "Warm-Up" },
+    { id: "intro", label: "Introduction" },
+    { id: "background", label: "Landscape" },
+    { id: "rq1", label: "RQ1: Two Structures" },
+    { id: "rq2", label: "RQ2: The Crossover" },
+    { id: "rq3", label: "RQ3: Operating Costs" },
+    { id: "brokewhat", label: "What Broke" },
+    { id: "summary", label: "Learning Summary" },
+    { id: "conclusion", label: "Conclusion" }
+  ];
+
+  useEffect(() => {
+    function onResize() { setNarrowScreen(window.innerWidth < 1160); }
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+
+  useEffect(() => {
+    function onScroll() {
+      let current = NAV[0].id;
+      for (const n of NAV) {
+        const el = sectionRefs.current[n.id];
+        if (el && el.getBoundingClientRect().top - 120 <= 0) current = n.id;
+      }
+      setActive(current);
+    }
+    window.addEventListener("scroll", onScroll);
+    return () => window.removeEventListener("scroll", onScroll);
+  }, []);
+
+  function scrollTo(id) {
+    const el = sectionRefs.current[id];
+    if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+  function submitWarmup(id, text) {
+    setWarmupAnswers((prev) => ({ ...prev, [id]: { text, submitted: true } }));
+  }
+
+  function submitInterp(key, text, note) {
+    setInterpState((prev) => ({
+      ...prev,
+      [key]: { text, submitted: true, selfNote: note || (prev[key] && prev[key].selfNote), selfNoteSubmitted: !!note }
+    }));
+  }
+  function submitMcq(id, payload) {
+    setMcqState((prev) => ({ ...prev, [id]: payload }));
+  }
+  function submitPrinciple(id, text) {
+    setPrincipleState((prev) => ({ ...prev, [id]: { text, submitted: true } }));
+  }
+
+  // Progress: fraction of NAV sections visited (crude proxy: reached scroll position)
+  const [visited, setVisited] = useState({ warmup: true });
+  useEffect(() => { setVisited((v) => ({ ...v, [active]: true })); }, [active]);
+  const progressPct = Math.round((Object.keys(visited).length / NAV.length) * 100);
+
+  // score tally — only count entries that are fully submitted and carry a scored boolean "correct"
+  const scoredIds = Object.keys(mcqState).filter(
+    (k) => mcqState[k] && mcqState[k].submitted && typeof mcqState[k].correct === "boolean"
+  );
+  const correctCount = scoredIds.filter((k) => mcqState[k].correct).length;
+
+  return (
+    <div>
+      <div style={{ position: "fixed", top: 0, left: 0, right: 0, height: 4, background: "#eee", zIndex: 50 }}>
+        <div style={{ height: 4, background: "#6B5CD6", width: progressPct + "%", transition: "width .3s" }} />
+      </div>
+
+      <div style={{ position: "fixed", top: 4, left: 0, right: 0, background: "#fff", borderBottom: "1px solid #eee", zIndex: 49, padding: "10px 20px" }}>
+        <div style={{ maxWidth: 1000, margin: "0 auto", display: "flex", flexWrap: "wrap", alignItems: "center", gap: 12, justifyContent: "space-between" }}>
+          <div>
+            <div style={{ fontSize: 15, fontWeight: 800 }}>The Index Trades Places</div>
+            <div style={{ fontSize: 11.5, color: "#666" }}>
+              <Tag tone="illustration">AI-NATIVE SYSTEM DESIGN</Tag>
+              Score: {correctCount}/{scoredIds.length || 0}
+            </div>
+          </div>
+          <div style={{ display: "flex", gap: 4, fontSize: 10.5, alignItems: "center" }}>
+            {["Feasibility", "Design", "Build", "Evaluate", "Deploy", "Scale", "Govern"].map((p) => {
+              const on = p === "Build" || p === "Scale";
+              return (
+                <span key={p} style={{
+                  padding: "3px 6px", borderRadius: 5, background: on ? "#111" : "#F0F0F0",
+                  color: on ? "#fff" : "#999", fontWeight: on ? 700 : 500
+                }}>{p}</span>
+              );
+            })}
+          </div>
+          <div style={{ fontSize: 12, color: "#666" }}>
+            Prev: <strong>Agentic System Architecture</strong> · Next: <strong>AI Product Sense</strong>
+          </div>
+        </div>
+      </div>
+
+      <div style={{ display: "flex", maxWidth: 1160, margin: "0 auto", paddingTop: 82 }}>
+        {!narrowScreen && (
+          <div style={{ width: 200, flexShrink: 0, position: "sticky", top: 90, height: "fit-content", paddingRight: 12 }}>
+            {NAV.map((n) => (
+              <div
+                key={n.id}
+                onClick={() => scrollTo(n.id)}
+                style={{
+                  padding: "8px 10px", fontSize: 13, cursor: "pointer", borderRadius: 6, marginBottom: 2,
+                  borderLeft: active === n.id ? "3px solid #6B5CD6" : "3px solid transparent",
+                  background: active === n.id ? "#F2F0FB" : "transparent",
+                  fontWeight: active === n.id ? 700 : 400, color: active === n.id ? "#111" : "#555"
+                }}
+              >{n.label}</div>
+            ))}
+          </div>
+        )}
+
+        <div style={{ maxWidth: 720, margin: "0 auto", padding: "0 16px 80px 16px" }}>
+
+          {/* ============================ WARM-UP ============================ */}
+          <div ref={(el) => (sectionRefs.current.warmup = el)} id="warmup">
+            <div style={{ background: "#F5F5F7", borderRadius: 12, padding: 20, marginTop: 20 }}>
+              <h2 style={{ marginTop: 0 }}>Before you begin — recall from your prior reading</h2>
+              <p style={{ fontSize: 14.5, color: "#444" }}>
+                Three quick questions test whether principles from earlier articles still transfer to a new context. This is retrieval practice, not a scored quiz — but skipping it is noted at the end.
+              </p>
+              {!warmupSkipped && WARMUP_QUESTIONS.map((w) => {
+                const ans = warmupAnswers[w.id];
+                return (
+                  <div key={w.id} style={{ background: "#fff", borderRadius: 10, padding: 14, marginTop: 12 }}>
+                    <p style={{ marginTop: 0, fontSize: 14.5 }}>{w.prompt}</p>
+                    {!ans && <WarmupInput id={w.id} onSubmit={submitWarmup} />}
+                    {ans && (
+                      <>
+                        <div style={{ background: "#FAFAFA", borderRadius: 8, padding: 10 }}>
+                          <div style={{ fontSize: 11, fontWeight: 700, color: "#555" }}>YOUR ANSWER</div>
+                          <p style={{ margin: "4px 0 0 0", fontSize: 13.5 }}>{ans.text}</p>
+                        </div>
+                        <p style={{ fontSize: 12.5, color: "#666", marginTop: 8 }}>
+                          <strong>Source:</strong> {w.sourceArticle}<br />
+                          <strong>Principle tested:</strong> {w.principle}
+                        </p>
+                      </>
+                    )}
+                  </div>
+                );
+              })}
+              {!warmupSkipped && (
+                <button onClick={() => setWarmupSkipped(true)} style={{ marginTop: 14, background: "none", border: "none", color: "#888", textDecoration: "underline", fontSize: 13, cursor: "pointer" }}>
+                  Skip warm-up
+                </button>
+              )}
+              {warmupSkipped && <p style={{ fontSize: 13.5, color: "#888" }}>Warm-up skipped. This is noted in your Learning Summary.</p>}
+            </div>
+          </div>
+
+          {/* ============================ INTRO ============================ */}
+          <div ref={(el) => (sectionRefs.current.intro = el)} id="intro">
+            <SectionHeading id="intro">Introduction</SectionHeading>
+            <p>
+              A vector index is not a ranked list of algorithms from worse to better. It is a bet about
+              which resource will run out first at your specific scale: memory, the time it takes to build
+              the index, or the time it takes to answer one query. The two dominant strategies for
+              searching billions of high-dimensional vectors are a <strong>partition index</strong> called
+              IVF (Inverted File), which clusters vectors into buckets and searches only the nearest few
+              buckets, and a <strong>graph index</strong> called HNSW (Hierarchical Navigable Small World),
+              which lets a query hop from neighbor to neighbor across a web of connections. Meta's own
+              Faiss library is the strongest evidence available for this principle, because Meta is the
+              rare company that built and still maintains both index families inside one open-source
+              library, and has published head-to-head benchmarks of IVF and HNSW on identical hardware, at
+              an identical accuracy target, at very different data scales.
+            </p>
+            <p>
+              Faiss launched in 2017 with nearest-neighbor search on billion-vector datasets that Meta
+              reported as roughly 8.5 times faster than the best published result at the time (Meta
+              Engineering, 2017). Spotify offers a second, independent, product-side version of the same
+              choice: the company built and open-sourced a tree-based index called Annoy in 2013, used it
+              for a decade to power Discover Weekly and Home, then rebuilt its recommendation search on a
+              graph-based library after finding it roughly ten times faster at equal accuracy (Spotify
+              Engineering, 2023). A third real data point, from the library Meta names as a direct
+              comparison in its own 2017 launch post, is nmslib — a graph-based library that beat Faiss's
+              classic partition-based methods on speed at roughly one million vectors, but needed
+              "significantly more storage" to do it (Meta Engineering, 2017).
+            </p>
+            <p>
+              Classical databases sidestep this entire problem. A lookup by exact key uses a hash table (a
+              structure that jumps straight to a value using a computed shortcut) or a B-tree (a sorted,
+              tree-shaped structure built for fast lookups), and returns an answer in roughly constant or
+              logarithmic time — meaning the answer arrives about as fast no matter how large the table
+              gets, with no approximation involved. Nearest-neighbor search in a high-dimensional embedding space has no such shortcut:
+              an exact answer requires comparing the query to every stored vector, a cost that grows in
+              direct proportion to how many vectors exist. Every fast approximate index in production today
+              exists to avoid that comparison-every-vector cost, and every one of them buys that speed with
+              a different kind of debt — a compression step that loses precision, a graph that is expensive
+              to build, or a delete operation that no longer means what it means in a relational table. As
+              this article will show, which debt is worth paying depends on scale in a way that is not
+              stable: Meta's own numbers show the "fastest search" title changing hands between a
+              100-million-vector test and a 5-million-vector test.
+            </p>
+            <p>
+              This article addresses three questions. First, what are the two structurally different ways
+              to build a vector index — partitioning versus graph navigation — and what specific resource
+              does each one spend to go fast? Second, does one of the two really win at every scale, or does
+              the answer change as data volume and dimensionality change, and by how much? Third, once one
+              of these indexes is running in production, what ongoing operational cost — compression risk,
+              distribution drift, or the cost of deleting a vector — does a launch-day benchmark chart never
+              show?
+            </p>
+          </div>
+
+          {/* ============================ BACKGROUND ============================ */}
+          <div ref={(el) => (sectionRefs.current.background = el)} id="background">
+            <SectionHeading id="background">Technical and Product Landscape</SectionHeading>
+            <p>
+              Before dedicated vector indexes existed, teams either ran a brute-force scan — comparing a
+              query to every vector, an approach whose search time grows linearly with the size of the
+              collection — or reached for libraries built for roughly a million vectors, a scale small
+              enough that brute force plus a light index was tolerable. Meta's 2017 launch post for Faiss
+              is explicit that this "small scale" category already had strong competition: nmslib,
+              a predecessor in the same graph-based family as HNSW, "is faster than Faiss but requires
+              significantly more storage" at around one million vectors (Meta Engineering, 2017). That
+              one sentence contains the entire tension this article investigates: faster and smaller are
+              not the same axis, and a team that only measures speed will miss the bill.
+            </p>
+            <p>
+              The reason the bill exists at all is memory. A raw, uncompressed vector with 96 numbers,
+              each stored as a 4-byte float (a common size for image and audio embeddings of that era),
+              takes 384 bytes. One billion such vectors take about 384 gigabytes just for the raw numbers,
+              before any index structure is added on top. Meta's own evaluation of Faiss on the Deep1B
+              dataset — one billion images, each reduced to a descriptor vector — was explicitly bounded
+              to "30 GB of RAM," a budget more than twelve times smaller than the raw data (Meta
+              Engineering, 2017). That gap is not a rounding error; it is the reason Faiss's flagship
+              billion-scale configuration used product quantization, a compression technique that replaced
+              each vector with a 20-byte code (the "PQ20" in Meta's chosen index string,
+              "OPQ20_80,IMI2x14,PQ20"), shrinking the raw 384 bytes down to 20 — small enough, along with
+              some clustering overhead, to fit the stated budget.
+            </p>
+            <ChartCard
+              chart={{
+                id: "memchart",
+                tier: "estimate",
+                title: "Raw vs. Compressed Storage for 1 Billion 96-Dimensional Vectors",
+                height: 280,
+                note: "ESTIMATE: bytes-per-vector figures for \"raw float32\" and \"PQ20\" are arithmetic (96 × 4 bytes; 20-byte PQ code) from Meta's own stated encoding choices. The 30 GB budget line is a FACT stated directly in Meta Engineering, 2017.",
+                render: () => (
+                  <ResponsiveContainer>
+                    <BarChart data={memoryBudgetData} layout="vertical" margin={{ left: 40, right: 20 }}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis type="number" label={{ value: "Gigabytes for 1B vectors", position: "insideBottom", offset: -5, fontSize: 11 }} />
+                      <YAxis type="category" dataKey="name" width={160} tick={{ fontSize: 11 }} />
+                      <Tooltip />
+                      <Bar dataKey="bytes" radius={4}>
+                        {memoryBudgetData.map((d, i) => <Cell key={i} fill={i === 2 ? "#D97706" : "#6B5CD6"} />)}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                ),
+                interp: [
+                  {
+                    kind: "Quantitative reasoning",
+                    prompt: "Raw storage for 1 billion 96-dimensional vectors is about 384 GB; Meta's PQ20 encoding brings that to about 20 GB. Compute the compression ratio, then say which factor — vector count or dimensionality — would move that ratio more if Meta instead had to index 5 billion 768-dimensional vectors.",
+                    authored: "384 ÷ 20 ≈ 19.2x compression. Vector count alone scales storage linearly in both the raw and compressed cases, so it does not change the ratio — going from 1B to 5B just multiplies both bars by 5. Dimensionality is what actually changes the ratio, because PQ code length (20 bytes) is a design choice independent of the source dimensionality, while raw storage scales directly with it: at 768 dimensions, raw storage per vector is 8x higher (768/96), so the same 20-byte code now represents a much larger compression ratio (roughly 153x) — meaning teams with higher-dimensional embeddings have more to gain from compression, not less."
+                  },
+                  {
+                    kind: "So-what / sizing",
+                    prompt: "Using the raw-storage figure in this chart as a per-vector rate, size the uncompressed RAM budget a team would need to index 300 million of their own 768-dimensional embeddings, and say whether compression is optional or mandatory at that scale on a single 64 GB machine.",
+                    authored: "768 dimensions x 4 bytes = 3,072 bytes/vector. 300,000,000 x 3,072 bytes ≈ 922 GB uncompressed — about 14 times larger than a 64 GB machine. Compression (or sharding across many machines) is mandatory, not optional, at this scale; a team that assumes 'we'll just add more RAM' the way they might for a relational cache is applying a classical scaling assumption that breaks down by more than an order of magnitude here."
+                  }
+                ]
+              }}
+              interpState={interpState}
+              onInterpSubmit={submitInterp}
+            />
+            <p>
+              Compression was not the only lever Meta pulled. The 2017 post also reports that GPU
+              acceleration made a large difference on its own: "Faiss GPU is typically 5-10x faster on a
+              single GPU than the corresponding Faiss CPU implementations," and that the newer
+              Pascal-generation P100 hardware "pushes this to 20x+" (Meta Engineering, 2017). That
+              historical detail matters for what follows, because it establishes that hardware, not just
+              algorithm choice, is one of the resources being traded — and it sets up a direct callback:
+              eight years later, in 2025, Meta re-ran comparable benchmarks with newer GPU hardware and
+              found the size of the GPU advantage differs sharply by index family, a result covered in the
+              next section.
+            </p>
+            <ChartCard
+              chart={{
+                id: "gpuchart",
+                tier: "fact",
+                title: "GPU Acceleration Over CPU, by Hardware Generation (Meta Engineering, 2017)",
+                height: 220,
+                note: "FACT: ranges as stated in Meta's 2017 launch post. Bars show the low and high end of Meta's reported speedup range for each GPU generation, relative to Faiss CPU.",
+                render: () => (
+                  <ResponsiveContainer>
+                    <BarChart data={gpuSpeedupData}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="name" tick={{ fontSize: 10.5 }} />
+                      <YAxis label={{ value: "Speedup over CPU (x)", angle: -90, position: "insideLeft", fontSize: 11 }} />
+                      <Tooltip />
+                      <Legend />
+                      <Bar dataKey="low" name="Low end" fill="#B9AEEF" radius={4} />
+                      <Bar dataKey="high" name="High end" fill="#6B5CD6" radius={4} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                ),
+                interp: [
+                  {
+                    kind: "Qualitative / mechanism",
+                    prompt: "The reported speedup range roughly doubles between the Maxwell Titan X generation (5-10x) and the Pascal P100 generation (20x+). Faiss GPU code is described as a 'drop-in replacement' for the CPU version. Why would the same software show such a different speedup on newer hardware, rather than the speedup being a fixed property of the algorithm?",
+                    authored: "Faiss's GPU implementation is built around saturating memory bandwidth and floating-point throughput (the 'roofline model' Meta cites), so its actual speedup is bounded by whatever the specific GPU's bandwidth and compute ceiling allow — it is a hardware-relative number, not an algorithm-intrinsic one. A newer GPU generation with higher memory bandwidth and more floating-point units raises that ceiling, so the same kernel runs closer to a higher limit, without any change to the underlying index math."
+                  },
+                  {
+                    kind: "So-what / threshold",
+                    prompt: "If a team's search latency budget is fixed and hardware speedups like this one become available roughly every two GPU generations, at what point should a team decide to invest engineering effort in a GPU port versus simply waiting for the next hardware generation to arrive?",
+                    authored: "The threshold is whether the CPU-based latency already violates a hard product requirement today (e.g., a sub-100ms user-facing search) — if it does, waiting is not an option and the GPU port should happen now, since the benefit is immediate and compounding as future hardware arrives 'for free.' If the CPU latency merely feels slow but is inside budget, the rule of thumb is to wait, because a GPU port is non-trivial engineering investment that a future hardware generation may make partially redundant."
+                  }
+                ]
+              }}
+              interpState={interpState}
+              onInterpSubmit={submitInterp}
+            />
+            <p>
+              By 2025, Meta and NVIDIA had jointly integrated a new library, NVIDIA cuVS, directly into
+              Faiss, adding GPU-native implementations of both the partition family (IVF) and a new
+              GPU-native graph index called CAGRA, built specifically to accelerate the same kind of search
+              HNSW does on CPU (Meta Engineering, 2025). That collaboration produced the benchmark this
+              article leans on most heavily: a same-hardware, same-recall-target comparison of IVF Flat,
+              IVF PQ, and HNSW/CAGRA, run on two datasets of very different scale and shape. The next three
+              sections work through what that comparison actually shows.
+            </p>
+            <Glossary items={[
+              { term: "IVF (Inverted File index)", def: "A vector index that first clusters all vectors into groups (partitions) and, at search time, only compares the query against vectors in the nearest few groups." },
+              { term: "HNSW (Hierarchical Navigable Small World)", def: "A graph-based vector index where each vector is a node connected to nearby neighbors; a search walks the graph hop by hop toward the closest matches." },
+              { term: "Product quantization (PQ)", def: "A compression method that replaces a vector with a short numeric code (e.g., 20 bytes) built from smaller sub-vectors, trading some precision for a large reduction in memory." },
+              { term: "Recall@k", def: "The fraction of the true k nearest vectors that a search actually returns; 100% recall means the approximate search found exactly what an exact, brute-force search would have found." },
+              { term: "QPS (queries per second)", def: "How many search requests a system can answer in one second — a standard measure of search throughput." }
+            ]} />
+          </div>
+
+          {/* ============================ RQ1 ============================ */}
+          <div ref={(el) => (sectionRefs.current.rq1 = el)} id="rq1">
+            <SectionHeading id="rq1">RQ1 — Two Structures, Two Budgets</SectionHeading>
+            <p>
+              The claim to defend in this section: a vector index's structure is a bet about which resource
+              — build-time compute, steady-state memory, or tolerance for drifting data — it spends to
+              answer queries fast, not a ranking from worse to better. IVF and HNSW are not two attempts at
+              the same solution; they are two different answers to the question "how do we avoid comparing
+              the query against every vector?"
+            </p>
+            <p>
+              IVF's answer is to cluster first. Before any search happens, IVF runs a clustering algorithm
+              (k-means) over a sample of the data to define a fixed number of partitions, each represented
+              by a centroid — a kind of average vector for everything nearby. A query is compared against
+              the centroids first, routed to the handful of closest partitions, and only then compared
+              against the actual vectors inside those partitions. Meta's own numbers show what this training
+              step costs at scale: building the Deep1B index required "k-means clustering 67.1 million
+              120-dim vectors to 262,144 centroids," a step that alone took 139 minutes on four Titan X GPUs
+              or 43.8 minutes on eight newer P100 GPUs (Meta Engineering, 2017). That clustering step is a
+              one-time investment that pays for a small, predictable search — but only for as long as new
+              data keeps resembling the data the centroids were trained on.
+            </p>
+            <p>
+              HNSW's answer is to build a map instead of buckets. Every vector becomes a node in a graph,
+              linked to a limited number of nearby neighbors, arranged in layers so that a search can start
+              at a sparse top layer and descend into denser layers as it gets closer to the answer — the
+              query "walks" the graph rather than being routed to a pre-defined region. There is no
+              clustering step to train, and no centroid to go stale: a new vector is simply linked into the
+              existing graph at insertion time, node by node. That incremental quality is exactly why HNSW
+              never needs retraining the way IVF does — and exactly why, as later sections show, building
+              that graph in the first place costs far more compute than building an IVF partition.
+            </p>
+            <ChartCard
+              chart={{
+                id: "archchart",
+                tier: "illustration",
+                title: "Two Structures for Avoiding a Full Scan: IVF Partitions vs. HNSW Graph",
+                height: 330,
+                note: "ILLUSTRATION: a generic structural diagram, not a specific company's exact implementation or vector count. Illustrative values — not reported statistics.",
+                render: () => <ArchitectureSVG />,
+                interp: [
+                  {
+                    kind: "Qualitative / mechanism",
+                    prompt: "Both structures skip comparing the query against most of the dataset — IVF by routing to a few clusters, HNSW by hopping a few graph edges. So why does IVF need an offline training phase (k-means over a data sample) that HNSW does not need at all?",
+                    authored: "IVF's speed depends on a global map of the data (the centroids) being representative of where vectors actually cluster, and that map can only be computed by looking at the data's overall distribution in advance — there is no way to define 'the nearest few buckets' without first deciding where the buckets are. HNSW never needs a global map: each new vector only has to be linked to whichever nearby nodes already exist in the graph at the moment it is inserted, which is a purely local decision that requires no prior knowledge of the whole dataset's shape."
+                  },
+                  {
+                    kind: "So-what / threshold-decision-rule",
+                    prompt: "If a company's corpus is rewritten by more than 20% of its vectors every day (a fast-churning product catalog, for example), which structural property in this diagram — IVF's trained centroids or HNSW's incrementally-built graph — becomes the more expensive one to keep accurate, and what decision rule would you set for when to force a full IVF retrain?",
+                    authored: "IVF's trained centroids become the more expensive property to keep accurate, because a centroid computed on yesterday's distribution routes today's queries to buckets that may no longer contain the closest vectors once the underlying data has shifted meaningfully. A reasonable decision rule is to retrain whenever a sampled recall check against a held-out query set drops below a pre-agreed floor (for example, 5 percentage points under the launch-day recall), rather than retraining on a fixed calendar schedule that ignores how fast the data is actually drifting."
+                  }
+                ]
+              }}
+              interpState={interpState}
+              onInterpSubmit={submitInterp}
+            />
+            <p>
+              Evidence against a simple "HNSW is just better" reading already exists inside Meta's own 2017
+              post: at the roughly one-million-vector scale Meta calls "small scale," the graph-based
+              nmslib beats Faiss's classic partition-based methods on speed, but needs "significantly more
+              storage" to do it (Meta Engineering, 2017). Even at the very small end of the scale range,
+              the tradeoff between speed and memory is already visible — before billion-scale compression
+              enters the picture at all. This is the non-obvious part for a reader coming from classical
+              system design: there is no dimension along which one index family is simply better across the
+              board, because being faster and using less memory are two separate axes, and every real index
+              sits somewhere on a curve between them, not at a single best point.
+            </p>
+            <p>
+              A related, complementary technique worth knowing about even though it does not resolve the
+              IVF-versus-HNSW choice on its own: optimized product quantization (OPQ), the "OPQ20_80" in
+              Meta's own chosen index string for Deep1B. OPQ is a pre-processing rotation applied to vectors
+              before they are quantized, designed to redistribute the information each of the PQ sub-vectors
+              has to encode, which improves the accuracy of the compressed representation without changing
+              the compression ratio at all. It is a reminder that "IVF vs. HNSW" is not really a two-option
+              menu — most production systems combine a routing/graph structure with a separate, independent
+              compression choice layered on top, and the two decisions can be tuned somewhat independently.
+            </p>
+            <MCQ
+              q={{
+                id: "mcq-rq1",
+                typeLabel: "T-A — Architecture and system implication",
+                prompt: "Building the Deep1B IVF index's k-means clustering step took 139 minutes on four Titan X GPUs but only 43.8 minutes on eight P100 GPUs (Meta Engineering, 2017) — a change that doubled the GPU count and upgraded the GPU generation at the same time. What does this comparison NOT let you conclude, and what would a team need to isolate before recommending 'just buy newer GPUs' with a fixed hardware budget?",
+                options: [
+                  { text: "It does not tell you how much of the roughly 3.2x speedup came from GPU count versus GPU generation — isolating that needs a same-generation, count-only test first.", wrongCalibration: "" },
+                  { text: "It proves GPU generation is always the dominant factor in clustering speed, since the faster of the two runs happened to use the newer hardware generation.", wrongCalibration: "this is extrapolating from a single comparison: it stretches one two-variable data point into a universal rule about generation always dominating, the same error as projecting a short trend far beyond what it actually measured." },
+                  { text: "Since the underlying vectors and target centroid count stayed identical in both runs, the two clustering times are not really comparable, so no conclusion about GPU count or generation can be drawn here at all.", wrongCalibration: "this is applying a classical software assumption: it treats a legitimate same-workload comparison as invalid, when Meta's own benchmark reports and compares these two clustering times directly for the same indexing job." },
+                  { text: "It shows k-means clustering time is unrelated to GPU hardware entirely, since the same vectors and the same centroid count were used in both runs.", wrongCalibration: "this is misattributing causation: it ignores the GPU hardware change entirely and asserts no relationship, when hardware is the one variable that actually did change between the two runs." }
+                ],
+                correctIndex: 0,
+                correctCalibration: "this generalizes to any 'upgrade' decision where two variables move together: crediting either one without a controlled test is the same mistake as crediting a marketing campaign for a sales jump that coincided with a price cut.",
+                explanation: "Going from four Titan X GPUs to eight P100 GPUs changes two things at once — the count doubles and the generation upgrades — so the roughly 3.2x speedup (139 minutes to 43.8 minutes) cannot be cleanly attributed to either variable alone. A team with a fixed budget deciding between 'twice as many old GPUs' and 'the same number of newer GPUs' needs a test that holds one variable fixed (for example, eight Titan X GPUs) before either purchase can be justified by this data.",
+                scaffold: "List the two things that changed between the 139-minute run and the 43.8-minute run. Is there any row in Meta's own numbers where only one of those two things changed while the other stayed fixed?",
+                generalizes: "Any 'before vs. after' comparison in engineering where two changes happened at once — the same confound appears when a team credits a database migration for a latency improvement that coincided with a traffic-pattern shift."
+              }}
+              state={mcqState}
+              onAnswer={submitMcq}
+            />
+            <TDQuestion
+              q={{
+                id: "td1",
+                typeLabel: "T-D — Engineering estimation (Fermi, scaffolded)",
+                prompt: "Meta's 2017 benchmark reports Faiss reaching a 1-recall@1 of 40% in under 2 milliseconds per query on a single CPU core when searching Deep1B (1 billion vectors) — about 500 queries per second (QPS) per core (Meta Engineering, 2017). If a company needed to sustain 50,000 QPS company-wide at this same recall level, estimate the minimum number of CPU cores required, ignoring replication and failover overhead. Tolerance: within 10% of the direct arithmetic answer — this is a division, not a genuine order-of-magnitude guess.",
+                skeleton: "cores needed = total QPS required ÷ QPS per core",
+                placeholder: "e.g. 100",
+                unit: "CPU cores",
+                target: 100,
+                targetLabel: "50,000 ÷ 500 = 100 cores, minimum",
+                scoring: "pct",
+                tolerancePct: 0.10,
+                anchors: "500 QPS per core at 40% recall (Meta Engineering, 2017, FACT); 50,000 QPS company-wide target (given).",
+                decomposition: "50,000 QPS required ÷ 500 QPS per core = 100 cores, with zero headroom for failover, tail-latency spikes, or uneven load across machines.",
+                bounds: "Lower bound: 100 cores, if load is perfectly even and no core is ever idle or degraded. Upper bound in practice: 200-400 cores once typical 2-4x headroom for redundancy and tail latency is added.",
+                whyHere: "The 500 QPS/core figure is measured at only 40% recall — a level far below what most production systems would accept — so a real deployment chasing higher recall would need meaningfully more cores than this exercise's clean arithmetic suggests, on top of the redundancy headroom.",
+                misjudgedFactor: "If you were off by more than 3x, check whether you divided the right way (QPS required ÷ QPS per core, not the reverse) or whether you tried to add unstated redundancy assumptions into what was asked as pure arithmetic."
+              }}
+              state={mcqState}
+              onAnswer={submitMcq}
+            />
+            <PrincipleGate sectionId="rq1" authored="An index's structure is a bet about which resource — build-time compute, steady-state memory, or drift tolerance — it spends to answer queries fast, not a ranking from worse to better; IVF trades a trained, driftable partition for compression that fits under a fixed memory budget, while HNSW trades a graph that never needs retraining for a build cost that grows far faster than the data it indexes." state={principleState} onSubmit={submitPrinciple} />
+            <TFQuestion
+              q={{
+                id: "tf1",
+                minLen: 50,
+                prompt: "The principle from this section: an index's structure determines which resource it trades away, not how 'good' it is in the abstract. Apply this to a fraud-detection system that must re-score transaction embeddings within 50 milliseconds, and whose transaction-pattern distribution shifts every time a new merchant category becomes popular. What would a PM or CTO choose, and what new failure mode would they face that does not appear in the FAISS/Deep1B example (which is not real-time and does not have to react to sudden distribution shifts)?"
+              }}
+              state={mcqState}
+              onAnswer={submitMcq}
+            />
+            <p>
+              The evidence in this section supports treating index choice as a resource bet, not a quality
+              ranking: even at the roughly one-million-vector scale Meta calls "small," before compression
+              or billion-scale considerations enter the picture at all, a graph-based index already beats a
+              partition-based one on speed while needing more memory to do it. What this section's evidence
+              does not yet show is how large that tradeoff grows as scale increases by two more orders of
+              magnitude — a question the next section takes up directly, using Meta's own 2025 head-to-head
+              numbers.
+            </p>
+            <Glossary items={[
+              { term: "k-means / centroid", def: "A clustering method that finds a fixed number of representative center points (centroids) so that every data point can be assigned to its nearest center." },
+              { term: "OPQ (optimized product quantization)", def: "A pre-processing rotation applied to vectors before compressing them, which improves compressed accuracy without changing how many bytes each vector takes." },
+              { term: "nprobe", def: "A query-time setting in an IVF index controlling how many of the nearest partitions are searched; higher nprobe means higher recall and higher latency." }
+            ]} />
+          </div>
+
+          {/* ============================ RQ2 ============================ */}
+          <div ref={(el) => (sectionRefs.current.rq2 = el)} id="rq2">
+            <SectionHeading id="rq2">RQ2 — Does One Index Really Win at Every Scale?</SectionHeading>
+            <p>
+              The claim to defend here: no public benchmark can declare a permanent winner between HNSW
+              and IVF, because the ranking itself is scale-dependent, and Meta's own 2025 numbers prove it
+              by reversing between two test sets run on identical hardware. The benchmark compares three
+              CPU-based indexes — IVF Flat, IVF PQ, and HNSW — against their GPU-accelerated counterparts,
+              on two datasets: 100 million 96-dimensional vectors (a subset of Deep1B) and 5 million
+              1,536-dimensional vectors (OpenAI's text-embedding-ada-002 model output), all measured at a
+              fixed 95% recall@10 target (Meta Engineering, 2025).
+            </p>
+            <ChartCard
+              chart={{
+                id: "buildchart",
+                tier: "fact",
+                title: "Index Build Time by Type and Scale, at 95% Recall@10 (Meta Engineering, 2025, classic CPU implementations)",
+                height: 300,
+                note: "FACT: seconds to build each index type on an Intel Xeon Platinum 8480CL system, from Meta's own cuVS-bench results, classic (non-GPU-accelerated) Faiss implementations only.",
+                render: () => (
+                  <ResponsiveContainer>
+                    <BarChart data={buildTimeData}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="index" tick={{ fontSize: 11 }} />
+                      <YAxis label={{ value: "Build time (seconds)", angle: -90, position: "insideLeft", fontSize: 10 }} />
+                      <Tooltip />
+                      <Legend />
+                      <Bar dataKey="5M x 1536" fill="#B9AEEF" radius={4} />
+                      <Bar dataKey="100M x 96" fill="#6B5CD6" radius={4} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                ),
+                interp: [
+                  {
+                    kind: "Quantitative reasoning",
+                    prompt: "On the 100M-vector dataset, classic CPU HNSW took 3,322.1 seconds to build, versus 168.2 seconds for classic CPU IVF PQ. On the 5M-vector dataset, HNSW took 1,106.1 seconds versus IVF PQ's 42.0 seconds. Compute the build-time ratio (HNSW ÷ IVF PQ) at each scale, and say whether that ratio grows or shrinks as scale increases from 5M to 100M.",
+                    authored: "At 5M: 1,106.1 ÷ 42.0 ≈ 26.3x. At 100M: 3,322.1 ÷ 168.2 ≈ 19.8x. The ratio actually shrinks as scale grows from 5M to 100M, even though the absolute time gap widens by orders of magnitude — a result that runs against the naive assumption that HNSW's relative build-time disadvantage would only get worse at bigger scale."
+                  },
+                  {
+                    kind: "So-what / threshold-decision-rule",
+                    prompt: "If your team can only afford a 2-hour (7,200-second) nightly maintenance window on a single CPU host to fully rebuild a 100-million-vector index from scratch, which index type in this chart fits inside that window, and by what safety margin?",
+                    authored: "IVF PQ (168.2s) fits with roughly a 42.8x safety margin (7,200 ÷ 168.2). Classic CPU HNSW (3,322.1s, about 55 minutes) also technically fits inside a 2-hour window, but with only about a 2.2x margin — far less slack for any single host, and a margin that a single order-of-magnitude corpus growth would likely erase entirely."
+                  }
+                ]
+              }}
+              interpState={interpState}
+              onInterpSubmit={submitInterp}
+            />
+            <ChartCard
+              chart={{
+                id: "latencychart",
+                tier: "fact",
+                title: "Search Latency by Index Type and Scale, at 95% Recall@10 (Meta Engineering, 2025, classic CPU implementations)",
+                height: 300,
+                note: "FACT: milliseconds per single query at 95% recall@10, classic (non-GPU-accelerated) Faiss implementations, same benchmark as the build-time chart above.",
+                render: () => (
+                  <ResponsiveContainer>
+                    <BarChart data={searchLatencyData}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="index" tick={{ fontSize: 11 }} />
+                      <YAxis label={{ value: "Search latency (ms)", angle: -90, position: "insideLeft", fontSize: 10 }} />
+                      <Tooltip />
+                      <Legend />
+                      <Bar dataKey="5M x 1536" fill="#B9AEEF" radius={4} />
+                      <Bar dataKey="100M x 96" fill="#6B5CD6" radius={4} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                ),
+                interp: [
+                  {
+                    kind: "Causal / comparative",
+                    prompt: "Classic CPU IVF PQ is faster than classic CPU HNSW on the 100M-vector dataset (0.49ms vs 0.56ms), but slower on the 5M-vector dataset (1.78ms vs 0.71ms) — the same two implementations, reversed. What does this reversal tell you about trusting a single 'HNSW is faster than IVF' rule?",
+                    authored: "Because the same two CPU implementations flip rank between the two tests, the ranking cannot be a fixed property of the algorithms themselves — it must depend on something that differs between the two datasets, and here that is both scale (100M vs 5M vectors) and dimensionality (96 vs 1,536) at once. A rule like 'HNSW is always faster' is an overgeneralization from whichever single benchmark a team happened to see first; the two variables are confounded in this comparison, so neither can be credited alone without a controlled test that holds one constant."
+                  },
+                  {
+                    kind: "Quantitative reasoning",
+                    prompt: "GPU acceleration cut IVF PQ's search latency by 8.1x on the 5M dataset (1.78ms → 0.22ms) but only 2.9x on the 100M dataset (0.49ms → 0.17ms). Estimate the total compute-time saved per day if a service runs 10 million queries a day against the 100M-vector index, using the absolute (not relative) latency reduction, and explain why the smaller relative speedup at 100M scale does not mean GPU acceleration matters less there.",
+                    authored: "Absolute reduction at 100M: 0.49ms − 0.17ms = 0.32ms per query. 10,000,000 queries x 0.32ms ≈ 3,200,000ms ≈ 3,200 seconds ≈ about 53 minutes of compute time saved per day. Even though the relative speedup (2.9x) looks smaller than the 5M case's 8.1x, the absolute time saved compounds at volume into a real, budget-relevant number — relative multiples and absolute savings are different quantities, and a team fixated on the multiple alone would underrate a change that is still operationally significant."
+                  }
+                ]
+              }}
+              interpState={interpState}
+              onInterpSubmit={submitInterp}
+            />
+            <p>
+              This reversal is the single most important data point in this article, because it directly
+              contradicts the instinct a reader might otherwise bring from a generic "graph indexes beat
+              partition indexes" impression. On the 100-million-vector, 96-dimension dataset, classic CPU
+              IVF PQ is the fastest searcher of the three at 0.49 milliseconds; HNSW comes in second at
+              0.56 milliseconds. On the 5-million-vector, 1,536-dimension dataset, the order flips: HNSW is
+              fastest at 0.71 milliseconds, while IVF PQ trails at 1.78 milliseconds. Nothing about either
+              algorithm changed between the two tests — the same code, on the same CPU, produced the
+              opposite ranking, because the two test sets differ in more than one way at once.
+            </p>
+            <p>
+              That last point is worth being precise about, because it is easy to overstate the lesson.
+              The 100M and 5M test sets differ in both vector count and dimensionality simultaneously (96
+              versus 1,536 dimensions), so this single benchmark cannot cleanly prove that "scale alone"
+              flips the ranking — dimensionality is doing an unknown share of the work too. What the
+              benchmark can prove, honestly, is narrower and still useful: a speed ranking measured on one
+              corpus does not transfer automatically to a corpus of a different shape, whether that
+              difference is size, dimensionality, or both. A team that wants to know which factor matters
+              more for their own data would need to hold one variable fixed and vary the other — a test
+              Meta's own published post does not run.
+            </p>
+            <p>
+              Build time reveals a second, complementary lesson: HNSW's cost is heavily front-loaded. At
+              both scales, building the HNSW index costs vastly more wall-clock time than building either
+              IVF variant — 19.8 times longer than IVF PQ at 100M vectors, 26.3 times longer at 5M vectors.
+              GPU acceleration narrows this gap substantially (Meta and NVIDIA's CAGRA index cuts HNSW's
+              build time by 6.4x at 100M and 12.3x at 5M) but does not close it. This means the true cost
+              of choosing HNSW is not fully captured by a search-latency chart at all — a team optimizing
+              purely for query speed could pick HNSW and then be surprised, months later, by how expensive
+              nightly or hourly index rebuilds turn out to be.
+            </p>
+            <p>
+              An adjacent technique worth knowing, because it changes how a team should read benchmarks
+              like this one: hybrid indexes that combine both structures, such as HNSW built directly on
+              top of IVF-PQ-compressed vectors (sometimes labeled IVFPQ+HNSW in the wider ANN literature),
+              designed to get graph-level search speed while keeping IVF-level memory compression. These
+              hybrids do not appear in Meta's own head-to-head chart above, which compares the two families
+              as pure alternatives — a reminder that "IVF vs. HNSW" understates the real design space, and
+              that a team unhappy with the tradeoff curve here has more options than picking one pure family.
+            </p>
+            <MCQ
+              q={{
+                id: "mcq-rq2",
+                typeLabel: "T-B — Technical trend reasoning",
+                prompt: "Even with GPU acceleration, Meta's own numbers show CAGRA (HNSW's GPU-native counterpart) needs roughly 519 seconds to build the 100M-vector index (3,322.1s ÷ 6.4x speedup), while classic CPU IVF PQ needs only 168.2 seconds for the same job. What does this most likely indicate about whether GPU acceleration alone can make HNSW-family indexes competitive with IVF PQ on build time at this scale?",
+                options: [
+                  { text: "Because CAGRA's build time (about 519 seconds) is far lower than classic HNSW(CPU)'s (3,322.1 seconds), GPU acceleration has already made HNSW faster to build than any IVF variant at every scale.", wrongCalibration: "this is extrapolating from a single comparison: it generalizes from the 100M-scale row to 'every scale' while ignoring this article's own 5M-scale row, where the relative ranking looks different again." },
+                  { text: "GPU acceleration narrows but does not close the build-time gap — CAGRA's accelerated build (about 519s) is still roughly 3x slower than IVF PQ's 168.2s, so hardware alone can't fully offset HNSW's cost.", wrongCalibration: "" },
+                  { text: "Since CAGRA is GPU-native and IVF PQ's classic row is CPU-only, the two build times are not a valid comparison, so no conclusion about relative build cost can be drawn here at all.", wrongCalibration: "this is applying a classical software assumption: it treats a cross-hardware comparison as automatically invalid, when Meta's own benchmark explicitly reports and compares these two figures side by side." },
+                  { text: "The 6.4x build-time speedup proves CAGRA's search latency must also run 6.4x faster than classic CPU HNSW's search latency, since build time and search latency scale together on the same hardware.", wrongCalibration: "this is confusing one rate for another: build-time speedup and search-latency speedup are reported in this article as two separate, different multiples, and one cannot be inferred from the other." }
+                ],
+                correctIndex: 1,
+                correctCalibration: "this generalizes to any 'just add GPUs' proposal: hardware acceleration narrows a structural cost gap, but only a design change closes it entirely.",
+                explanation: "CAGRA's GPU-accelerated build time (roughly 519 seconds, derived from HNSW(CPU)'s 3,322.1 seconds divided by Meta's reported 6.4x speedup) is still about 3 times slower than classic CPU IVF PQ's 168.2 seconds at the same 100M scale. GPU acceleration is real and substantial, but it does not fully offset HNSW's structurally more expensive build process — a team hoping newer hardware alone would make HNSW's build time match IVF PQ's would still be disappointed at this scale.",
+                scaffold: "Divide HNSW(CPU)'s build time by the reported 6.4x GPU speedup to get CAGRA's approximate build time. Now compare that number directly to IVF PQ's classic CPU build time. Is the gap fully closed, partly closed, or unchanged?",
+                generalizes: "Any 'just add better hardware' proposal aimed at a structural cost difference — the same shortfall appears when a team expects a faster network alone to close a latency gap that is actually caused by an inefficient query pattern, not bandwidth."
+              }}
+              state={mcqState}
+              onAnswer={submitMcq}
+            />
+            <TDQuestion
+              q={{
+                id: "td2",
+                typeLabel: "T-D — Engineering estimation (open Fermi, no skeleton supplied)",
+                prompt: "A team runs 10 million similarity-search queries per day, evenly spread across a 24-hour day, against a 100-million-vector index using classic CPU IVF PQ at 0.49ms search latency per query (95% recall@10, Meta Engineering, 2025). Estimate the minimum sustained queries-per-second (QPS) the system must handle. State your own decomposition path before entering a number. Scoring is on log-distance, so being 2x too high and 2x too low both count as equally 'off.'",
+                skeleton: null,
+                placeholder: "e.g. 100",
+                unit: "QPS",
+                target: 115.7,
+                targetLabel: "10,000,000 queries ÷ 86,400 seconds/day ≈ 115.7 QPS",
+                scoring: "log",
+                anchors: "10,000,000 queries/day (given); 86,400 seconds in a day (arithmetic fact); 0.49ms per query at 95% recall@10 (Meta Engineering, 2025, FACT — used in the follow-up, not in this first calculation).",
+                decomposition: "Required QPS = total daily queries ÷ seconds per day = 10,000,000 ÷ 86,400 ≈ 115.7 QPS.",
+                bounds: "If traffic is perfectly even, 115.7 QPS is both the average and the peak. In practice, real traffic is not even across 24 hours — a service with a daytime peak 3-4x the average could see peak demand of 350-450 QPS even though the daily average stays at 115.7.",
+                whyHere: "115.7 QPS is a genuinely small number relative to what '10 million queries a day' sounds like, because spreading any daily volume across 86,400 seconds shrinks it dramatically — at 0.49ms per query, one single CPU core can serve roughly 1000/0.49 ≈ 2,040 QPS, meaning this entire workload needs well under one dedicated core on average. Many teams over-provision for 'vector search at scale' fears when their actual continuous load, once spread across a full day, is modest.",
+                misjudgedFactor: "If you were off by more than 3x (in log-distance terms), the most common error is forgetting to divide by seconds-in-a-day (86,400) at all, or dividing by the wrong number of seconds (e.g., using an 8-hour business day instead of the stated even 24-hour spread)."
+              }}
+              state={mcqState}
+              onAnswer={submitMcq}
+            />
+            <MCQ
+              q={{
+                id: "mcq-tc-rq2",
+                typeLabel: "T-C — PM consulting case",
+                subForm: "Case Prompt",
+                prompt: "Meridian Freight, a logistics company, runs similarity search over 80 million package-tracking embeddings and must decide whether to standardize on IVF or HNSW for its nightly index rebuild. A junior engineer argues: 'Our last benchmark showed HNSW is faster than IVF, so let's standardize on HNSW everywhere.' Using the reversal you just saw between Meta's 5M and 100M benchmarks, which assumption in the engineer's reasoning is most likely to fail once Meridian's embedding count crosses into the tens of millions, and what should the team check first?",
+                options: [
+                  { text: "That HNSW always uses more memory than IVF, so the team should check RAM pricing before choosing either index.", wrongCalibration: "this is scope creep misdiagnosis: it points at memory cost, a real but unrelated question, instead of the actual generalization gap in the engineer's speed claim." },
+                  { text: "That Meridian's package-tracking embeddings have the same dimensionality as Spotify's audio embeddings, so the team should check Spotify's engineering blog for guidance.", wrongCalibration: "this is an unrelated-premise substitution: Spotify's numbers compare Annoy versus HNSW, a different pair of indexes entirely, so checking that blog cannot validate Meridian's own IVF-versus-HNSW benchmark." },
+                  { text: "That a speed ranking from one benchmark corpus generalizes to a different scale and dimensionality — check the comparison on Meridian's own data before standardizing.", wrongCalibration: "" },
+                  { text: "That nightly rebuilds are unnecessary if the underlying embedding model never changes, so the team should stop rebuilding the index altogether.", wrongCalibration: "this is an unrelated-premise substitution: it answers a question about rebuild necessity that the engineer never raised, instead of testing the engineer's actual generalization claim." }
+                ],
+                correctIndex: 2,
+                correctCalibration: "this generalizes to any 'our benchmark showed X' claim in engineering: the load-bearing assumption is always that the test corpus resembles the production corpus in the dimensions that matter.",
+                explanation: "The engineer's 'last benchmark' assumption is the load-bearing one: it assumes whatever corpus that benchmark used is representative of Meridian's real 80-million-vector, package-tracking-embedding workload. Meta's own numbers show that assumption can fail even between two of Meta's own test sets, differing in both scale and dimensionality. The correct next step is not to trust either index by default, but to re-run the same build-time and search-latency comparison on a genuine sample of Meridian's own data before locking in a standard.",
+                scaffold: "Go back to the two Meta benchmark rows: did IVF or HNSW 'just win' once and for all in either one? What varied between those two tests that also varies here?",
+                generalizes: "Any 'best practice' adopted from one company's blog post or one internal benchmark and applied unmodified to a different workload — the same weak link appears when a team copies a caching strategy or a database index choice from a blog post without checking whether their own data's access pattern matches."
+              }}
+              state={mcqState}
+              onAnswer={submitMcq}
+            />
+            <PrincipleGate sectionId="rq2" authored="No public benchmark can declare a permanent winner between HNSW and IVF, because Meta's own head-to-head numbers show the two trading the 'fastest search' title between a 100-million and a 5-million-vector test set — a speed ranking measured at one scale and dimensionality does not transfer to another without re-testing on your own data." state={principleState} onSubmit={submitPrinciple} />
+            <TFQuestion
+              q={{
+                id: "tf2",
+                minLen: 50,
+                prompt: "A city government's public-records team is deciding between an IVF-based and an HNSW-based index for 40 million scanned-document embeddings, based on a benchmark run on a 2-million-document pilot corpus. Using this section's principle, what would you tell them about trusting that pilot benchmark, and what failure mode might appear at 40 million documents that never showed up in the 2-million-document pilot?"
+              }}
+              state={mcqState}
+              onAnswer={submitMcq}
+            />
+            <p>
+              The evidence in this section supports a narrow but load-bearing claim: a speed ranking
+              measured on one benchmark corpus does not transfer automatically to a corpus of a different
+              scale or dimensionality, because Meta's own numbers reverse between two of its own test sets
+              run on the same hardware. What the evidence does not establish is which of the two confounded
+              variables — raw vector count or dimensionality — drives more of that reversal; answering that
+              cleanly would require a controlled benchmark that holds one of the two fixed while varying the
+              other, a test none of the sources used in this article actually run.
+            </p>
+            <Glossary items={[
+              { term: "cuVS / CAGRA", def: "NVIDIA's GPU-native vector search library (cuVS) and its GPU-native graph index (CAGRA), integrated into Faiss in 2025 to accelerate both partition-based and graph-based search on GPU hardware." },
+              { term: "Confounded comparison", def: "A comparison where more than one variable differs between the things being compared, making it impossible to credit any single variable for the observed difference." }
+            ]} />
+          </div>
+
+          {/* ============================ RQ3 ============================ */}
+          <div ref={(el) => (sectionRefs.current.rq3 = el)} id="rq3">
+            <SectionHeading id="rq3">RQ3 — The Operational Bill: Compression, Drift, and Deletion</SectionHeading>
+            <p>
+              The claim to defend here: the operational cost of running an ANN index in production —
+              compression risk, distribution drift, and above all the cost of deleting a vector — is
+              invisible on a launch-day benchmark chart, because both HNSW and IVF defer real deletion to
+              an asynchronous cleanup process instead of removing data immediately. A chart showing search
+              latency at launch says nothing about what happens six months later, after a corpus has
+              absorbed millions of updates and deletions.
+            </p>
+            <p>
+              Spotify's own migration from Annoy (a tree-based index the company built and open-sourced in
+              2013) to Voyager (built on the graph-based hnswlib) is real, product-level evidence for the
+              compression-versus-speed side of this tradeoff. Spotify reports that Voyager delivers "more
+              than 10 times the speed of Annoy (at the same recall) or up to 50% more accuracy (at the same
+              speed)," while using "up to 4 times less memory than Annoy," and 16 times less memory than the
+              underlying hnswlib library needed during index construction (Spotify Engineering, 2023). Those
+              numbers matter for a specific reason beyond the raw multiples: Spotify explicitly names "cost"
+              as one of its four selection criteria alongside speed and accuracy, stating plainly that "the
+              most advanced nearest-neighbor algorithms are incredibly fast and produce extremely high-quality
+              output" but "often require large amounts of memory," and that "for most use cases, extreme
+              accuracy can be sacrificed for a significant decrease in cost" (Spotify Engineering, 2023).
+            </p>
+            <ChartCard
+              chart={{
+                id: "voyagerchart",
+                tier: "fact",
+                title: "Voyager vs. Annoy: Spotify's Own Reported Multipliers (Spotify Engineering, 2023)",
+                height: 260,
+                note: "FACT: multipliers as directly stated by Spotify. \"Memory footprint\" is charted as Voyager's memory relative to Annoy (0.25x = 4x less); the other two bars are Voyager's reported multiple over Annoy.",
+                render: () => (
+                  <ResponsiveContainer>
+                    <BarChart data={voyagerData}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="name" tick={{ fontSize: 10.5 }} />
+                      <YAxis label={{ value: "Voyager ÷ Annoy (x)", angle: -90, position: "insideLeft", fontSize: 10 }} />
+                      <Tooltip formatter={(v, n, p) => [v + " (" + p.payload.unit + ")", "Voyager vs Annoy"]} />
+                      <Bar dataKey="multiplier" radius={4}>
+                        {voyagerData.map((d, i) => <Cell key={i} fill={["#6B5CD6", "#8A7AE0", "#D97706"][i]} />)}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                ),
+                interp: [
+                  {
+                    kind: "Quantitative reasoning",
+                    prompt: "If Spotify's Annoy deployment used roughly 40 GB of RAM per shard, and Voyager uses up to 4x less memory at the same recall, estimate Voyager's RAM footprint for an equivalent shard, and state what assumption your estimate depends on.",
+                    authored: "40 GB ÷ 4 ≈ 10 GB (ESTIMATE). This depends on the assumption that Spotify's reported '4x less memory' figure, measured in whatever specific benchmark context Spotify ran it in, applies uniformly to every shard's real-world footprint — Spotify's own post does not claim the multiplier is shard-size-invariant, so this is a reasonable but unverified extrapolation, not a number Spotify itself reported."
+                  },
+                  {
+                    kind: "So-what / build-buy-partner",
+                    prompt: "hnswlib already had more than 700,000 downloads a month before Spotify built Voyager, and switching to Voyager required breaking hnswlib's own on-disk format and API compatibility. Given that sacrifice, what does this imply about when a company should fork or rebuild a widely-used open-source dependency internally instead of simply adopting the popular version as-is?",
+                    authored: "The sacrifice ratio favors forking only when the popular dependency's stability guarantees (here, hnswlib's backward-compatibility constraints as a widely-depended-on library) directly conflict with changes a company needs to make at its own scale — Spotify could not make architectural changes to hnswlib without breaking its huge existing user base, so building a new, compatible-on-Spotify's-own-terms library was the only path to both keep the performance gains and control the roadmap. A company should default to adopting the open-source version as-is unless it can name a specific, recurring change it needs that the upstream maintainers cannot safely make."
+                  }
+                ]
+              }}
+              interpState={interpState}
+              onInterpSubmit={submitInterp}
+            />
+            <p>
+              The Voyager numbers describe a static comparison: one snapshot of accuracy, speed, and
+              memory, measured once. What that comparison cannot show is what happens as a live corpus
+              keeps growing under a fixed configuration. An independently reproducible benchmark, built on
+              FAISS's own IndexFlatL2 (exact) and IndexHNSWFlat implementations, measured exactly that: 200,000
+              CLIP image embeddings from the LAION-Aesthetics dataset, indexed in increments of 50,000, with
+              recall measured against 500 held-out caption queries (Sarkar, 2026, Towards Data Science). The
+              result is uncomfortable for any team that only monitors latency: HNSW's search time barely
+              moved as the corpus grew (about 0.075-0.085 milliseconds at ef_search=10, across all four
+              corpus sizes from 50,000 to 200,000), while recall at that same fixed setting dropped by more
+              than 10 percentage points over the same growth — with no errors, no exceptions, and a latency
+              dashboard that would report the system as perfectly healthy the entire time (Sarkar, 2026).
+            </p>
+            <ChartCard
+              chart={{
+                id: "growthchart",
+                tier: "fact",
+                title: "Search Latency as Corpus Grows: Flat (exact) vs. HNSW at Two ef_search Settings (Sarkar, 2026, reproducible FAISS benchmark)",
+                height: 300,
+                note: "FACT: milliseconds per query, averaged over 500 queries, from a reproducible open benchmark using FAISS's IndexFlatL2 and IndexHNSWFlat (M=16, efConstruction=100) on 50k-200k CLIP embeddings. Recall figures (a 10+ percentage-point drop over this same growth at fixed ef_search) are reported in the source's text, not plotted here as exact per-point values.",
+                render: () => (
+                  <ResponsiveContainer>
+                    <LineChart data={growthLatencyData}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="size" tick={{ fontSize: 11 }} label={{ value: "Corpus size (vectors)", position: "insideBottom", offset: -5, fontSize: 10 }} />
+                      <YAxis label={{ value: "Search latency (ms)", angle: -90, position: "insideLeft", fontSize: 10 }} />
+                      <Tooltip />
+                      <Legend />
+                      <Line type="monotone" dataKey="Flat" stroke="#D97706" strokeWidth={2} dot={{ r: 3 }} />
+                      <Line type="monotone" dataKey="HNSW ef=10" stroke="#6B5CD6" strokeWidth={2} dot={{ r: 3 }} />
+                      <Line type="monotone" dataKey="HNSW ef=160" stroke="#B9AEEF" strokeWidth={2} dot={{ r: 3 }} />
+                    </LineChart>
+                  </ResponsiveContainer>
+                ),
+                interp: [
+                  {
+                    kind: "Causal / comparative",
+                    prompt: "HNSW's search latency stayed nearly flat (about 0.075-0.085ms) as the corpus grew from 50,000 to 200,000 vectors at ef_search=10, while Flat (exact) search grew linearly from 5.14ms to 18.41ms. Yet the source reports recall at fixed ef_search dropped by more than 10 percentage points over that same growth. What does the stable latency number hide, and why can't you infer 'recall is fine' from 'latency is fine'?",
+                    authored: "Latency and recall measure two completely different things: how long the search takes, versus whether it found the right answers. A fixed ef_search explores a fixed-size candidate list regardless of how densely the vector space fills up, so the search keeps returning an answer in the same amount of time — but as the space gets more crowded, that same fixed-size exploration increasingly misses true nearest neighbors that would have needed a wider search to find. Stable latency only proves the search kept running fast; it says nothing about whether it kept running correctly."
+                  },
+                  {
+                    kind: "So-what / kill-criteria",
+                    prompt: "Given that recall degraded silently, with no errors and no latency change, what specific monitoring signal would you put in place as a kill-criterion or alert for a production RAG system relying on a fixed-ef_search HNSW index, since neither error logs nor a latency dashboard would ever catch this?",
+                    authored: "The kill-criterion has to be a direct, periodic recall@k measurement against a small held-out set of queries with known correct answers — sampled on a schedule (e.g., weekly) and compared to the recall measured at launch — because this is the only signal that actually tracks correctness rather than speed or error rate. An alert should fire when sampled recall drops more than a stated number of percentage points below its launch-day baseline, at which point ef_search should be increased or the index re-tuned, rather than waiting for a user complaint to reveal the problem."
+                  }
+                ]
+              }}
+              interpState={interpState}
+              onInterpSubmit={submitInterp}
+            />
+            <p>
+              Deletion is the sharpest version of this same theme, because it breaks an assumption most
+              engineers bring from relational databases without ever examining it: that a "delete" call
+              means the data is gone. Neither HNSW nor IVF can honor that assumption cheaply. In an HNSW
+              graph, removing a node outright would break every path that used to run through it, so
+              production implementations instead "set a deleted flag, keep the node in the graph for
+              traversal, and filter it out of results at query time" — a tombstone, not a removal. IVF
+              behaves the same way in spirit: it "marks entries within a partition and reclaims on rewrite"
+              rather than deleting immediately (both descriptions from Mixpeek's own technical account of
+              how ANN indexes handle deletion, 2026). Weaviate's own product documentation confirms this is
+              not a one-vendor quirk: its HNSW implementation ships a configurable cleanup process
+              (`cleanupIntervalSeconds`, defaulting to 300 seconds) specifically because, "as the index
+              grows in size, the cleanup process may take longer to complete and require more resources,"
+              to the point that Weaviate's own tuning guidance for a 300-million-object shard recommends
+              deleting one million to ten million tombstones per cleanup cycle just to keep up (Weaviate
+              Documentation, 2026).
+            </p>
+            <p>
+              A related, complementary approach worth knowing about, because it sidesteps the tombstone
+              problem rather than managing it: crypto-shredding, where each subject's vectors are encrypted
+              under a key unique to that subject, and "deletion" means destroying the key rather than
+              touching the index at all — every copy of the data, including backups, becomes unreadable the
+              instant the key is destroyed (Mixpeek, 2026). This converts an index-cleanup problem into a
+              key-management problem, which several data-governance teams consider an easier problem to
+              audit — but it has to be designed in before any data is stored, and does not retroactively fix
+              an index that already holds unencrypted vectors.
+            </p>
+            <MCQ
+              q={{
+                id: "mcq-rq3",
+                typeLabel: "T-A — Architecture and system implication",
+                prompt: "The Sarkar (2026) benchmark reports that both the exact Flat index and HNSW lose recall as the corpus grows from 50,000 to 200,000 vectors — but HNSW's overlap with Flat's own results degrades faster than Flat's own recall does on its own, and Flat search has no ef_search setting at all. What does HNSW's extra, faster decline most likely add on top of the general crowding effect both indexes already share?",
+                options: [
+                  { text: "Nothing — since Flat search also loses recall as the corpus grows, HNSW's faster decline must be measurement noise rather than a real, separate effect.", wrongCalibration: "this is base-rate neglect: it dismisses a specifically reported, repeated pattern (a consistent negative slope across every k value tested) as noise, without any evidence that noise is the explanation." },
+                  { text: "The embedding model itself, because CLIP embeddings become less discriminative specifically inside HNSW's graph structure, even though the same embeddings are used unmodified in the Flat comparison.", wrongCalibration: "this is an invented mechanism: the same fixed embeddings feed both indexes in this benchmark, so nothing about the embeddings themselves changes depending on which index reads them." },
+                  { text: "The distance metric used for scoring, because HNSW and Flat are documented to use different distance functions in this benchmark, which explains the divergence.", wrongCalibration: "this is a factual misattribution: the benchmark's own code applies the same L2 distance to both index types, so a distance-metric difference cannot be the cause." },
+                  { text: "A second, HNSW-specific bottleneck: the fixed candidate list per query (ef_search) shrinks in relative coverage as the space grows, adding its own approximation-specific loss.", wrongCalibration: "" }
+                ],
+                correctIndex: 3,
+                correctCalibration: "this generalizes to any approximation layered on top of an already-imperfect exact system: the approximation's own shortcuts add a second, separately-diagnosable failure mode on top of whatever limitation the exact system already had.",
+                explanation: "Flat search itself loses some recall as the corpus grows, because a high-dimensional vector space gets more crowded with more points in it — crowding that affects any nearest-neighbor search, exact or approximate. HNSW loses recall faster than that shared baseline because ef_search fixes the number of candidates explored per query; as the corpus grows, that fixed-size exploration becomes a smaller proportion of an increasingly crowded space, layering a second, approximation-specific loss on top of the first. A PM should expect and monitor both effects separately, since only the second is fixable by adjusting a setting.",
+                scaffold: "Ask what property is different between Flat search and HNSW that has nothing to do with corpus size directly — one of the two options changes its scope of comparison per query, and one does not. Which one, and what happens to that scope as the corpus grows?",
+                generalizes: "Any approximation layered on top of an already-imperfect exact system — the same two-layer failure appears in a caching system where both the origin database and the cache lose some data quality under load, and the cache's own eviction policy adds a second, separately-diagnosable loss on top of the database's."
+              }}
+              state={mcqState}
+              onAnswer={submitMcq}
+            />
+            <MCQ
+              q={{
+                id: "mcq-tc-rq3",
+                typeLabel: "T-C — PM consulting case",
+                subForm: "Case Prompt",
+                prompt: "Solace Health, a healthcare-records startup, stores patient-note embeddings in an HNSW index and deletes records when patients request erasure under a privacy regulation. An engineer proposes: 'We already mark deleted vectors so they're filtered from search results immediately — that satisfies the erasure requirement.' Which assumption must hold for the engineer's proposal to actually satisfy an erasure obligation, and what evidence in this article is thinnest in supporting it?",
+                options: [
+                  { text: "That patients will never request erasure more than once, so the team does not need to plan for repeated deletion cycles.", wrongCalibration: "this is an unrelated-premise substitution: repeated-request volume is a separate operational question, not the compliance gap in what the engineer's proposal actually claims." },
+                  { text: "That filtering from results equals physical removal — tombstoned vectors persist until compaction runs, independent of the delete call, which is the thinnest-supported assumption in the proposal.", wrongCalibration: "" },
+                  { text: "That HNSW is inherently non-compliant with privacy regulations, so Solace Health should switch to a completely different index family.", wrongCalibration: "this is scope creep misdiagnosis: it recommends switching index families when this article's own evidence shows IVF shares the identical tombstone-and-sweep pattern, so switching alone would not fix anything." },
+                  { text: "That the compaction sweep always runs faster than any regulator's stated deadline, so no additional monitoring is needed beyond the existing delete endpoint.", wrongCalibration: "this is base-rate neglect: it assumes a favorable timing outcome with no supporting evidence, when this article's sources describe cleanup timing as configurable and periodic, not deadline-aware." }
+                ],
+                correctIndex: 1,
+                correctCalibration: "this generalizes to any compliance claim built on an API's success response: a 200 or a 'filtered from results' state is not the same as a verified end-state, and the two must not be conflated when a regulator is the audience.",
+                explanation: "The engineer's proposal quietly conflates two different things: being hidden from search results (which the tombstone flag does immediately) and being physically removed from storage (which only happens when a compaction or cleanup sweep runs, on its own schedule). This article's evidence — both Mixpeek's account of how ANN indexes handle deletion and Weaviate's own tombstone-cleanup documentation — supports that the mark-then-sweep gap exists, but neither source specifies a guaranteed maximum time between delete and actual removal, which is exactly the thin spot a compliance team would need to close before relying on this proposal.",
+                scaffold: "Reread the section's description of what a 'deleted flag' actually does versus what a compaction sweep does. Which of those two steps does the engineer's proposal describe, and which one does an actual erasure obligation require?",
+                generalizes: "Any place where a system's user-facing success signal (a 200 response, a 'hidden' state, a green dashboard) is treated as proof of an underlying guarantee it was never designed to make — the same gap appears in 'soft delete' patterns in ordinary databases used to satisfy data-retention promises."
+              }}
+              state={mcqState}
+              onAnswer={submitMcq}
+            />
+            <TGQuestion
+              q={{
+                id: "tg1",
+                prompt: "True or False: Because HNSW's search latency stayed almost flat as the corpus grew from 50,000 to 200,000 vectors in the Sarkar (2026) benchmark, HNSW is 'basically immune to scale' for any fixed configuration.",
+                correctAnswer: false,
+                reasoningError: "over-generalizing a necessary condition into a sufficient one — stable latency (a necessary part of 'immune to scale') does not by itself establish overall robustness to scale, because the same benchmark shows recall dropped more than 10 percentage points over that identical growth at fixed settings.",
+                authoredJustification: "False — the same source that reports flat latency also reports recall falling by more than 10 percentage points over the same corpus growth at fixed ef_search, so 'immune to scale' is true only for speed and false for correctness; the claim oversells a partial result into a total one."
+              }}
+              state={mcqState}
+              onAnswer={submitMcq}
+            />
+            <MCQ
+              q={{
+                id: "th1",
+                typeLabel: "T-H — Critical reasoning",
+                subForm: "Weaken",
+                prompt: "The argument: 'Spotify's Voyager numbers (10x speed at equal recall over Annoy, 4x less memory) prove that graph-based HNSW-family indexes are strictly better than tree-based indexes like Annoy for every nearest-neighbor workload.' Which new piece of evidence, if true, would most weaken this conclusion?",
+                options: [
+                  { text: "A 2026 survey of engineering teams showing most companies still default to tree-based indexes like Annoy because they are simpler to explain to new hires.", wrongCalibration: "this is irrelevant to the performance claim being tested — ease of explanation is a training-cost question, not evidence about whether HNSW is 'strictly better' at the workload level." },
+                  { text: "A technical essay arguing that graph-based indexes are conceptually more elegant than tree-based ones because they mimic small-world network theory from 1960s sociology research.", wrongCalibration: "this is an aesthetic or conceptual argument that does not bear on the empirical performance claim at all, and provides no new evidence either way." },
+                  { text: "A benchmark showing that under heavy delete-and-update churn, HNSW's tombstone-driven growth and recall drift make it slower in practice than a periodically-rebuilt tree index.", wrongCalibration: "" },
+                  { text: "A finding that Spotify's own engineering team personally preferred working with Voyager's cleaner codebase more than they had preferred maintaining the older Annoy codebase.", wrongCalibration: "this is a preference claim, not a performance claim, and does not test whether HNSW is actually better on any measurable workload dimension." }
+                ],
+                correctIndex: 2,
+                correctCalibration: "this generalizes to any 'X is strictly better' claim built from a static benchmark: the claim only weakens (or strengthens) when the new evidence tests a workload dimension the original comparison never covered — here, churn, which Spotify's static speed/recall/memory snapshot did not test.",
+                explanation: "Spotify's numbers are a static, one-time comparison of speed, recall, and memory — they say nothing about how either index behaves under heavy deletion and update churn, which this article's What Broke section shows is exactly where HNSW's tombstone mechanism imposes real cost. A workload-specific counter-example (option C) introduces a genuinely new fact outside Spotify's own comparison, which is what a real weaken-argument requires; the other options either address irrelevant dimensions (ease of explanation, aesthetics, developer preference) or restate opinions rather than new evidence.",
+                scaffold: "A 'strictly better for every workload' claim is disproven by finding just one real workload where it fails. Which of the four options actually describes a workload Spotify's own comparison never tested?",
+                generalizes: "Any sweeping 'strictly better' claim drawn from a single benchmark — the same weakening move (find an untested workload dimension) applies to claims like 'a NoSQL database is strictly better than a relational one' based on a read-heavy benchmark that never tested multi-row transactions."
+              }}
+              state={mcqState}
+              onAnswer={submitMcq}
+            />
+            <PrincipleGate sectionId="rq3" authored="The operational cost model of an ANN index — compression risk, drift risk, and above all deletion cost — is invisible on a launch-day benchmark chart, because both HNSW and IVF defer real deletion to an asynchronous sweep instead of removing data immediately, which turns 'delete' from a guarantee into a scheduling promise." state={principleState} onSubmit={submitPrinciple} />
+            <TFQuestion
+              q={{
+                id: "tf3",
+                minLen: 50,
+                prompt: "The principle from this section: an ANN index's operational cost model (compression need, drift risk, deletion cost) is as much a design decision as its raw speed. Apply this to a company building a real-time content-moderation embedding index that must both ingest new posts continuously and permanently remove reported content within a legally mandated time window. What would a PM or CTO do differently from Spotify's approach (which optimizes for static production recall, speed, and memory, not compliance-timed deletion), and what new failure mode would appear that never showed up in the Voyager case?"
+              }}
+              state={mcqState}
+              onAnswer={submitMcq}
+            />
+            <p>
+              The evidence in this section supports treating compression, drift, and deletion as first-class
+              design costs rather than afterthoughts: Spotify's static speed/recall/memory comparison, the
+              Sarkar (2026) growth benchmark, and Weaviate's own tombstone-cleanup documentation each expose
+              a different piece of that operational bill. What the evidence does not establish is a single
+              costed number — in dollars or engineering hours — for any of this at a specific company's own
+              scale; every source used here reports a mechanism or a relative multiplier, not a fully
+              accounted total, which is exactly the kind of gap a team should expect to fill with its own
+              measurement before betting a roadmap on it.
+            </p>
+            <Glossary items={[
+              { term: "Tombstone", def: "A marker left on a deleted item inside an index, so the item is hidden from search results immediately while the actual data stays in memory or on disk until a later cleanup step removes it." },
+              { term: "Compaction / cleanup sweep", def: "A periodic background process that physically removes tombstoned (marked-deleted) items from an index, running on its own schedule rather than in response to any single delete request." },
+              { term: "ef_search", def: "A query-time setting in HNSW controlling how many candidate nodes the search explores before returning results; higher values raise both recall and latency." },
+              { term: "Crypto-shredding", def: "A deletion method where data is encrypted per-subject, and 'deleting' the data means destroying that subject's encryption key, making every copy of the data unreadable at once." }
+            ]} />
+          </div>
+
+          {/* ============================ WHAT BROKE ============================ */}
+          <div ref={(el) => (sectionRefs.current.brokewhat = el)} id="brokewhat">
+            <div style={{ background: "#FEF2F2", border: "1px solid #FCA5A5", borderRadius: 14, padding: 24, marginTop: 40 }}>
+              <SectionHeading id="brokewhat">What Broke</SectionHeading>
+              <p>
+                On August 17, 2026, the vector-search vendor Mixpeek published its own account of a bug in
+                its production platform, fixed that same day: a user deleted a collection, and the
+                point-level cleanup that was supposed to run immediately afterward did not finish. Because the
+                system retains an incomplete deletion as a tombstone so a retry sweep can finish the job
+                later, the collection entered an inconsistent state for up to an hour, until the next hourly
+                sweep ran. During that window, a DELETE request against the collection returned a normal
+                200 success response. A GET request for the same collection returned 404 Not Found. And a
+                POST request to create a new collection with that same name was rejected, because the
+                system still matched the tombstoned record by name and reported that it "already exists"
+                (Mixpeek, 2026). Three different API endpoints each gave a locally correct answer, and the
+                three answers, taken together, made no sense.
+              </p>
+              <p>
+                The assumption that failed is one most engineers never think to name, because it is true
+                almost everywhere else in their stack: that a success response from a delete operation
+                means the deletion is complete and every other endpoint will immediately agree. That
+                assumption is safe for a classical relational database, where a row delete happens inside a
+                single transaction and every subsequent read sees the same, consistent result. It is not
+                safe for an ANN index, because — as this article's RQ3 section showed — both HNSW and IVF
+                structurally cannot remove an entry the instant a delete call arrives; they can only mark it
+                and wait for a later sweep. Mixpeek's own explanation of the mechanism generalizes past
+                their specific bug: "removing a node would break the paths that run through it, so
+                implementations generally do not," and instead "set a deleted flag, keep the node in the
+                graph for traversal, and filter it out of results at query time" (Mixpeek, 2026). The team's
+                API contract had been built around the classical assumption; the storage layer underneath it
+                had not.
+              </p>
+              <IncidentTimelineSVG />
+              <p style={{ fontSize: 13, color: "#7F1D1D", marginTop: 4 }}>
+                <em>Sequence reconstructed from Mixpeek's own account of a bug fixed on 2026-08-17 (Mixpeek, 2026).</em>
+              </p>
+              <div style={{ margin: "20px 0" }}>
+                <InterpretationPrompt
+                  chartId="incidentchart" index={0}
+                  kindLabel="So-what / kill-criteria"
+                  prompt="Given that DELETE, GET, and POST each returned a locally-correct but mutually incoherent answer during the hour before the sweep ran, what single change to the API contract — not the index internals — would have caught this incoherence before a real user hit it?"
+                  authored="A consistency integration test that calls DELETE, then immediately GET, then immediately POST with the same name, asserting all three agree with each other — run automatically in CI and, ideally, as a synthetic production check — would have caught this before any customer did. The deeper fix Mixpeek itself names is making the pending-sweep state observable: exposing a status field so a caller can tell the difference between 'deleted' and 'deletion pending' instead of collapsing both into a plain success response."
+                  state={interpState}
+                  onSubmit={submitInterp}
+                />
+                <InterpretationPrompt
+                  chartId="incidentchart" index={1}
+                  kindLabel="Qualitative / mechanism"
+                  prompt="Why can a classical relational database guarantee that DELETE, GET, and a subsequent CREATE-by-same-key are always consistent with each other, in a way that an HNSW- or IVF-backed vector store structurally cannot without extra engineering?"
+                  authored="A relational delete removes or marks a row inside a single ACID transaction, and every later read goes through the same transactional visibility rules, so there is no window where different callers can see different truths. An ANN index's delete cannot be instantaneous without breaking the very structure that makes it fast — deleting a node instantly would sever the graph paths that route around it (HNSW) or leave a partition's bookkeeping inconsistent (IVF) — so the design defers real removal to an asynchronous sweep. The classical guarantee assumes atomic, transactional deletion; the AI-native structure trades that atomicity away for search speed, and the API layer has to make that trade visible instead of hiding it."
+                  state={interpState}
+                  onSubmit={submitInterp}
+                />
+              </div>
+              <p>
+                What the mitigation cost is not fully itemized in Mixpeek's own public account, so it should
+                be read as an ESTIMATE rather than a reported figure: at minimum, an incident-response cycle
+                to diagnose why three endpoints disagreed, plus an engineering change to make pending-sweep
+                state observable rather than silent — the same fix Mixpeek describes wanting going forward,
+                that "the sweep needs to be observable and its failures need to be loud" (Mixpeek, 2026). The
+                more expensive cost is the one that is hard to put a number on at all: every minute a
+                caller's DELETE-then-GET-then-CREATE sequence can produce an incoherent set of answers is a
+                minute a compliance team cannot honestly tell a regulator, or a customer, that a piece of
+                data is confirmed gone.
+              </p>
+              <p>
+                The lesson generalizes past this one vendor's bug, and past vector databases specifically.
+                A "delete" API built on top of an AI-native index — or any index that defers physical removal
+                for performance reasons — cannot promise the same immediacy a relational delete promises,
+                and pretending otherwise by returning a plain 200 is not a small rounding error; it is a
+                design decision hiding a real state machine (mark, wait, sweep, confirm) behind a response
+                code that looks binary. Weaviate's own tombstone-cleanup documentation shows this is not
+                unique to one vendor's mistake: it ships explicit, tunable parameters
+                (`TOMBSTONE_DELETION_MIN_PER_CYCLE`, `TOMBSTONE_DELETION_MAX_PER_CYCLE`) precisely because,
+                at genuine scale — its own example uses a 300-million-object shard — the sweep itself becomes
+                a resource-management problem, not an afterthought (Weaviate Documentation, 2026). Any team
+                shipping a deletion feature on top of HNSW or IVF should treat "when is it actually gone" as
+                a first-class, monitored question, not an assumption inherited from a different kind of
+                database.
+              </p>
+              <MCQ
+                q={{
+                  id: "mcq-broke",
+                  typeLabel: "Failure-case question",
+                  prompt: "Given the Mixpeek incident, which assumption in the original API design was most likely held by the team and considered uncontroversial — and why was it wrong?",
+                  options: [
+                    { text: "That customers would never delete a resource and immediately try to re-create one with the same name, so that conflict scenario was not worth testing.", wrongCalibration: "this is hindsight bias — it frames the fix as 'we should have tested this exact sequence,' which is only obvious after the failure, rather than naming the deeper assumption about what a delete response actually guarantees." },
+                    { text: "That the hourly sweep interval was too infrequent, and the team's only real mistake was not running the sweep every five minutes instead.", wrongCalibration: "this is scope-creep misdiagnosis — a faster sweep would narrow the window but not eliminate it, and it treats interval tuning as the fix when the deeper issue is that pending-sweep state was never exposed at all." },
+                    { text: "That tombstones should have been eliminated entirely in favor of instant hard deletes, which would have avoided this entire class of bug from the start.", wrongCalibration: "this is a single-cause fallacy that ignores why tombstoning exists in the first place — removing it would break the graph or partition structure the index depends on to stay fast, so this 'fix' is not actually available." },
+                    { text: "That a 200 from DELETE proves immediate, complete removal — reasonable for a relational row, but wrong once storage defers removal to an async sweep.", wrongCalibration: "" }
+                  ],
+                  correctIndex: 3,
+                  correctCalibration: "this generalizes to any API built on top of an eventually-consistent storage layer: a success response has to mean 'accepted and scheduled,' not 'complete,' and the API contract has to say which one it means.",
+                  explanation: "The team's DELETE, GET, and POST endpoints were each individually correct relative to their own internal state check, which is exactly why the bug is interesting: no single endpoint was buggy in isolation. The uncontroversial-sounding assumption underneath all three was that a 200 response from DELETE is equivalent to confirmed, complete removal — an assumption that holds for a relational row delete but breaks the instant the storage layer defers physical removal to a scheduled sweep, which is structurally true of ANN indexes generally, not just Mixpeek's implementation.",
+                  scaffold: "Look again at what each of the three endpoints (DELETE, GET, POST) was individually checking. None of them was wrong about its own state. What single belief, if held by all three, would explain why their combination still produced nonsense?",
+                  generalizes: "Any distributed or eventually-consistent system where a write acknowledgment is treated as a completion guarantee — the same failure shape appears in message queues where a 'publish accepted' response is mistaken for 'message delivered and processed.'"
+                }}
+                state={mcqState}
+                onAnswer={submitMcq}
+              />
+              <Glossary items={[
+                { term: "Eventual consistency", def: "A guarantee that a system will reach a correct, agreed-upon state given enough time — but not necessarily immediately after a write, leaving a window where different reads can disagree." }
+              ]} />
+            </div>
+          </div>
+
+          {/* ============================ LEARNING SUMMARY ============================ */}
+          <div ref={(el) => (sectionRefs.current.summary = el)} id="summary">
+            <SectionHeading id="summary">Learning Summary</SectionHeading>
+            <LearningSummaryBody
+              mcqState={mcqState}
+              warmupSkipped={warmupSkipped}
+              principleState={principleState}
+              insightSlot={insightSlot}
+              setInsightSlot={setInsightSlot}
+              applyIt={applyIt}
+              setApplyIt={setApplyIt}
+            />
+          </div>
+
+          {/* ============================ CONCLUSION ============================ */}
+          <div ref={(el) => (sectionRefs.current.conclusion = el)} id="conclusion">
+            <SectionHeading id="conclusion">Conclusion</SectionHeading>
+            <p>
+              The governing principle, now stress-tested against both the evidence and the failure case: a
+              vector index's structure is a bet about which resource — memory, build-time compute, or
+              tolerance for drifting and churning data — will run out first at a given scale, and neither
+              of that bet's two dominant answers, IVF or HNSW, wins across every scale, every dimensionality,
+              or every operational condition. Partial failure of this principle looks exactly like Meridian
+              Freight or Solace Health in the consulting-case questions above: a team correctly reads one
+              benchmark, picks the index that wins on that benchmark, and only discovers the hidden side of
+              the bet — a build time that no longer fits the maintenance window, or a deletion guarantee that
+              was never really a guarantee — once their own scale, dimensionality, or churn rate moves past
+              what the original benchmark tested.
+            </p>
+            <p>
+              For an AI product manager, this changes a decision that many teams treat as a one-time
+              engineering choice made at launch. Index selection should be revisited on a schedule tied to
+              two numbers: how fast the corpus is growing, and how much of it is being deleted or updated
+              per day — not chosen once and left alone until something visibly breaks. A PM shipping any
+              feature backed by a vector index should ask engineering for a recall-over-time dashboard
+              sampled against a fixed test set, not just a latency dashboard, because this article's
+              evidence shows precisely how a latency dashboard can stay green while recall quietly falls.
+            </p>
+            <p>
+              For a future CTO, the platform implication is that a shared vector-search layer should expose
+              index-family swapping and recall monitoring as first-class features, not implementation
+              details hidden inside one team's service. Meta's own 2025 numbers show that even inside a
+              single company's own library, the "right" index differs by workload — which means a platform
+              built around a single hard-coded choice is making that choice for every future team that uses
+              it, often without those teams knowing a choice was even made.
+            </p>
+            <p>
+              The most important question this article cannot answer: every benchmark used here compares
+              index types at a fixed recall target chosen by the benchmark's own authors — 95% recall@10 in
+              Meta's case. None of the sources in this article report what happens to a real user-facing
+              product metric — click-through rate, task completion, a support ticket rate — when recall
+              drops from 95% to 85%, or from a launch-day baseline to whatever it silently becomes six
+              months later. That link, from a recall percentage to actual user or business harm, is exactly
+              the gap the next article type in this curriculum, AI Metrics and Evaluation, exists to close —
+              and it remains open here.
+            </p>
+
+            <TEQuestion />
+
+            <p style={{ fontSize: 13, fontWeight: 700, color: "#6B5CD6", textTransform: "uppercase", marginTop: 28, marginBottom: -6 }}>
+              Final question — pattern transfer to a domain not covered in this article
+            </p>
+            <TFQuestion
+              q={{
+                id: "tf-final",
+                minLen: 50,
+                prompt: "Apply this article's governing principle to a domain not covered anywhere in this article: a national election board building a system to detect duplicate voter registrations by comparing biometric or address-similarity embeddings across 200 million records, where a false 'duplicate' match can wrongly cancel a real voter's registration. What would the team choose between IVF and HNSW and why, and what new failure mode would appear here that has nothing to do with search latency or memory cost?"
+              }}
+              state={mcqState}
+              onAnswer={submitMcq}
+            />
+          </div>
+
+          <div style={{ marginTop: 60, paddingTop: 20, borderTop: "1px solid #eee", fontSize: 13, color: "#777" }}>
+            <p><strong>Sources</strong></p>
+            <ul style={{ paddingLeft: 18 }}>
+              <li>Jégou, H., Douze, M., Johnson, J. "Faiss: A library for efficient similarity search." Meta Engineering, March 29, 2017. <a href="https://engineering.fb.com/2017/03/29/data-infrastructure/faiss-a-library-for-efficient-similarity-search/" target="_blank" rel="noopener">engineering.fb.com/2017/03/29/faiss-a-library-for-efficient-similarity-search</a> — FACT tier, primary source for billion-scale IVF/PQ benchmark numbers, memory budget, GPU speedup figures.</li>
+              <li>Qi, J., Szilvasy, G., Norris, M., Gandhi, V. "Accelerating GPU indexes in Faiss with NVIDIA cuVS." Meta Engineering, May 8, 2025. <a href="https://engineering.fb.com/2025/05/08/data-infrastructure/accelerating-gpu-indexes-in-faiss-with-nvidia-cuvs/" target="_blank" rel="noopener">engineering.fb.com/2025/05/08/accelerating-gpu-indexes-in-faiss-with-nvidia-cuvs</a> — FACT tier, primary source for the 2025 IVF/HNSW/CAGRA build-time and search-latency benchmark tables.</li>
+              <li>Sobot, P. "Introducing Voyager: Spotify's New Nearest-Neighbor Search Library." Spotify Engineering, October 25, 2023. <a href="https://engineering.atspotify.com/2023/10/introducing-voyager-spotifys-new-nearest-neighbor-search-library" target="_blank" rel="noopener">engineering.atspotify.com/2023/10/introducing-voyager</a> — FACT tier, primary source for Voyager-vs-Annoy multipliers and Spotify's own selection criteria.</li>
+              <li>"Vector index." Weaviate Documentation, accessed 2026. <a href="https://docs.weaviate.io/weaviate/config-refs/indexing/vector-index" target="_blank" rel="noopener">docs.weaviate.io/weaviate/config-refs/indexing/vector-index</a> — FACT tier, primary source for HNSW tombstone-cleanup configuration and scale guidance.</li>
+              <li>Sarkar, P. "HNSW at Scale: Why Your RAG System Gets Worse as the Vector Database Grows." Towards Data Science, January 7, 2026. <a href="https://towardsdatascience.com/hnsw-at-scale-why-your-rag-system-gets-worse-as-the-vector-database-grows/" target="_blank" rel="noopener">towardsdatascience.com/hnsw-at-scale</a> — FACT tier, independent reproducible benchmark used for the recall-under-growth evidence in RQ3.</li>
+              <li>"How Do You Delete Data From a Vector Index? Embeddings, Tombstones, and the Right to Be Forgotten." Mixpeek, updated August 18, 2026. <a href="https://mixpeek.com/guides/deleting-data-from-a-vector-index" target="_blank" rel="noopener">mixpeek.com/guides/deleting-data-from-a-vector-index</a> — FACT tier, primary source for the Mixpeek incident and the general HNSW/IVF deletion mechanism described in What Broke.</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function WarmupInput({ id, onSubmit }) {
+  const [text, setText] = useState("");
+  const minLen = 25;
+  return (
+    <>
+      <textarea
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        placeholder={"Write your answer (min " + minLen + " characters)..."}
+        style={{ width: "100%", minHeight: 60, borderRadius: 8, border: "1px solid #D8D8D8", padding: 10, fontSize: 14, fontFamily: "inherit" }}
+      />
+      <button
+        disabled={text.length < minLen}
+        onClick={() => onSubmit(id, text)}
+        style={{
+          marginTop: 6, padding: "6px 14px", borderRadius: 8, border: "none", fontWeight: 600, fontSize: 13,
+          background: text.length < minLen ? "#E5E5E5" : "#111", color: text.length < minLen ? "#999" : "#fff",
+          cursor: text.length < minLen ? "not-allowed" : "pointer"
+        }}
+      >Submit</button>
+      {text.length < minLen && <div style={{ fontSize: 12, color: "#999", marginTop: 4 }}>{text.length}/{minLen} characters minimum.</div>}
+    </>
+  );
+}
+
+function TEQuestion() {
+  const [present, setPresent] = useState({ thesis: "", assumption: "", disconfirm: "", premortem: "" });
+  const [future, setFuture] = useState({ change: "", replaces: "" });
+  const [submitted, setSubmitted] = useState(false);
+
+  const presentFields = [
+    ["thesis", "One-sentence so-what thesis"],
+    ["assumption", "Load-bearing assumption"],
+    ["disconfirm", "Strongest disconfirming evidence from this article"],
+    ["premortem", "One-line pre-mortem: \"If this fails in 12 months, the most likely reason is ___\""]
+  ];
+  const allFilled = presentFields.every(([k]) => present[k].length >= 15) && future.change.length >= 15 && future.replaces.length >= 15;
+  const weakest = presentFields.concat([["change", "2027: what changes"], ["replaces", "2027: assumption replaced"]])
+    .map(([k, label]) => ({ key: k, label, val: (present[k] !== undefined ? present[k] : future[k]) || "" }))
+    .sort((a, b) => a.val.length - b.val.length)[0];
+
+  return (
+    <div style={{ border: "1px solid #E4E4E4", borderRadius: 10, padding: 18, margin: "20px 0" }}>
+      <div style={{ fontSize: 11, fontWeight: 700, color: "#888", textTransform: "uppercase", marginBottom: 8 }}>
+        T-E — Forward-looking implication (Apply It)
+      </div>
+      <p style={{ fontWeight: 700, marginTop: 0 }}>Present-day variant</p>
+      <p style={{ fontSize: 13.5, color: "#555", marginTop: -6 }}>Apply the governing principle to a company or product you know.</p>
+      {presentFields.map(([key, label]) => (
+        <div key={key} style={{ marginBottom: 8 }}>
+          <label style={{ fontSize: 13, fontWeight: 600 }}>{label}</label>
+          <input
+            disabled={submitted}
+            value={present[key]}
+            onChange={(e) => setPresent({ ...present, [key]: e.target.value })}
+            style={{ width: "100%", padding: 8, borderRadius: 6, border: "1px solid #D8D8D8", fontSize: 13.5, marginTop: 3 }}
+          />
+        </div>
+      ))}
+      <p style={{ fontWeight: 700, marginTop: 16 }}>2027 forward-looking variant</p>
+      <p style={{ fontSize: 13.5, color: "#555", marginTop: -6 }}>
+        Given the same business constraints and user problem, but assuming foundation-model capabilities have improved (longer context, cheaper inference, better reasoning), what would you design or decide differently?
+      </p>
+      <div style={{ marginBottom: 8 }}>
+        <label style={{ fontSize: 13, fontWeight: 600 }}>What you would build/decide differently in 2027</label>
+        <input disabled={submitted} value={future.change} onChange={(e) => setFuture({ ...future, change: e.target.value })}
+          style={{ width: "100%", padding: 8, borderRadius: 6, border: "1px solid #D8D8D8", fontSize: 13.5, marginTop: 3 }} />
+      </div>
+      <div style={{ marginBottom: 8 }}>
+        <label style={{ fontSize: 13, fontWeight: 600 }}>The load-bearing assumption the 2027 version replaces — and what evidence would most change this article's governing principle (falsification)</label>
+        <input disabled={submitted} value={future.replaces} onChange={(e) => setFuture({ ...future, replaces: e.target.value })}
+          style={{ width: "100%", padding: 8, borderRadius: 6, border: "1px solid #D8D8D8", fontSize: 13.5, marginTop: 3 }} />
+      </div>
+      {!submitted && (
+        <button
+          disabled={!allFilled}
+          onClick={() => setSubmitted(true)}
+          style={{
+            marginTop: 6, padding: "8px 16px", borderRadius: 8, border: "none", fontWeight: 600,
+            background: !allFilled ? "#E5E5E5" : "#111", color: !allFilled ? "#999" : "#fff",
+            cursor: !allFilled ? "not-allowed" : "pointer"
+          }}
+        >Submit Apply It</button>
+      )}
+      {!allFilled && !submitted && <div style={{ fontSize: 12, color: "#999", marginTop: 4 }}>Fill in all six fields (15+ characters each) to enable Submit.</div>}
+      {submitted && (
+        <div style={{ background: "#F2F0FB", border: "1px solid #DAD4F5", borderRadius: 8, padding: 12, marginTop: 10 }}>
+          <p style={{ margin: 0, fontSize: 13.5 }}>
+            <strong>Evaluator note:</strong> all six parts are present. The part reading as thinnest by length is
+            "<em>{weakest.label}</em>" — worth revisiting with a more specific, decision-relevant detail if you want to
+            stress-test your own answer further. This evaluator checks for presence and relative depth of each labeled
+            part, not for keyword matches.
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function LearningSummaryBody({ mcqState, warmupSkipped, principleState, insightSlot, setInsightSlot, applyIt, setApplyIt }) {
+  const scored = Object.keys(mcqState).filter(
+    (k) => mcqState[k] && mcqState[k].submitted && typeof mcqState[k].correct === "boolean"
+  );
+  const correct = scored.filter((k) => mcqState[k].correct);
+  const missed = scored.filter((k) => !mcqState[k].correct);
+
+  const principleMap = {
+    "rq1": "An index's structure is a bet about which resource it spends to answer queries fast.",
+    "rq2": "No public benchmark can declare a permanent winner between HNSW and IVF across scales.",
+    "rq3": "An ANN index's deletion cost is a scheduling promise, not a guarantee, invisible on a launch-day chart."
+  };
+  const missedPrinciples = missed.map((k) => {
+    if (k.includes("rq1")) return principleMap.rq1;
+    if (k.includes("rq2")) return principleMap.rq2;
+    if (k.includes("rq3") || k.includes("tg1") || k.includes("th1")) return principleMap.rq3;
+    if (k.includes("broke")) return "A 'delete' response on an AI-native index means 'accepted and scheduled,' not 'complete.'";
+    return "General principle of the article.";
+  });
+  const uniqueMissedPrinciples = [...new Set(missedPrinciples)];
+
+  return (
+    <div>
+      <div style={{ background: "#F7F7F7", borderRadius: 10, padding: 16, marginBottom: 20 }}>
+        <p style={{ fontWeight: 700, marginTop: 0 }}>Score breakdown</p>
+        <p style={{ fontSize: 14 }}>{correct.length} correct out of {scored.length} scored questions.</p>
+        <p style={{ fontSize: 13.5, color: "#555" }}>
+          {warmupSkipped
+            ? "Warm-up skipped — 3 prior principles not reviewed this session."
+            : "Warm-up completed before this session."}
+        </p>
+      </div>
+
+      <div style={{ marginBottom: 20 }}>
+        <p style={{ fontWeight: 700 }}>Principle production review</p>
+        {["rq1", "rq2", "rq3"].map((id) => (
+          <div key={id} style={{ background: "#fff", border: "1px solid #E4E4E4", borderRadius: 8, padding: 10, marginBottom: 8 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: "#555" }}>YOUR PRINCIPLE ({id.toUpperCase()})</div>
+            <p style={{ margin: "4px 0 0 0", fontSize: 13.5 }}>{principleState[id] && principleState[id].submitted ? principleState[id].text : "Not yet submitted."}</p>
+          </div>
+        ))}
+        <p style={{ fontSize: 13.5, color: "#555" }}>Which of your stated principles surprised you most when compared to the authored version? Why? (Reflect in your own notes — this is not re-scored here.)</p>
+      </div>
+
+      <div style={{ marginBottom: 20 }}>
+        <p style={{ fontWeight: 700 }}>Three insight slots</p>
+        <p style={{ fontSize: 13.5, color: "#555" }}>You have seen evidence from Meta, Spotify, Weaviate, and Mixpeek. Write the single most non-obvious insight you would defend to a skeptical CTO.</p>
+        {!insightSlot.submitted && (
+          <>
+            <textarea
+              value={insightSlot.text}
+              onChange={(e) => setInsightSlot({ ...insightSlot, text: e.target.value })}
+              style={{ width: "100%", minHeight: 60, borderRadius: 8, border: "1px solid #D8D8D8", padding: 10, fontSize: 14, fontFamily: "inherit" }}
+              placeholder="Minimum 20 characters..."
+            />
+            <button
+              disabled={insightSlot.text.length < 20}
+              onClick={() => setInsightSlot({ ...insightSlot, submitted: true })}
+              style={{
+                marginTop: 6, padding: "7px 14px", borderRadius: 8, border: "none", fontWeight: 600, fontSize: 13,
+                background: insightSlot.text.length < 20 ? "#E5E5E5" : "#111", color: insightSlot.text.length < 20 ? "#999" : "#fff",
+                cursor: insightSlot.text.length < 20 ? "not-allowed" : "pointer"
+              }}
+            >Reveal authored insights</button>
+          </>
+        )}
+        {insightSlot.submitted && (
+          <>
+            <div style={{ background: "#fff", border: "1px solid #E4E4E4", borderRadius: 8, padding: 10, marginBottom: 8 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: "#555" }}>YOUR INSIGHT</div>
+              <p style={{ margin: "4px 0 0 0", fontSize: 13.5 }}>{insightSlot.text}</p>
+            </div>
+            <p style={{ fontSize: 13, fontWeight: 700 }}>How your insight compares — three authored insight cards:</p>
+            {[
+              "The two Meta benchmarks that matter most for a PM aren't the ones that show which index is fastest — they show the ranking is a function of scale and dimensionality together, so 'index X is faster' is only ever true for one tested shape of data.",
+              "Every 'delete' action in a vector-search product is making a promise the underlying data structure cannot keep instantly — HNSW and IVF both convert deletion from a guarantee into a scheduling problem, and most product teams never surface that to users or auditors.",
+              "The single most expensive mistake in vector index selection is not picking the 'wrong' algorithm — it is picking the right one for launch day and never re-testing it as the corpus's size, dimensionality, or churn rate change underneath it."
+            ].map((t, i) => (
+              <div key={i} style={{ background: "#F2F0FB", border: "1px solid #DAD4F5", borderRadius: 8, padding: 10, marginBottom: 6 }}>
+                <p style={{ margin: 0, fontSize: 13.5 }}>{t}</p>
+              </div>
+            ))}
+          </>
+        )}
+      </div>
+
+      <div style={{ marginBottom: 8 }}>
+        <p style={{ fontWeight: 700 }}>Principles to revisit</p>
+        {uniqueMissedPrinciples.length === 0 && <p style={{ fontSize: 13.5, color: "#555" }}>No missed questions yet, or none answered — this list fills in as you answer scored questions above.</p>}
+        {uniqueMissedPrinciples.map((p, i) => (
+          <p key={i} style={{ fontSize: 13.5, background: "#FDEDED", padding: 8, borderRadius: 6 }}>{p}</p>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+const root = ReactDOM.createRoot(document.getElementById("root"));
+root.render(<App />);
+
+</script>
+</body>
+</html>
