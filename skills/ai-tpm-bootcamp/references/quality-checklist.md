@@ -27,7 +27,7 @@ Run this checklist before delivering any session's artifact.
 ## Artifact Structure (Case File, Not a Graded App)
 
 - [ ] No client-side gating/grading JavaScript was added — the artifact only renders `CASE`, `STAGES`, `CURRENT_STAGE_INDEX`, `EXHIBITS`, and `SCORECARD`.
-- [ ] Every exhibit's exact values are printed in a table — never chart-only.
+- [ ] Every `table`/`chart` exhibit's exact values are printed in a table — never chart-only. (A `text` exhibit renders a preformatted block instead — see `artifact-generator.md`'s EXHIBITS docs — and has no table to check.)
 - [ ] Charts (where used) are wrapped in a fixed-height `ResponsiveContainer` and only used for naturally trend/comparison exhibits.
 - [ ] `index.html`'s inlined script matches `app.js` byte-for-byte in logic.
 - [ ] No `<script type="text/babel" src="app.js">` and no leftover `CASE:` placeholder comments or `_PLACEHOLDER` strings remain.
@@ -42,7 +42,7 @@ these checks — say so instead.
 - [ ] The app code transpiles with no syntax errors (esbuild/Babel check on the filled JSX).
 - [ ] The built `index.html` opens in a real browser and mounts — `#root` is populated, not blank, and the console shows no errors on load.
 - [ ] The stage tracker renders all stages; the pill at `CURRENT_STAGE_INDEX` shows the active style, earlier pills show the done style, later pills show the pending style.
-- [ ] Every exhibit renders its table; any chart exhibit renders visible data and the table beneath it shows the same values.
+- [ ] Every `table`/`chart` exhibit renders its table; any `chart` exhibit renders visible data and the table beneath it shows the same values. Any `text` exhibit renders its preformatted block instead (no table expected).
 - [ ] Once `SCORECARD` is populated, the Debrief section renders the dimension table, average, graduation status, weakest dimension, and next-recommended focus with no missing/undefined values.
 - [ ] No console errors are produced while the page is open.
 - [ ] If a live browser was not available, this is stated explicitly in the delivery note, and the artifact is NOT reported as verified.

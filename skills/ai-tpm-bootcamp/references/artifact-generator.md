@@ -80,7 +80,7 @@ constants at the top of `app.js` that the components render from directly
 - `App` — renders a header block (title, phase/topic line, `StageTracker`) inline, then `CaseBrief`, then `Exhibits`, then `Scorecard`.
 - `StageTracker` — one pill per `STAGES` entry; class `stage-done` (index < `CURRENT_STAGE_INDEX`), `stage-active` (index === `CURRENT_STAGE_INDEX`), or `stage-pending` (index > `CURRENT_STAGE_INDEX`).
 - `CaseBrief` — renders `CASE.situation` and `CASE.givens`.
-- `Exhibits` — maps `EXHIBITS`; renders `ExhibitChart` before `ExhibitTable` when `type === 'chart'`, otherwise just `ExhibitTable`. Renders nothing (returns `null`) if `EXHIBITS` is empty.
+- `Exhibits` — maps `EXHIBITS`; renders `ExhibitChart` before `ExhibitTable` when `type === 'chart'`, a `<pre>` block instead of `ExhibitTable` when `type === 'text'`, otherwise just `ExhibitTable`. Renders nothing (returns `null`) if `EXHIBITS` is empty.
 - `ExhibitTable` — plain HTML `<table>` from `columns`/`data`.
 - `ExhibitChart` — Recharts `BarChart` or `LineChart` (per `chartKind`) wrapped in a fixed-height (`260px`) `ResponsiveContainer`. Only used when an exhibit is naturally a trend/comparison — do not force a chart onto a purely categorical or log-style exhibit; a table-only exhibit is correct and sufficient.
 - `Scorecard` — returns `null` while `SCORECARD` is `null`; otherwise renders the dimension table, average, graduation status, weakest dimension, and next-recommended focus.
@@ -121,6 +121,6 @@ rubric result from `rubric-and-scoring.md`.
 No leftover placeholder comments or TODO markers, `STAGES.length` matches
 the case type (7 standard / 10 capstone), `CURRENT_STAGE_INDEX` is the last
 index (Debrief) and `SCORECARD` is non-null by the time the session ends,
-every exhibit's table renders the same values as its chart, and the file
+every `table`/`chart` exhibit's table renders the same values as its chart (a `text` exhibit renders its preformatted block instead, with no table to check), and the file
 opens with an empty `#root` becoming populated with no console errors — see
 `quality-checklist.md` → Functional Validation, a hard gate, not optional.
