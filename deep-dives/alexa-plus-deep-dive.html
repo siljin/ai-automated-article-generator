@@ -1,0 +1,591 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Deep Dive 101 — Amazon Alexa+</title>
+<style>
+:root{
+  --bg:#FAFAF8; --panel:#FFFFFF; --ink:#14213D; --ink-soft:#4A5568; --ink-faint:#9CA3AF;
+  --line:#E2E4E8; --accent:#C4622D; --accent-soft:#F3E4D8; --good:#2F6F4E; --bad:#B3452C;
+}
+*{box-sizing:border-box;}
+body{margin:0;background:var(--bg);font-family:-apple-system,"Segoe UI",Helvetica,Arial,sans-serif;
+  color:var(--ink-soft);font-size:15px;line-height:1.5;-webkit-font-smoothing:antialiased;}
+.wrap{max-width:900px;margin:0 auto;padding:56px 32px 80px;}
+.eyebrow{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-faint);}
+h1{font-size:34px;line-height:1.15;font-weight:600;color:var(--ink);margin:10px 0 12px;letter-spacing:-.01em;}
+h2{font-size:20px;font-weight:600;color:var(--ink);margin:6px 0 14px;}
+h3{font-size:14px;font-weight:600;color:var(--ink);margin:0 0 6px;}
+p{margin:0 0 14px;}
+a{color:var(--accent);}
+.lede{font-size:17px;color:var(--ink-soft);max-width:680px;margin-bottom:18px;}
+.badges{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;}
+.badge{display:inline-block;font-size:11px;letter-spacing:.06em;text-transform:uppercase;
+  padding:5px 10px;border:1px solid var(--line);border-radius:3px;background:var(--panel);color:var(--ink-soft);}
+.badge.accent{background:var(--accent-soft);border-color:#E4C9B4;color:#8A4520;}
+.rule{height:1px;background:var(--line);margin:34px 0;}
+
+/* spine */
+.spine{position:relative;border-left:2px solid var(--line);padding-left:34px;margin-top:20px;}
+section{position:relative;padding:56px 0 8px;}
+section:first-child{padding-top:24px;}
+.node{position:absolute;left:-42px;top:60px;width:11px;height:11px;border-radius:50%;
+  background:var(--accent);border:2px solid var(--bg);}
+section:first-child .node{top:28px;}
+
+/* stat rows */
+.stats{display:flex;gap:44px;flex-wrap:wrap;margin:18px 0 28px;}
+.stat .lbl{font-size:11px;letter-spacing:.07em;text-transform:uppercase;color:var(--ink-faint);}
+.stat .num{font-size:30px;font-weight:600;color:var(--ink);margin:4px 0 6px;letter-spacing:-.01em;}
+.stat .cap{font-size:12.5px;color:var(--ink-soft);max-width:250px;line-height:1.45;}
+
+/* verdict */
+.verdict{background:var(--panel);border:1px solid var(--line);border-left:3px solid var(--accent);
+  padding:16px 18px;margin:26px 0 6px;border-radius:2px;}
+.verdict .eyebrow{margin-bottom:6px;}
+.verdict p{margin:0;font-size:15px;color:var(--ink);line-height:1.55;}
+
+/* stack diagram */
+.stack{margin:20px 0 8px;}
+.layer{background:var(--panel);border:1px solid var(--line);border-radius:2px;padding:13px 16px;margin-bottom:7px;
+  display:flex;gap:18px;align-items:flex-start;}
+.layer .lname{font-size:13.5px;font-weight:600;color:var(--ink);min-width:150px;flex-shrink:0;}
+.layer .ldesc{font-size:13.5px;color:var(--ink-soft);flex:1;}
+.layer .ltech{font-size:12px;color:var(--ink-faint);min-width:170px;flex-shrink:0;text-align:right;}
+.layer.hi{border-color:#E4C9B4;background:var(--accent-soft);}
+
+/* timeline */
+.tl{margin:26px 0 10px;}
+.tl-row{display:flex;gap:16px;align-items:flex-start;padding:11px 0;border-bottom:1px solid var(--line);}
+.tl-row:last-child{border-bottom:none;}
+.tl-date{font-size:11.5px;letter-spacing:.05em;text-transform:uppercase;color:var(--ink-faint);
+  min-width:96px;flex-shrink:0;padding-top:2px;}
+.tl-lab{font-size:13.5px;font-weight:600;color:var(--ink);min-width:190px;flex-shrink:0;}
+.tl-note{font-size:13.5px;color:var(--ink-soft);flex:1;}
+
+/* tables */
+table{width:100%;border-collapse:collapse;margin:18px 0 8px;font-size:13.5px;}
+th{text-align:left;font-size:11px;letter-spacing:.07em;text-transform:uppercase;color:var(--ink-faint);
+  font-weight:500;padding:8px 12px 8px 0;border-bottom:1px solid var(--line);vertical-align:bottom;}
+td{padding:11px 12px 11px 0;border-bottom:1px solid var(--line);color:var(--ink-soft);vertical-align:top;}
+td strong{color:var(--ink);font-weight:600;}
+tr.self td{background:var(--accent-soft);}
+tr.self td:first-child{box-shadow:inset 3px 0 0 var(--accent);padding-left:12px;}
+.tag{display:inline-block;font-size:10.5px;letter-spacing:.05em;text-transform:uppercase;
+  padding:2px 7px;border-radius:2px;border:1px solid var(--line);color:var(--ink-soft);white-space:nowrap;}
+.tag.ahead{color:var(--good);border-color:#BFD8CA;background:#F1F7F3;}
+.tag.behind{color:var(--bad);border-color:#E8C6BC;background:#FBF1EE;}
+.tag.inline{color:var(--ink-faint);}
+
+/* motion badge */
+.motion{background:var(--panel);border:1px solid var(--line);border-radius:2px;padding:18px 20px;margin:20px 0;}
+.motion .big{font-size:19px;font-weight:600;color:var(--ink);margin-bottom:6px;}
+
+/* cards */
+.cards{display:flex;gap:14px;flex-wrap:wrap;margin:18px 0 8px;}
+.card{flex:1 1 250px;background:var(--panel);border:1px solid var(--line);border-radius:2px;padding:15px 16px;}
+.card.risk{border-top:3px solid var(--bad);}
+.card.opp{border-top:3px solid var(--good);}
+.card.bet{border-top:3px solid var(--accent);}
+.card p{font-size:13.5px;margin:0;}
+.card .when{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-faint);margin-top:8px;}
+
+/* 2x2 */
+.grid2{position:relative;margin:26px 0 10px;}
+.axq{font-size:12.5px;color:var(--ink-soft);margin-bottom:10px;}
+.axq b{color:var(--ink);}
+
+/* small multiples */
+.sm{display:flex;gap:14px;flex-wrap:wrap;margin:20px 0 8px;}
+.smc{flex:1 1 200px;background:var(--panel);border:1px solid var(--line);border-radius:2px;padding:14px 15px;}
+.smc h3{font-size:12.5px;}
+.smc .sub{font-size:11.5px;color:var(--ink-faint);margin-bottom:10px;}
+.smc .tagline{margin-top:10px;}
+
+/* misc */
+ul.tight{margin:6px 0 14px;padding-left:18px;}
+ul.tight li{margin-bottom:7px;font-size:14px;}
+.note{font-size:12.5px;color:var(--ink-faint);font-style:normal;margin-top:10px;}
+footer{border-top:1px solid var(--line);margin-top:56px;padding-top:24px;font-size:12.5px;color:var(--ink-faint);}
+footer a{color:var(--ink-soft);text-decoration:none;border-bottom:1px solid var(--line);}
+footer h3{color:var(--ink-soft);font-size:11px;letter-spacing:.07em;text-transform:uppercase;margin-bottom:8px;}
+.srcs{margin:0 0 16px;padding-left:16px;}
+.srcs li{margin-bottom:5px;line-height:1.4;}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="badges">
+    <span class="badge accent">Scoped to provided sources</span>
+    <span class="badge">Deep Dive 101</span>
+    <span class="badge">Generated 25 Aug 2026 · data as of Aug 2026</span>
+  </div>
+  <div class="eyebrow">Amazon · Devices &amp; Services</div>
+  <h1>Alexa+</h1>
+  <p class="lede">Amazon's generative-AI rebuild of Alexa: a conversational assistant with agentic task execution across tens of thousands of third-party services, distributed free to Prime members across an installed base of 600M+ devices.</p>
+
+  <div class="stats">
+    <div class="stat">
+      <div class="lbl">Announced</div>
+      <div class="num">Feb 2025</div>
+      <div class="cap">Unveiled 26 Feb 2025; general US availability reached Feb 2026 after ~1 year of waitlisted early access</div>
+    </div>
+    <div class="stat">
+      <div class="lbl">Installed base</div>
+      <div class="num">600M+</div>
+      <div class="cap">Alexa devices in market, per Amazon — the distribution Alexa+ inherits rather than has to earn</div>
+    </div>
+    <div class="stat">
+      <div class="lbl">List price</div>
+      <div class="num">$19.99<span style="font-size:16px;font-weight:400;">/mo</span></div>
+      <div class="cap">Free for all Prime members; also free on Fire TV and in the Amazon Music app across all tiers</div>
+    </div>
+    <div class="stat">
+      <div class="lbl">Shopping reach</div>
+      <div class="num">350M+</div>
+      <div class="cap">Customers using Alexa for Shopping in the trailing 12 months (Amazon Q2 2026 call); active users ~2x YoY</div>
+    </div>
+    <div class="stat">
+      <div class="lbl">Markets</div>
+      <div class="num">11+</div>
+      <div class="cap">Full availability US &amp; Canada; early access in UK, Germany, France, Italy, Spain, Austria, Mexico, Brazil, Australia</div>
+    </div>
+  </div>
+
+  <div class="rule"></div>
+
+  <div class="spine">
+
+  <!-- 01 BUILD -->
+  <section>
+    <div class="node"></div>
+    <div class="eyebrow">01 — How it's built</div>
+    <h2>An orchestration layer wrapped around rented intelligence</h2>
+    <p>Amazon's own framing is that Alexa+ was rebuilt from the ground up, but the rebuild is not a model project. The foundation models come from Amazon Bedrock — Amazon Nova and Anthropic Claude — and a routing system picks the right one per request to trade accuracy against latency. What Amazon actually built is everything <em>around</em> the models: a layer that makes LLMs call real APIs reliably, chain multiple calls together, and fall back to browsing a website like a person when no API exists.</p>
+
+    <div class="stack">
+      <div class="layer">
+        <div class="lname">Client surfaces</div>
+        <div class="ldesc">Where a request enters — and context follows the user between them mid-conversation</div>
+        <div class="ltech">Echo / Echo Show, Fire TV, Alexa mobile app, Alexa.com, Amazon Music app, Amazon shopping app</div>
+      </div>
+      <div class="layer hi">
+        <div class="lname">"Experts" layer</div>
+        <div class="ldesc">Bundles of systems, APIs and instructions scoped to a task type — the piece that lets an LLM act on the world instead of just describing it</div>
+        <div class="ltech">Partner APIs: OpenTable, Uber, Grubhub, Ticketmaster, Spotify, Thumbtack, Philips Hue, Vagaro</div>
+      </div>
+      <div class="layer hi">
+        <div class="lname">Agentic navigation</div>
+        <div class="ldesc">Fallback for partners with no usable API — Alexa+ drives a website itself, authenticates and completes the task unsupervised</div>
+        <div class="ltech">Self-directed web navigation (Amazon's stated example: booking an oven repair via Thumbtack)</div>
+      </div>
+      <div class="layer">
+        <div class="lname">Model routing</div>
+        <div class="ldesc">Matches each request to the best-fit model for the job, balancing conversational speed against answer quality</div>
+        <div class="ltech">Amazon Bedrock — Amazon Nova, Anthropic Claude</div>
+      </div>
+      <div class="layer">
+        <div class="lname">Grounding &amp; memory</div>
+        <div class="ldesc">Suppresses hallucination with retrieved real-time sources, plus a personalization store of purchase history, preferences and user-supplied facts and documents</div>
+        <div class="ltech">Licensed news feeds from AP, Reuters, The Washington Post, TIME, Condé Nast, Vox + 200 more outlets</div>
+      </div>
+      <div class="layer">
+        <div class="lname">Infrastructure</div>
+        <div class="ldesc">Hosting, identity and the privacy/controls surface presented to customers</div>
+        <div class="ltech">AWS; Alexa Privacy dashboard</div>
+      </div>
+    </div>
+
+    <ul class="tight">
+      <li><strong>Technically notable — the hard part was API reliability, not fluency.</strong> Amazon's engineering account is explicit that LLMs don't natively support APIs, and that making them chain calls dependably at this scale was the core breakthrough. That's a systems problem, not a model problem.</li>
+      <li><strong>Technically notable — model-agnostic by design.</strong> Routing across Bedrock means Amazon can swap in a better model without rewriting Alexa+. It also means Amazon has deliberately declined to compete on frontier model quality here.</li>
+      <li><strong>Technically risky — agentic browsing has no contract.</strong> Driving a partner's website unsupervised works until that site changes its layout, adds a bot check, or objects. The API path degrades gracefully; this one degrades silently.</li>
+    </ul>
+
+    <div class="verdict">
+      <div class="eyebrow">Verdict — build</div>
+      <p>The architecture is a real differentiator, but not where the marketing points: the moat is the breadth of the API-orchestration layer and the partner integrations behind it, which is expensive and slow for a rival to replicate — while the intelligence itself is rented from Bedrock and could be matched by anyone next quarter.</p>
+    </div>
+  </section>
+
+  <!-- 02 PRODUCT -->
+  <section>
+    <div class="node"></div>
+    <div class="eyebrow">02 — What it does</div>
+    <h2>Four capabilities, one of which is actually new</h2>
+
+    <table>
+      <thead><tr><th style="width:24%">Capability</th><th style="width:44%">Job it does for the user</th><th>Who it's for</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Agentic task completion</strong></td><td>Books, orders, reserves and arranges across partner services — including navigating a site itself when no API exists — and reports back when done</td><td>Anyone offloading errands; the only capability with no direct equivalent at this device scale</td></tr>
+        <tr><td><strong>Shopping &amp; commerce</strong></td><td>Research, product comparison, up to a year of price history, deal automation, cart building and routine repurchase, via Alexa for Shopping</td><td>Amazon buyers — and the surface Amazon most wants used</td></tr>
+        <tr><td><strong>Personalized memory</strong></td><td>Draws on purchase history, addresses, payment methods and viewing/listening history, plus user-supplied facts (dietary needs, family dates, recipes) and uploaded documents, emails and photos</td><td>Households coordinating multiple people's constraints</td></tr>
+        <tr><td><strong>Conversational knowledge</strong></td><td>Handles half-formed questions, summarizes complex topics, generates content, answers grounded in licensed real-time news</td><td>Everyone — but this is where every rival assistant also lives</td></tr>
+        <tr><td><strong>Home &amp; media control</strong></td><td>Moves playback between rooms and devices, checks Ring cameras, builds multi-step Routines by voice with no app</td><td>Existing Echo / Fire TV / Ring households</td></tr>
+        <tr><td><strong>Music intelligence</strong></td><td>Finds half-remembered songs from lyrics or scenes, builds and refines dynamic playlists from mood prompts, explains samples, influences and lyrics</td><td>Amazon Music users across all tiers, at no extra cost</td></tr>
+        <tr><td><strong>Personality styles</strong></td><td>Four tone presets — Brief, Chill, Sweet, Sassy — that change delivery without changing capability</td><td>Retention feature; a direct answer to complaints about verbosity</td></tr>
+      </tbody>
+    </table>
+
+    <div class="tl">
+      <div class="tl-row"><div class="tl-date">Nov 2014</div><div class="tl-lab">Original Echo ships</div><div class="tl-note">Creates the smart speaker category; a decade of installed base accumulates behind it</div></div>
+      <div class="tl-row"><div class="tl-date">26 Feb 2025</div><div class="tl-lab">Alexa+ announced</div><div class="tl-note">New architecture, "experts" concept, agentic capabilities, $19.99/mo or free with Prime</div></div>
+      <div class="tl-row"><div class="tl-date">Mar 2025</div><div class="tl-lab">Waitlisted early access</div><div class="tl-note">Rolls out in waves, starting with Echo Show 8, 10, 15 and 21 households</div></div>
+      <div class="tl-row"><div class="tl-date">Sep 2025</div><div class="tl-lab">New Echo hardware</div><div class="tl-note">Echo Show 11 and Echo Show 8 refresh built around the Alexa+ experience</div></div>
+      <div class="tl-row"><div class="tl-date">4 Nov 2025</div><div class="tl-lab">Amazon Music integration</div><div class="tl-note">Conversational music search and playlist generation, iOS and Android, all subscription tiers</div></div>
+      <div class="tl-row"><div class="tl-date">4 Feb 2026</div><div class="tl-lab">Full US availability</div><div class="tl-note">Waitlist removed roughly a year after announcement; Prime members upgraded without opt-in</div></div>
+      <div class="tl-row"><div class="tl-date">H1 2026</div><div class="tl-lab">Fire TV, free tier</div><div class="tl-note">Included on Fire TV at no additional cost, widening the surface beyond Echo</div></div>
+      <div class="tl-row"><div class="tl-date">Jun 2026</div><div class="tl-lab">Agentic Ads beta</div><div class="tl-note">Debuts at Cannes Lions on Echo Show with a closed partner list — purchase completed inside the conversation</div></div>
+      <div class="tl-row"><div class="tl-date">Jul–Aug 2026</div><div class="tl-lab">International expansion</div><div class="tl-note">Canada to full availability; early access across UK, Germany, France, Italy, Spain, Austria, Mexico, Brazil, Australia</div></div>
+    </div>
+
+    <div class="verdict">
+      <div class="eyebrow">Verdict — product</div>
+      <p>The hook is agentic execution fused with data Amazon already holds — it knows your address, your card and your dietary constraints, so "order dinner" is one turn instead of ten. Conversational quality, personality styles and music intelligence are polish and parity; they are not why anyone would switch ecosystems.</p>
+    </div>
+  </section>
+
+  <!-- 03 LAUNCH & GTM -->
+  <section>
+    <div class="node"></div>
+    <div class="eyebrow">03 — How it launched and goes to market</div>
+    <h2>Nobody had to be sold anything</h2>
+    <p>Alexa+ was announced at a dedicated February 2025 devices event and then rolled out for nearly a year as a waitlisted early-access preview — users joined a queue or bought a new Echo Show to jump it. When general availability landed in February 2026, Prime members were simply upgraded, no opt-in required. There was no acquisition funnel because there was no acquisition: the customers were already in the house.</p>
+
+    <div class="motion">
+      <div class="big">Distribution-led — installed base first, monetization later</div>
+      <p style="margin:0;font-size:13.5px;">Not product-led growth (no viral loop, no self-serve signup driving discovery) and not sales-led (no seat expansion, no enterprise motion). Amazon's channel is 600M+ devices it already owns the relationship with, plus Prime as the bundling vehicle. The scarce resource being spent is capacity and reliability, not marketing dollars.</p>
+    </div>
+
+    <h3 style="margin-top:22px;">Channel mix</h3>
+    <ul class="tight">
+      <li><strong>Installed hardware</strong> — Echo, Echo Show, Fire TV and Fire tablets, upgraded in place.</li>
+      <li><strong>Prime bundle</strong> — positioned as a new reason the membership is worth the price, alongside delivery speed, Prime Video and Amazon Music.</li>
+      <li><strong>Adjacent Amazon apps</strong> — Amazon Music and the Amazon shopping app expose Alexa+ to users who may own no Echo device at all.</li>
+      <li><strong>Owned media</strong> — the About Amazon newsroom carries the launch narrative, the technical explainer and per-market announcements; there is no visible paid performance-marketing motion.</li>
+      <li><strong>Hardware events</strong> — annual devices events pair new Echo Show models with the software story, converting the announcement into a purchase occasion.</li>
+    </ul>
+
+    <div class="verdict">
+      <div class="eyebrow">Verdict — launch &amp; GTM</div>
+      <p>The GTM matches the buyer almost perfectly — the person paying is already a Prime member, and the upgrade is free and automatic — but the year of waitlisted early access was a real strategic cost: it handed Google and Apple twelve months of daylight while Amazon shipped in waves, and it meant the first broad public impression was formed by beta-quality software.</p>
+    </div>
+  </section>
+
+  <!-- 04 BUSINESS MODEL -->
+  <section>
+    <div class="node"></div>
+    <div class="eyebrow">04 — How it makes money</div>
+    <h2>The subscription is the least important revenue line</h2>
+    <p>The headline number is a $19.99/month subscription. In practice almost nobody in the target market pays it: it is waived for Prime members, waived on Fire TV, and waived inside the Amazon Music app across all tiers. The $19.99 works as a price anchor that makes Prime look better, not as a revenue stream. The money is downstream.</p>
+
+    <table>
+      <thead><tr><th style="width:22%">Tier / surface</th><th style="width:16%">Price</th><th style="width:26%">Who it's for</th><th>What's included</th></tr></thead>
+      <tbody>
+        <tr class="self"><td><strong>Prime member</strong></td><td><strong>$0</strong> (included)</td><td>The overwhelming majority of the addressable base</td><td>Full Alexa+ across Echo, Fire TV, mobile app, Alexa.com; personalization; agentic actions</td></tr>
+        <tr><td><strong>Non-Prime standalone</strong></td><td>$19.99/mo</td><td>Echo owners who decline Prime</td><td>Same feature set; functions mainly as the price that makes Prime the obvious choice</td></tr>
+        <tr><td><strong>Fire TV</strong></td><td>$0</td><td>Fire TV households, Prime or not</td><td>Alexa+ on the TV surface at no additional cost</td></tr>
+        <tr><td><strong>Amazon Music app</strong></td><td>$0</td><td>All US Amazon Music customers, every tier</td><td>Conversational music search, playlist generation, deep catalogue knowledge</td></tr>
+      </tbody>
+    </table>
+
+    <div class="stats" style="margin-top:26px;">
+      <div class="stat">
+        <div class="lbl">Order value lift</div>
+        <div class="num">+40%</div>
+        <div class="cap">Average spend per order for US customers using Alexa for Shopping vs. those who don't (Amazon, Q2 2026)</div>
+      </div>
+      <div class="stat">
+        <div class="lbl">Prime conversion lift</div>
+        <div class="num">~+25%</div>
+        <div class="cap">Higher rate of joining Prime among shoppers who try Alexa+ (Amazon, Q2 2026)</div>
+      </div>
+      <div class="stat">
+        <div class="lbl">Shopping interactions</div>
+        <div class="num">5x</div>
+        <div class="cap">Year-over-year growth in Alexa for Shopping interactions; active users nearly doubled</div>
+      </div>
+      <div class="stat">
+        <div class="lbl">Music engagement</div>
+        <div class="num">+70%</div>
+        <div class="cap">More music listened to by customers who searched for recommendations; 3x more music exploration vs. original Alexa</div>
+      </div>
+    </div>
+
+    <h3 style="margin-top:8px;">Where the margin actually comes from</h3>
+    <ul class="tight">
+      <li><strong>Prime retention and conversion.</strong> Alexa+ is a churn-reduction feature on a membership that already monetizes through commerce, media and delivery. A 25% lift in Prime join rate among triers is worth far more than $19.99 subscriptions ever would be.</li>
+      <li><strong>Commerce take rate.</strong> Every order placed by voice runs through Amazon retail, where the margin already exists. The +40% order value figure is the business case in one number.</li>
+      <li><strong>Agentic advertising — the new line.</strong> Alexa+ Agentic Ads, in beta on Echo Show since mid-2026 with a closed partner list, lets a shopper go from hearing an ad to completing the purchase inside the same spoken conversation. Pricing is undisclosed; Fire TV expansion is planned, not live.</li>
+      <li><strong>Cost side.</strong> Inference at 600M-device scale is the dominant variable cost, which is precisely why the Bedrock routing layer exists — cheaper models absorb the easy traffic. Amazon also carries fixed licensing costs for 200+ news publishers.</li>
+      <li><strong>Hardware pull-through.</strong> New Echo Show models are positioned around Alexa+; the software refreshes a hardware line that had gone stale.</li>
+    </ul>
+    <p class="note">Amazon does not break out Alexa+ revenue or subscriber counts separately; the figures above are the operating metrics management chose to disclose, which skew toward the shopping surface rather than Alexa+ adoption itself.</p>
+
+    <div class="verdict">
+      <div class="eyebrow">Verdict — business model</div>
+      <p>Monetization is well aligned but deliberately indirect: Amazon is pricing the assistant at zero to harvest commerce, Prime retention and now conversational ad inventory — which means the product's success will be measured in basket size and membership churn, and the incentive to make Alexa+ recommend what Amazon sells is structural, not accidental.</p>
+    </div>
+  </section>
+
+  <!-- 05 COMPETITIVE -->
+  <section>
+    <div class="node"></div>
+    <div class="eyebrow">05 — How it stacks up</div>
+    <h2>Leading on reach, roughly level on capability</h2>
+
+    <p class="axq"><b>Horizontal axis:</b> how far does the assistant's reach extend into devices and third-party services you already use? &nbsp;·&nbsp; <b>Vertical axis:</b> how strong is the underlying reasoning and conversational capability?</p>
+
+    <svg viewBox="0 0 860 480" width="100%" style="display:block;margin:6px 0 4px;" role="img" aria-label="Competitive positioning 2x2">
+      <rect x="110" y="20" width="700" height="400" fill="#FFFFFF" stroke="#E2E4E8"/>
+      <line x1="460" y1="20" x2="460" y2="420" stroke="#E2E4E8"/>
+      <line x1="110" y1="220" x2="810" y2="220" stroke="#E2E4E8"/>
+
+      <text x="122" y="40" font-size="10.5" letter-spacing="1" fill="#9CA3AF">SMART BUT SILOED</text>
+      <text x="472" y="40" font-size="10.5" letter-spacing="1" fill="#9CA3AF">SMART AND EVERYWHERE</text>
+      <text x="122" y="410" font-size="10.5" letter-spacing="1" fill="#9CA3AF">NARROW AND LIMITED</text>
+      <text x="472" y="410" font-size="10.5" letter-spacing="1" fill="#9CA3AF">BROAD BUT SHALLOW</text>
+
+      <text x="460" y="452" font-size="12" fill="#4A5568" text-anchor="middle">Ecosystem reach — devices and services actually connected  →</text>
+      <text x="60" y="220" font-size="12" fill="#4A5568" text-anchor="middle">Reasoning depth  →</text>
+      <text x="60" y="238" font-size="10.5" fill="#9CA3AF" text-anchor="middle">(low at bottom)</text>
+
+      <!-- Alexa+ -->
+      <circle cx="700" cy="130" r="15" fill="none" stroke="#C4622D" stroke-width="2"/>
+      <circle cx="700" cy="130" r="6" fill="#C4622D"/>
+      <text x="700" y="106" font-size="13" font-weight="600" fill="#14213D" text-anchor="middle">Alexa+</text>
+      <text x="700" y="163" font-size="11" fill="#C4622D" text-anchor="middle">(you are here)</text>
+
+      <!-- Gemini for Home -->
+      <circle cx="592" cy="88" r="6" fill="#14213D"/>
+      <text x="592" y="76" font-size="12" fill="#14213D" text-anchor="middle">Gemini for Home</text>
+
+      <!-- ChatGPT -->
+      <circle cx="285" cy="72" r="6" fill="#14213D"/>
+      <text x="285" y="60" font-size="12" fill="#14213D" text-anchor="middle">ChatGPT</text>
+
+      <!-- Siri -->
+      <circle cx="415" cy="300" r="6" fill="#14213D"/>
+      <text x="415" y="288" font-size="12" fill="#14213D" text-anchor="middle">Siri / Apple Intelligence</text>
+
+      <!-- Home Assistant -->
+      <circle cx="620" cy="352" r="6" fill="#14213D"/>
+      <text x="620" y="340" font-size="12" fill="#14213D" text-anchor="middle">Home Assistant (open source)</text>
+    </svg>
+
+    <table>
+      <thead><tr><th style="width:18%">Player</th><th>Price</th><th>Core strength</th><th>Target segment</th><th>Weakness</th><th>Momentum</th></tr></thead>
+      <tbody>
+        <tr class="self">
+          <td><strong>Alexa+</strong></td>
+          <td>$0 w/ Prime<br><span class="tag ahead">ahead</span></td>
+          <td>Agentic execution across the widest device and partner set — 100k+ smart home devices<br><span class="tag ahead">ahead</span></td>
+          <td>Existing Echo/Prime households<br><span class="tag ahead">ahead</span></td>
+          <td>Reliability and hallucination complaints; app experience criticised<br><span class="tag behind">behind</span></td>
+          <td>Expanding to 11+ markets; ads layer opening<br><span class="tag ahead">ahead</span></td>
+        </tr>
+        <tr>
+          <td><strong>Gemini for Home</strong></td>
+          <td>Free tier + paid AI plans<br><span class="tag inline">in line</span></td>
+          <td>Stronger on reasoning-heavy work — documents, code, long-form<br><span class="tag ahead">ahead</span></td>
+          <td>Android and Nest households; cheapest entry hardware (~$100 Nest Hub)<br><span class="tag inline">in line</span></td>
+          <td>~50k smart home devices, roughly half Alexa's reach<br><span class="tag behind">behind</span></td>
+          <td>Closing fast on capability scores<br><span class="tag ahead">ahead</span></td>
+        </tr>
+        <tr>
+          <td><strong>Siri / Apple Intelligence</strong></td>
+          <td>Bundled with hardware<br><span class="tag inline">in line</span></td>
+          <td>Privacy posture and on-device processing; deepest phone integration<br><span class="tag ahead">ahead</span></td>
+          <td>iPhone owners<br><span class="tag ahead">ahead</span></td>
+          <td>Next-gen Siri still beta as of mid-2026; HomeKit device support an order of magnitude smaller<br><span class="tag behind">behind</span></td>
+          <td>Slipped repeatedly; now partly powered by a rival's model<br><span class="tag behind">behind</span></td>
+        </tr>
+        <tr>
+          <td><strong>ChatGPT (+ hardware)</strong></td>
+          <td>Free / ~$20 Plus<br><span class="tag inline">in line</span></td>
+          <td>Frontier reasoning and the strongest consumer AI brand<br><span class="tag ahead">ahead</span></td>
+          <td>Individual power users, not households<br><span class="tag behind">behind</span></td>
+          <td>No installed smart-home base; no commerce rails of its own<br><span class="tag behind">behind</span></td>
+          <td>Fastest brand growth; ambient hardware still unproven<br><span class="tag inline">in line</span></td>
+        </tr>
+        <tr>
+          <td><strong>Home Assistant</strong></td>
+          <td>Free / self-hosted<br><span class="tag ahead">ahead</span></td>
+          <td>Local control, no cloud dependency, total configurability<br><span class="tag ahead">ahead</span></td>
+          <td>Technical enthusiasts<br><span class="tag behind">behind</span></td>
+          <td>No meaningful conversational AI; setup cost is high<br><span class="tag behind">behind</span></td>
+          <td>Steady niche growth on privacy backlash<br><span class="tag inline">in line</span></td>
+        </tr>
+      </tbody>
+    </table>
+    <p class="note">Third-party 2026 comparison scoring places Alexa+ marginally ahead of Gemini for Home on an overall assistant intelligence index (76 vs. 75), with Apple Intelligence well behind (51) — a one-point gap that should be read as parity, not leadership.</p>
+
+    <div class="verdict">
+      <div class="eyebrow">Verdict — competitive landscape</div>
+      <p>Alexa+ is the category leader on distribution and the breadth of things it can actually touch, but only at parity on intelligence — it is a distribution leader rather than a capability leader, and that is a defensible position exactly as long as agentic breadth stays harder to copy than model quality.</p>
+    </div>
+  </section>
+
+  <!-- 06 GROWTH -->
+  <section>
+    <div class="node"></div>
+    <div class="eyebrow">06 — How it has grown</div>
+    <h2>Engagement is up sharply; adoption is undisclosed</h2>
+
+    <div class="sm">
+      <div class="smc">
+        <h3>Shopping interactions</h3>
+        <div class="sub">Alexa for Shopping, YoY</div>
+        <svg viewBox="0 0 200 90" width="100%" role="img" aria-label="Shopping interactions growth">
+          <line x1="18" y1="78" x2="192" y2="78" stroke="#E2E4E8"/>
+          <polyline points="24,72 66,64 108,48 150,26 186,10" fill="none" stroke="#C4622D" stroke-width="2"/>
+          <circle cx="186" cy="10" r="3.5" fill="#C4622D"/>
+        </svg>
+        <div class="tagline"><span class="tag ahead">Accelerating</span></div>
+        <p style="font-size:12px;margin-top:8px;">Interactions up more than 5x YoY; active users nearly doubled (Q2 2026)</p>
+      </div>
+      <div class="smc">
+        <h3>Shopping reach</h3>
+        <div class="sub">Customers, trailing 12 months</div>
+        <svg viewBox="0 0 200 90" width="100%" role="img" aria-label="Shopping reach">
+          <line x1="18" y1="78" x2="192" y2="78" stroke="#E2E4E8"/>
+          <rect x="34" y="52" width="30" height="26" fill="#E2E4E8"/>
+          <rect x="86" y="36" width="30" height="42" fill="#C4622D" opacity=".45"/>
+          <rect x="138" y="14" width="30" height="64" fill="#C4622D"/>
+        </svg>
+        <div class="tagline"><span class="tag ahead">Accelerating</span></div>
+        <p style="font-size:12px;margin-top:8px;">350M+ customers in the last 12 months, per Amazon's Q2 2026 call</p>
+      </div>
+      <div class="smc">
+        <h3>Music engagement</h3>
+        <div class="sub">Exploration vs. original Alexa</div>
+        <svg viewBox="0 0 200 90" width="100%" role="img" aria-label="Music engagement">
+          <line x1="18" y1="78" x2="192" y2="78" stroke="#E2E4E8"/>
+          <rect x="50" y="58" width="36" height="20" fill="#E2E4E8"/>
+          <text x="68" y="52" font-size="11" fill="#9CA3AF" text-anchor="middle">1x</text>
+          <rect x="118" y="18" width="36" height="60" fill="#C4622D"/>
+          <text x="136" y="12" font-size="11" fill="#C4622D" text-anchor="middle">3x</text>
+        </svg>
+        <div class="tagline"><span class="tag ahead">Accelerating</span></div>
+        <p style="font-size:12px;margin-top:8px;">3x more music exploration; +70% listening among those who ask for recommendations</p>
+      </div>
+      <div class="smc">
+        <h3>Market footprint</h3>
+        <div class="sub">Countries live, 2025 → 2026</div>
+        <svg viewBox="0 0 200 90" width="100%" role="img" aria-label="Market footprint">
+          <line x1="18" y1="78" x2="192" y2="78" stroke="#E2E4E8"/>
+          <polyline points="26,74 70,70 114,44 160,20 188,14" fill="none" stroke="#C4622D" stroke-width="2"/>
+          <circle cx="188" cy="14" r="3.5" fill="#C4622D"/>
+        </svg>
+        <div class="tagline"><span class="tag ahead">Accelerating</span></div>
+        <p style="font-size:12px;margin-top:8px;">US → +Canada full; early access across 9 more markets through 2026</p>
+      </div>
+    </div>
+    <p class="note">A fifth chart — Alexa+ subscribers or monthly actives — is deliberately absent. Amazon has not disclosed it. The last public figure was a reported 1M+ users in mid-2025, during waitlisted early access; management now speaks in terms of "hundreds of millions of customers using new Alexa experiences," which is a reach statement about Alexa broadly, not an Alexa+ adoption number.</p>
+
+    <h3 style="margin-top:20px;">What's actually driving the numbers</h3>
+    <ul class="tight">
+      <li><strong>Automatic upgrade, not acquisition.</strong> Prime members were moved onto Alexa+ without opting in. Adoption is being pushed by distribution, not pulled by demand.</li>
+      <li><strong>Surface expansion.</strong> Each new free surface — Fire TV, Amazon Music, the shopping app, Alexa.com — mechanically enlarges the user count without a single new customer.</li>
+      <li><strong>Geographic staging.</strong> Nine markets moved into early access through 2026, so headline growth partly reflects rollout schedule rather than product-market pull.</li>
+      <li><strong>Genuine engagement depth.</strong> The 3x music exploration and 5x shopping interaction figures come from users who already had access, which is the one clean signal that the product itself changes behaviour.</li>
+    </ul>
+
+    <div class="verdict">
+      <div class="eyebrow">Verdict — growth</div>
+      <p>Engagement per user is genuinely accelerating and that part looks organic — but the topline growth is bought with distribution, not earned in a market: Amazon upgraded people rather than converting them, and the refusal to publish an Alexa+ active-user number after eighteen months is the most informative disclosure in the set.</p>
+    </div>
+  </section>
+
+  <!-- 07 STRATEGY & FUTURE -->
+  <section>
+    <div class="node"></div>
+    <div class="eyebrow">07 — Where it's headed</div>
+    <h2>Three bets, one of which has to work</h2>
+
+    <div class="cards">
+      <div class="card bet">
+        <h3>Bet 1 — The home's transaction layer</h3>
+        <p>If agentic execution becomes the default way households order food, book services and rebuy staples, Amazon owns the checkout for a large share of domestic spend — and the +40% order value figure becomes a compounding advantage rather than a stat.</p>
+        <div class="when">Underway · multi-year</div>
+      </div>
+      <div class="card bet">
+        <h3>Bet 2 — Conversational ad inventory</h3>
+        <p>Agentic Ads turn a spoken recommendation into a completed purchase with no click and no second screen. It creates an entirely new ad format Amazon uniquely controls, on inventory nobody else has.</p>
+        <div class="when">Beta since Jun 2026 · Fire TV planned</div>
+      </div>
+      <div class="card bet">
+        <h3>Bet 3 — Global Prime attachment</h3>
+        <p>Pushing Alexa+ into nine-plus international markets makes it a Prime membership argument worldwide, exporting the ~25% conversion lift beyond North America.</p>
+        <div class="when">Early access now · GA staged</div>
+      </div>
+    </div>
+
+    <div class="cards" style="margin-top:22px;">
+      <div class="card risk">
+        <h3>Risk — reliability at agentic stakes</h3>
+        <p>Beta testers described behaviour as erratic; post-launch reviews report verbosity, scheduling errors and confident wrong answers on simple facts. A chatbot that hallucinates wastes a minute; an agent with your payment method does not.</p>
+      </div>
+      <div class="card risk">
+        <h3>Risk — the ads/agent conflict</h3>
+        <p>The same assistant that decides what to order is now carrying paid placements. Trust in an agent is the entire product, and monetizing its recommendations is the fastest way to erode it.</p>
+      </div>
+      <div class="card risk">
+        <h3>Risk — agentic browsing has no contract</h3>
+        <p>Where no API exists, Alexa+ drives partner websites itself. That capability sits at the mercy of layout changes, bot detection and partners who would rather own the customer relationship.</p>
+      </div>
+      <div class="card risk">
+        <h3>Risk — capability parity erased</h3>
+        <p>Alexa+ leads Gemini for Home by a single point on third-party scoring while Google leads on reasoning. Since Amazon rents its models, a step-change from a rival is a step-change against Amazon.</p>
+      </div>
+      <div class="card opp">
+        <h3>Opportunity — the memory moat</h3>
+        <p>Purchase history, addresses, payment methods, family dietary constraints and user-uploaded documents compound with use. This is the one asset a rival cannot buy or license.</p>
+      </div>
+      <div class="card opp">
+        <h3>Opportunity — hardware refresh cycle</h3>
+        <p>Alexa+ gives a decade-old Echo line a genuine reason to be replaced, and new Echo Show models are being positioned squarely around it.</p>
+      </div>
+      <div class="card opp">
+        <h3>Opportunity — Apple's stumble</h3>
+        <p>Next-gen Siri remained beta-only into mid-2026 and now leans partly on a rival's model. The window to convert ambivalent iPhone households on the home surface is open now.</p>
+      </div>
+      <div class="card opp">
+        <h3>Opportunity — the partner flywheel</h3>
+        <p>Every service that ships an Alexa+ "expert" makes the assistant more useful and the next partner more likely to join — breadth that is slow and expensive for anyone to replicate.</p>
+      </div>
+    </div>
+
+    <div class="verdict">
+      <div class="eyebrow">Verdict — strategy &amp; future</div>
+      <p>The bet is that Alexa+ becomes the transaction layer of the home — free at the point of use, monetized through commerce, Prime retention and a brand-new conversational ad format Amazon alone can sell. The risk that undoes it is not competitive; it is reliability. Amazon has bought itself an unmatched distribution advantage and staked it on an agent that, by many early accounts, still gets ordinary things wrong. Every quarter that gap persists, capability parity with Google converts a distribution lead into a commodity, and the disclosed numbers — heavy on shopping reach, silent on Alexa+ actives — suggest Amazon knows which metric is the fragile one.</p>
+    </div>
+  </section>
+
+  </div><!-- /spine -->
+
+  <footer>
+    <h3>Sources — scoped to provided material, plus named gap fills</h3>
+    <p style="margin-bottom:8px;color:var(--ink-faint);">Provided by the user and treated as authoritative:</p>
+    <ul class="srcs">
+      <li><a href="https://www.aboutamazon.com/news/devices/new-alexa-generative-artificial-intelligence">Introducing Alexa+, the next generation of Alexa</a> — About Amazon (published 26 Feb 2025, updated 21 Jul 2026)</li>
+      <li><a href="https://www.aboutamazon.com/news/entertainment/amazon-music-alexa-plus-gen-ai">Alexa+ now redefines music intelligence in the Amazon Music app</a> — About Amazon (published 4 Nov 2025, updated Apr 2026)</li>
+      <li><a href="https://www.aboutamazon.com/news/devices/new-alexa-tech-generative-artificial-intelligence">How Amazon rebuilt Alexa with generative AI</a> — About Amazon (linked directly from the provided article; used for Section 01)</li>
+    </ul>
+    <p style="margin-bottom:8px;color:var(--ink-faint);">Targeted gap fills — the provided material covers build, product, launch and pricing, but carries no financial performance, competitive or growth data. Five narrow searches were run:</p>
+    <ul class="srcs">
+      <li><strong>Growth &amp; financial metrics</strong> — Amazon Q2 2026 earnings call coverage (Motley Fool, Investing.com, Retail Dive) for the 350M+ Alexa for Shopping figure, +40% order value, ~25% Prime conversion lift and 5x interaction growth</li>
+      <li><strong>Competitive landscape</strong> — 2026 third-party assistant comparisons for the intelligence index scores and smart-home device support counts</li>
+      <li><strong>Criticism &amp; reliability</strong> — Consumer Reports, TechRadar, Trusted Reviews and Futurism coverage of Alexa+ beta and post-launch reliability complaints</li>
+      <li><strong>Monetization roadmap</strong> — Amazon Ads material and trade coverage on Alexa+ Agentic Ads (Cannes Lions 2026 debut, Echo Show beta, closed partner list, undisclosed pricing)</li>
+      <li><strong>Launch timeline</strong> — CNBC and Forbes coverage of the Feb 2026 general-availability milestone and the initial Echo Show rollout order</li>
+    </ul>
+    <p style="margin-bottom:8px;">All provided URLs fetched successfully. No source failed to load. Amazon does not disclose Alexa+ subscriber or active-user counts, so Section 06 flags that gap rather than estimating it.</p>
+    <p style="margin:0;">Generated 25 August 2026 · Deep Dive 101 · For a pure financial deep-dive on Amazon or a listed competitor, try <strong>/financials-101</strong>; for the broader voice-assistant and smart-home category, try <strong>/industry-101</strong>.</p>
+  </footer>
+
+</div>
+</body>
+</html>
